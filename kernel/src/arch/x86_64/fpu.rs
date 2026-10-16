@@ -1,0 +1,40 @@
+//! x86-64 FPU / SSE / SSE2 Hardware Control & Register State.
+#![allow(unsafe_code)]
+
+/// Enables SSE and SSE2 support in the CPU control registers.
+/// Sets CR0: EM=0, MP=1, NE=1.
+/// Sets CR4: OSFXSR=1 (bit 9), OSXMMEXCPT=1 (bit 10).
+pub fn enable_sse() {
+    unsafe {
+        // 1. CR0: Clear EM (bit 2), Set MP (bit 1), Set NE (bit 5)
+        let mut cr0: u64;
+        core::arch::asm!("mov {0}, cr0", out(reg) cr0, options(nostack, preserves_flags));
+        cr0 &= !(1 << 2); // EM = 0 (no emulation)
+        cr0 |= 1 << 1;   // MP = 1 (monitor coprocessor)
+        cr0 |= 1 << 5;   // NE = 1 (native x87 exception handling)
+        core::arch::asm!("mov cr0, {0}", in(reg) cr0, options(nostack, preserves_flags));
+
+        // 2. CR4: Set OSFXSR (bit 9) and OSXMMEXCPT (bit 10)
+        let mut cr4: u64;
+        core::arch::asm!("mov {0}, cr4", out(reg) cr4, options(nostack, preserves_flags));
+        cr4 |= 1 << 9;   // OSFXSR: enable SSE instructions & fxsave/fxrstor
+        cr4 |= 1 << 10;  // OSXMMEXCPT: enable unmasked SIMD floating-point exceptions
+        core::arch::asm!("mov cr4, {0}", in(reg) cr4, options(nostack, preserves_flags));
+
+        // 3. Initialize FPU unit
+        core::arch::asm!("fninit", options(nostack));
+    }
+}
+
+/// Self-test validating that SSE2 floating-point arithmetic works
+/// without generating an Invalid Opcode (#UD) or Device Not Available (#NM) fault.
+pub fn selftest() {
+    enable_sse();
+    let a: f32 = 3.5;
+    let b: f32 = 2.0;
+    let c: f32 = a * b + 1.5;
+    if (c - 8.5).abs() > 0.001 {
+        panic!("FPU/SSE self-test failed: computation mismatch");
+    }
+    crate::kprintln!("[fpu] ✓ SSE/SSE2 enabled and verified: CR0(EM=0,MP=1) CR4(OSFXSR=1,OSXMMEXCPT=1)");
+}

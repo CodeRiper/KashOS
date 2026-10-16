@@ -1,0 +1,7 @@
+[package]
+name = "khal"
+version = "0.1.0"
+edition = "2021"
+description = "Hardware Abstraction Layer: arch-neutral traits for console, entropy, interrupts, timer."
+
+[dependencies]

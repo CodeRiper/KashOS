@@ -1,0 +1,22 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+kcore   = { path = "../kcore"   }
+khal    = { path = "../khal"    }
+knet    = { path = "../knet"    }
+kheap   = { path = "../kheap"   }
+kpaging = { path = "../kpaging" }
+kblock  = { path = "../kblock"  }
+kvault  = { path = "../kvault"  }
+kboot   = { path = "../kboot"   }
+kipc    = { path = "../kipc"    }
+kscheduler = { path = "../kscheduler" }
+sha2    = { version = "0.10", default-features = false, features = ["force-soft"] }
+
+# Only on ARM64 — device-tree parsing
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+fdt = "0.1"

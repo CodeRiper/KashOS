@@ -1,0 +1,15 @@
+# x86-64 bare-metal: the built-in `x86_64-unknown-none` target spec already
+# disables the red zone; static relocation + the kernel code model are still
+# needed (PIC is the default otherwise, which the hand-written 32-bit boot
+# stub's absolute-addressed relocations are not compatible with).
+[target.x86_64-unknown-none]
+rustflags = [
+    "-C", "relocation-model=static",
+    "--cfg", "poly1305_force_soft",
+    "--cfg", 'poly1305_backend="soft"',
+    "--cfg", 'chacha20_backend="soft"',
+]
+
+# AArch64 bare-metal: no FPU/NEON in the kernel.
+[target.aarch64-unknown-none-softfloat]
+rustflags = ["-C", "relocation-model=static", "-C", "target-feature=-neon,-fp-armv8"]

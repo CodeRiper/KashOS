@@ -1,0 +1,8 @@
+[package]
+name = "knet"
+version = "0.1.0"
+edition = "2021"
+description = "Phantom Kernel network layer: packet filter, telemetry domain, anonymity gateway."
+
+[dependencies]
+khal = { path = "../khal" }

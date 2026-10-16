@@ -1,0 +1,10 @@
+[package]
+name = "kash-ui"
+version = "0.1.0"
+edition = "2021"
+description = "Kash UI — desktop UI for KashOS: no_std software-rendered Liquid-Glass shell (dock, menu bar, Files, Settings)"
+license = "MIT"
+
+[dependencies]
+libm = "0.2"
+fontdue = { version = "0.9", default-features = false, features = ["hashbrown"] }

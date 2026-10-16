@@ -1,0 +1,273 @@
+//! kscheduler — 3-band strict-priority QoS scheduler.
+//!
+//! Three bands, highest priority first:
+//! - `UserInteractive` (2 ms slice) — compositor, direct input. Preempts
+//!   everything else the instant it has something ready.
+//! - `RealTimeIO` (5 ms slice) — block/network drivers, audio.
+//! - `Background` (20 ms slice) — indexers, batch work. Yields instantly to
+//!   either band above it.
+//!
+//! This crate decides *who* runs next and for how long — ordinary, fully
+//! safe, host-testable Rust (see `tests/`). It does **not** do the actual
+//! context switch (saving/restoring registers, switching the active page
+//! table): that's inherently architecture-specific, unsafe, and not yet
+//! written — this crate is the scheduling policy a future `arch`-side
+//! `switch_to(tcb)` assembly routine would call into, not a replacement for
+//! writing that routine.
+#![no_std]
+#![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use core::sync::atomic::{AtomicU64, Ordering};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SchedError {
+    /// No free task-control-block slot (`MAX_TASKS` reached).
+    TableFull,
+    /// A band's ready queue is at capacity (can't happen in practice since
+    /// it's sized to `MAX_TASKS` and a task is only ever in one queue at a
+    /// time, but checked explicitly rather than assumed).
+    QueueFull,
+    NoSuchTask,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum QoSClass {
+    UserInteractive = 0,
+    RealTimeIO = 1,
+    Background = 2,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadState {
+    Ready,
+    Running,
+    Blocked,
+    Terminated,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct TaskControlBlock {
+    pub tid: u32,
+    pub qos: QoSClass,
+    pub state: ThreadState,
+    /// Opaque, architecture-side identifier for this task's saved register
+    /// context (e.g. a pointer into a per-task stack). This crate never
+    /// reads or writes it — it only carries it so the caller's arch-side
+    /// `switch_to` has something to look up.
+    pub context_handle: u64,
+    pub slice_budget_us: u32,
+    pub consumed_slice_us: u32,
+    pub in_use: bool,
+}
+
+impl TaskControlBlock {
+    const EMPTY: TaskControlBlock = TaskControlBlock {
+        tid: 0,
+        qos: QoSClass::Background,
+        state: ThreadState::Terminated,
+        context_handle: 0,
+        slice_budget_us: 0,
+        consumed_slice_us: 0,
+        in_use: false,
+    };
+}
+
+pub const MAX_TASKS: usize = 64;
+const BAND_COUNT: usize = 3;
+
+fn band_slice_us(qos: QoSClass) -> u32 {
+    match qos {
+        QoSClass::UserInteractive => 2_000,
+        QoSClass::RealTimeIO => 5_000,
+        QoSClass::Background => 20_000,
+    }
+}
+
+struct BandQueue {
+    ring: [u32; MAX_TASKS],
+    head: usize,
+    tail: usize,
+    len: usize,
+}
+impl BandQueue {
+    const fn new() -> Self {
+        BandQueue { ring: [0; MAX_TASKS], head: 0, tail: 0, len: 0 }
+    }
+    fn push(&mut self, task_idx: u32) -> Result<(), SchedError> {
+        if self.len >= MAX_TASKS {
+            return Err(SchedError::QueueFull);
+        }
+        if let Some(slot) = self.ring.get_mut(self.tail) {
+            *slot = task_idx;
+        }
+        self.tail = (self.tail + 1) % MAX_TASKS;
+        self.len += 1;
+        Ok(())
+    }
+    fn pop(&mut self) -> Option<u32> {
+        if self.len == 0 {
+            return None;
+        }
+        let v = self.ring.get(self.head).copied();
+        self.head = (self.head + 1) % MAX_TASKS;
+        self.len -= 1;
+        v
+    }
+}
+
+pub struct QoSScheduler {
+    tasks: [TaskControlBlock; MAX_TASKS],
+    queues: [BandQueue; BAND_COUNT],
+    current: Option<usize>,
+    system_ticks_us: AtomicU64,
+}
+
+impl QoSScheduler {
+    pub const fn new() -> Self {
+        QoSScheduler {
+            tasks: [TaskControlBlock::EMPTY; MAX_TASKS],
+            queues: [BandQueue::new(), BandQueue::new(), BandQueue::new()],
+            current: None,
+            system_ticks_us: AtomicU64::new(0),
+        }
+    }
+
+    /// Create a task in a free slot. Does not make it ready to run — call
+    /// `enqueue_ready` for that, separately, once (e.g.) its initial stack
+    /// and context are set up.
+    pub fn create_task(&mut self, tid: u32, qos: QoSClass, context_handle: u64) -> Result<usize, SchedError> {
+        let idx = self.tasks.iter().position(|t| !t.in_use).ok_or(SchedError::TableFull)?;
+        if let Some(slot) = self.tasks.get_mut(idx) {
+            *slot = TaskControlBlock {
+                tid,
+                qos,
+                state: ThreadState::Blocked,
+                context_handle,
+                slice_budget_us: 0,
+                consumed_slice_us: 0,
+                in_use: true,
+            };
+        }
+        Ok(idx)
+    }
+
+    pub fn terminate_task(&mut self, idx: usize) -> Result<(), SchedError> {
+        let t = self.tasks.get_mut(idx).ok_or(SchedError::NoSuchTask)?;
+        t.state = ThreadState::Terminated;
+        t.in_use = false;
+        if self.current == Some(idx) {
+            self.current = None;
+        }
+        Ok(())
+    }
+
+    pub fn enqueue_ready(&mut self, task_idx: usize) -> Result<(), SchedError> {
+        let qos = self.tasks.get(task_idx).ok_or(SchedError::NoSuchTask)?.qos;
+        if let Some(q) = self.queues.get_mut(qos as usize) {
+            q.push(task_idx as u32)?;
+        }
+        if let Some(t) = self.tasks.get_mut(task_idx) {
+            t.state = ThreadState::Ready;
+        }
+        Ok(())
+    }
+
+    fn dequeue_next(&mut self) -> Option<usize> {
+        for q in self.queues.iter_mut() {
+            if let Some(idx) = q.pop() {
+                return Some(idx as usize);
+            }
+        }
+        None
+    }
+
+    fn ready_count(&self, band: usize) -> usize {
+        self.queues.get(band).map(|q| q.len).unwrap_or(0)
+    }
+
+    pub fn task(&self, idx: usize) -> Option<&TaskControlBlock> {
+        self.tasks.get(idx)
+    }
+
+    pub fn current_task(&self) -> Option<&TaskControlBlock> {
+        self.current.and_then(|i| self.tasks.get(i))
+    }
+
+    pub fn system_ticks_us(&self) -> u64 {
+        self.system_ticks_us.load(Ordering::Relaxed)
+    }
+
+    /// Pick the highest-priority ready task, arm its slice, and make it
+    /// current. Loops past any queue entry whose task was terminated after
+    /// being enqueued — `terminate_task` marks the task dead but, by
+    /// design, does not walk every band queue removing it (that would be an
+    /// O(MAX_TASKS) scan on every termination for a case `schedule` can
+    /// instead just skip past lazily, here, the one place that matters).
+    pub fn schedule(&mut self) -> Option<usize> {
+        loop {
+            match self.dequeue_next() {
+                Some(idx) => {
+                    let live = self.tasks.get(idx).map(|t| t.in_use).unwrap_or(false);
+                    if !live {
+                        continue; // stale entry for a now-terminated task
+                    }
+                    if let Some(t) = self.tasks.get_mut(idx) {
+                        t.state = ThreadState::Running;
+                        t.slice_budget_us = band_slice_us(t.qos);
+                        t.consumed_slice_us = 0;
+                    }
+                    self.current = Some(idx);
+                    return Some(idx);
+                }
+                None => {
+                    self.current = None;
+                    return None;
+                }
+            }
+        }
+    }
+
+    /// Call on every timer interrupt with the microseconds elapsed since the
+    /// last call. Returns the task index that should be running after this
+    /// tick (may be unchanged from before). A caller's arch-side IRQ handler
+    /// is expected to context-switch to whatever this returns if it differs
+    /// from what was running going in.
+    pub fn on_timer_tick(&mut self, elapsed_us: u32) -> Option<usize> {
+        self.system_ticks_us.fetch_add(elapsed_us as u64, Ordering::Relaxed);
+
+        let Some(curr_idx) = self.current else {
+            return self.schedule();
+        };
+        // Extract the Copy fields we need and let this mutable borrow of
+        // `self.tasks` end here, before `ready_count` below needs `&self`.
+        let (qos, consumed, budget) = match self.tasks.get_mut(curr_idx) {
+            Some(t) => {
+                t.consumed_slice_us += elapsed_us;
+                (t.qos, t.consumed_slice_us, t.slice_budget_us)
+            }
+            None => return self.schedule(),
+        };
+
+        let higher_priority_waiting = match qos {
+            QoSClass::Background => self.ready_count(0) > 0 || self.ready_count(1) > 0,
+            QoSClass::RealTimeIO => self.ready_count(0) > 0,
+            QoSClass::UserInteractive => false,
+        };
+
+        if consumed >= budget || higher_priority_waiting {
+            if let Some(c) = self.tasks.get_mut(curr_idx) {
+                c.consumed_slice_us = 0;
+            }
+            let _ = self.enqueue_ready(curr_idx);
+            self.schedule()
+        } else {
+            Some(curr_idx)
+        }
+    }
+}
+
+impl Default for QoSScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}

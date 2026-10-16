@@ -1,0 +1,10 @@
+[package]
+name = "kblock"
+version = "0.1.0"
+edition = "2021"
+description = "Adaptive block storage subsystem with C-LOOK elevator scheduler, request coalescing, and legacy PATA/IDE + modern NVMe support."
+
+[dependencies]
+khal = { path = "../khal" }
+
+[dev-dependencies]

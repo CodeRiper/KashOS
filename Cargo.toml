@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["kcore", "kvault", "khal", "knet", "kpaging", "kipc", "kscheduler", "kheap", "kblock", "kboot", "kernel"]
+
+[profile.release]
+opt-level = 2
+debug = true
+overflow-checks = true
+
+[profile.kernel]
+inherits = "release"
+opt-level = "s"         # size-optimise kernel binary
+panic = "abort"
+overflow-checks = true

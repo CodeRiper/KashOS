@@ -1,0 +1,14 @@
+# Build artifacts
+target/
+
+# Generated files
+*.ppm
+*.iso
+
+# IDE
+.vscode/
+.idea/
+
+# OS-specific
+Thumbs.db
+.DS_Store

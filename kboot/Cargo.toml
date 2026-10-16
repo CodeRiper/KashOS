@@ -1,0 +1,12 @@
+[package]
+name = "kboot"
+version = "0.2.0"
+edition = "2021"
+authors = ["KashOS Contributors"]
+description = "Dual UEFI & BIOS Secure Bootloader Protocol for KashOS Microkernel"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+
+[lib]
+crate-type = ["lib"]

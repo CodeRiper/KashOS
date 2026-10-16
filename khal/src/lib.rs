@@ -1,0 +1,284 @@
+//! khal — Hardware Abstraction Layer
+//!
+//! Pure traits. All `unsafe` lives in the arch modules inside `kernel/`.
+//! This crate is `no_std` and has no dependencies.
+#![no_std]
+#![forbid(unsafe_code)]
+
+// ── Console ──────────────────────────────────────────────────────────────────
+
+/// A write-only byte stream to a hardware console (UART, VGA, etc.).
+/// The kernel's `kprint!` macro goes through this.
+pub trait Console: Send {
+    fn put_byte(&self, b: u8);
+
+    fn write_str(&self, s: &str) {
+        for b in s.bytes() {
+            if b == b'\n' {
+                self.put_byte(b'\r');
+            }
+            self.put_byte(b);
+        }
+    }
+}
+
+// ── Hardware entropy ─────────────────────────────────────────────────────────
+
+/// Raw entropy from a hardware source.
+/// x86-64: RDSEED (preferred) → RDRAND
+/// ARM64: RNDRRS (ARMv8.5-RNG) → TRNG access via SMCCC
+/// RISC-V: seed CSR (Zks extension)
+pub trait HwRng {
+    /// Fill `buf` with hardware-sourced random bytes.
+    /// Returns `Ok(())` if all bytes were filled, `Err(())` if the source is dry.
+    fn fill_entropy(&self, buf: &mut [u8]) -> Result<(), ()>;
+}
+
+/// Fallback: hardware-seeded PRNG (ChaCha8 in the kernel, seeded at boot).
+pub trait KernelRng {
+    fn fill_bytes(&self, buf: &mut [u8]);
+    fn next_u64(&self) -> u64;
+}
+
+// ── Timer ────────────────────────────────────────────────────────────────────
+
+/// A monotonic hardware timer (Local APIC on x86-64, ARM Generic Timer on AArch64).
+pub trait Timer {
+    /// Frequency in Hz.
+    fn frequency_hz(&self) -> u64;
+
+    /// Ticks since boot.
+    fn ticks(&self) -> u64;
+
+    /// Microseconds since boot.
+    fn micros(&self) -> u64 {
+        self.ticks() * 1_000_000 / self.frequency_hz()
+    }
+}
+
+// ── Interrupt controller ─────────────────────────────────────────────────────
+
+/// IRQ numbers are kernel-internal (not raw hardware vectors).
+pub type IrqId = u32;
+
+/// A hardware interrupt controller (Local APIC / GICv3).
+pub trait IrqController {
+    fn init(&self);
+    fn mask(&self, irq: IrqId);
+    fn unmask(&self, irq: IrqId);
+    fn ack(&self, irq: IrqId);
+    fn send_eoi(&self, irq: IrqId);
+    fn set_target_cpu(&self, irq: IrqId, cpu: u32);
+}
+
+// ── Platform summary ─────────────────────────────────────────────────────────
+
+/// Maximum number of free RAM regions the HAL will report.
+pub const MAX_MEM_REGIONS: usize = 16;
+
+/// One naturally-aligned power-of-two chunk of free RAM.
+#[derive(Clone, Copy, Debug)]
+pub struct MemRegion {
+    pub base: u64,
+    pub size_bits: u8,  // region size = 1 << size_bits (≥ 12)
+}
+
+impl MemRegion {
+    pub const EMPTY: MemRegion = MemRegion { base: 0, size_bits: 0 };
+    pub const fn size_bytes(&self) -> u64 { 1u64 << self.size_bits }
+}
+
+/// Architecture-detected platform information.
+#[derive(Debug)]
+pub struct Platform {
+    pub arch: Arch,
+    pub ram_base: u64,
+    pub ram_size: u64,
+    pub cpu_count: usize,
+    pub free: [MemRegion; MAX_MEM_REGIONS],
+    pub free_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arch {
+    X86_64,
+    AArch64,
+    RiscV64,
+}
+
+impl Platform {
+    pub fn total_free_bytes(&self) -> u64 {
+        self.free[..self.free_count].iter().map(|r| r.size_bytes()).sum()
+    }
+}
+
+/// Carve naturally-aligned, power-of-two free regions out of `[start, end)`,
+/// greedily taking the largest chunk that is both small enough to fit the
+/// remaining space *and* aligned to its own size, then repeating on
+/// whatever is left — looping until nothing 4 KiB-or-larger remains or
+/// `out` is full.
+///
+/// Shared by every architecture's hardware discovery so there is exactly
+/// one implementation of "how do we turn a raw available-memory range into
+/// capability-sized regions" to get right. It matters: an earlier,
+/// separately-written x86-64 version of this logic computed a region's
+/// *size* correctly but then placed only one such region per available
+/// range, silently discarding everything between the range's start and
+/// that one region's rounded-up-to-aligned start — on a 512 MiB QEMU boot,
+/// that threw away roughly 255 MiB of real, usable RAM without any error
+/// or warning. AArch64's independently-written version of this same logic
+/// never had that bug. One shared function is what keeps that kind of
+/// divergence from being possible to reintroduce later on just one side.
+pub fn carve_free_regions(mut start: u64, end: u64, out: &mut [MemRegion; MAX_MEM_REGIONS], count: &mut usize) {
+    start = (start + 0xFFF) & !0xFFF; // round up to 4 KiB
+    while start < end && *count < MAX_MEM_REGIONS {
+        let avail = end - start;
+        let size_bits = 63 - avail.leading_zeros();
+        let align_bits = start.trailing_zeros();
+        let bits = size_bits.min(align_bits);
+        if bits < 12 {
+            break; // smaller than one page: nothing more worth carving here
+        }
+        if let Some(slot) = out.get_mut(*count) {
+            *slot = MemRegion { base: start, size_bits: bits as u8 };
+        }
+        *count += 1;
+        start += 1u64 << bits;
+    }
+}
+
+// ── Device classes ───────────────────────────────────────────────────────────
+
+/// Device class detected from ACPI/DeviceTree, for the boot banner.
+#[derive(Clone, Copy, Debug)]
+pub enum DeviceClass {
+    Storage,
+    NIC,
+    WiFi,
+    USB,
+    GPU,
+    SerialUART,
+    InterruptController,
+    Timer,
+    RTC,
+    TPM,
+    IOMMU,
+    Other,
+}
+
+#[derive(Debug)]
+pub struct DeviceInfo {
+    pub name: &'static str,
+    pub class: DeviceClass,
+    pub mmio_base: Option<u64>,
+    pub mmio_size: Option<u64>,
+    pub irq: Option<u32>,
+}
+
+// ── IOMMU & DMA Remapping (Intel VT-d / ARM SMMU) ──────────────────────────
+
+/// PCI Bus/Device/Function identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PciBdf {
+    pub bus: u8,
+    pub dev: u8,
+    pub func: u8,
+}
+
+impl PciBdf {
+    pub const fn new(bus: u8, dev: u8, func: u8) -> Self {
+        Self { bus, dev, func }
+    }
+
+    pub const fn to_raw(&self) -> u16 {
+        ((self.bus as u16) << 8) | ((self.dev as u16) << 3) | (self.func as u16)
+    }
+}
+
+/// PCIe Access Control Services (ACS) capability flags (PCI-SIG spec).
+/// Enforces DMA isolation between downstream PCIe ports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PcieAcsFlags {
+    pub source_validation: bool,       // SV: Validates requester ID matches device
+    pub translation_blocking: bool,    // TB: Blocks untranslated DMA requests from bypassing IOMMU
+    pub p2p_request_redirect: bool,    // RR: Redirects peer-to-peer DMA requests to root complex
+    pub p2p_completion_redirect: bool, // CR: Redirects peer-to-peer completions to root complex
+    pub upstream_forwarding: bool,     // UF: Forwards peer-to-peer memory transactions upstream
+    pub p2p_egress_control: bool,      // EC: Hardware egress filters on downstream ports
+    pub direct_translated_p2p: bool,   // DT: Controls direct translated P2P DMA
+}
+
+impl PcieAcsFlags {
+    pub const fn hardened() -> Self {
+        Self {
+            source_validation: true,
+            translation_blocking: true,
+            p2p_request_redirect: true,
+            p2p_completion_redirect: true,
+            upstream_forwarding: true,
+            p2p_egress_control: true,
+            direct_translated_p2p: false,
+        }
+    }
+
+    /// Returns true if all critical ACS DMA isolation flags are enabled.
+    pub const fn is_dma_isolated(&self) -> bool {
+        self.source_validation && self.translation_blocking && self.p2p_request_redirect
+    }
+}
+
+/// Intel VT-d / ARM SMMU DMA Remapping Controller Trait.
+pub trait IommuController {
+    /// Enable DMA remapping translation.
+    fn enable_dma_remapping(&self) -> Result<(), ()>;
+
+    /// Disable DMA remapping translation.
+    fn disable_dma_remapping(&self);
+
+    /// Check if PCIe Access Control Services (ACS) is enforced for device.
+    fn check_pcie_acs(&self, bdf: PciBdf) -> bool;
+
+    /// Map a physical memory region for peripheral device DMA under an isolated domain.
+    fn map_device_dma(
+        &self,
+        bdf: PciBdf,
+        domain_id: u16,
+        guest_phys: u64,
+        host_phys: u64,
+        size: usize,
+        read: bool,
+        write: bool,
+    ) -> Result<(), ()>;
+
+    /// Unmap peripheral device DMA region.
+    fn unmap_device_dma(&self, bdf: PciBdf, guest_phys: u64, size: usize) -> Result<(), ()>;
+}
+
+// ── Input Subsystem (PS/2 Keyboard/Mouse + USB xHCI HID) ───────────────────
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyCode {
+    Unknown,
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
+    Enter, Escape, Backspace, Tab, Space,
+    Minus, Equal, LeftBracket, RightBracket, Backslash, Semicolon, Quote, Grave,
+    Comma, Period, Slash,
+    CapsLock, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    LeftShift, RightShift, LeftCtrl, RightCtrl, LeftAlt, RightAlt,
+    Up, Down, Left, Right,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputEvent {
+    KeyDown(KeyCode),
+    KeyUp(KeyCode),
+    MouseMove { dx: i32, dy: i32 },
+    MouseButtonDown { left: bool, right: bool, middle: bool },
+    MouseButtonUp { left: bool, right: bool, middle: bool },
+}
+
+pub trait InputDevice {
+    fn poll_event(&mut self) -> Option<InputEvent>;
+}
+

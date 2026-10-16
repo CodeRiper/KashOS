@@ -1,0 +1,18 @@
+[package]
+name = "preview"
+version = "0.1.0"
+edition = "2021"
+description = "Host preview + headless renderer for kash-ui (not part of the kernel)"
+
+[[bin]]
+name = "preview"
+path = "src/main.rs"
+
+[features]
+default = []
+window = ["minifb"]
+
+[dependencies]
+kash-ui = { path = "../kash-ui" }
+minifb = { version = "0.27", optional = true }
+png = "0.17"

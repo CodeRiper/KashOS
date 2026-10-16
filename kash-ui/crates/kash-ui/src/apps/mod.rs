@@ -1,0 +1,9 @@
+pub mod files;
+pub mod settings;
+pub mod terminal;
+pub mod misc;
+pub mod about;
+pub mod tools;
+pub mod privacy;
+pub mod panes;
+pub mod lockpanes;

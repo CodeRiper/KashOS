@@ -1,0 +1,7 @@
+[package]
+name = "kscheduler"
+version = "0.1.0"
+edition = "2021"
+description = "3-band priority QoS scheduler (UserInteractive > RealTimeIO > Background). Pure logic: no_std, no unsafe, architecture-neutral — arch-specific context switching lives elsewhere."
+
+[dependencies]

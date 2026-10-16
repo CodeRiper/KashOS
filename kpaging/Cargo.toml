@@ -1,0 +1,23 @@
+[package]
+name = "kpaging"
+version = "0.1.0"
+edition = "2021"
+description = "4-level page tables (x86-64) / translation tables (AArch64). Hardware-touching: unsafe is used, every block has a SAFETY comment."
+
+[dependencies]
+
+[dev-dependencies]
+# Self-dependency trick: Cargo unifies features across one build invocation,
+# so this turns `host_testing` on for every copy of kpaging built as part of
+# `cargo test -p kpaging` (both the lib's own unittests and every tests/*.rs
+# integration binary) without ever turning it on for a normal consumer like
+# the `kernel` crate, which depends on kpaging without this feature. That
+# distinction is the whole point: `cfg(test)` alone does NOT reach into an
+# integration test's copy of its dependency (only the crate built with
+# `--test` as its own root gets `cfg(test)`), which is exactly the gap that
+# let real `invlpg`/`tlbi` — privileged instructions — run from an
+# unprivileged integration-test process and segfault it.
+kpaging = { path = ".", features = ["host_testing"] }
+
+[features]
+host_testing = []
