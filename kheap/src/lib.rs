@@ -124,18 +124,22 @@ impl FreeListAllocator {
     /// with overlapping regions, or with memory that's freed or reused
     /// elsewhere, is undefined behaviour same as any other raw-memory API.
     pub unsafe fn init(&self, start: *mut u8, size: usize) {
-        if size < MIN_BLOCK {
-            return; // too small to ever hold a block; nothing to do
+        let base = start as usize;
+        let aligned_start = (base + MIN_BLOCK - 1) & !(MIN_BLOCK - 1);
+        let end = (base + size) & !(MIN_BLOCK - 1);
+        if end <= aligned_start || end - aligned_start < MIN_BLOCK {
+            return;
         }
-        let node_ptr = start as *mut FreeNode;
+        let usable_size = end - aligned_start;
+        let node_ptr = aligned_start as *mut FreeNode;
         // SAFETY: caller's contract above (`start` valid, exclusively owned,
         // `size >= MIN_BLOCK`) is exactly what makes this write sound.
         unsafe {
-            node_ptr.write(FreeNode { size, next: None });
+            node_ptr.write(FreeNode { size: usable_size, next: None });
         }
         let mut inner = self.inner.lock();
         inner.head = NonNull::new(node_ptr);
-        inner.free_bytes = size;
+        inner.free_bytes = usable_size;
     }
 
     /// Bytes currently available to satisfy an allocation (sum of the free
@@ -145,9 +149,30 @@ impl FreeListAllocator {
         self.inner.lock().free_bytes
     }
 
+    /// Returns (total_free_bytes, free_block_count, max_free_block_size)
+    pub fn dump_stats(&self) -> (usize, usize, usize) {
+        let inner = self.inner.lock();
+        let mut count = 0;
+        let mut max_sz = 0;
+        let mut cur = inner.head;
+        while let Some(n) = cur {
+            count += 1;
+            let sz = unsafe { n.as_ref().size };
+            if sz > max_sz { max_sz = sz; }
+            cur = unsafe { n.as_ref().next };
+        }
+        (inner.free_bytes, count, max_sz)
+    }
+
+    #[inline(always)]
+    fn quantize(layout: Layout) -> (usize, usize) {
+        let align = layout.align().max(core::mem::align_of::<FreeNode>()).max(MIN_BLOCK);
+        let size = (layout.size().max(MIN_BLOCK) + MIN_BLOCK - 1) & !(MIN_BLOCK - 1);
+        (align, size)
+    }
+
     fn do_alloc(&self, layout: Layout) -> *mut u8 {
-        let align = layout.align().max(core::mem::align_of::<FreeNode>());
-        let size = layout.size().max(MIN_BLOCK);
+        let (align, size) = Self::quantize(layout);
 
         let mut inner = self.inner.lock();
         let mut prev: Option<NonNull<FreeNode>> = None;
@@ -166,45 +191,38 @@ impl FreeListAllocator {
                 let block_size = node.size;
                 let next = node.next;
 
-                // Unlink this block from the free list first.
-                match prev {
-                    Some(mut p) => unsafe { p.as_mut().next = next },
-                    None => inner.head = next,
-                }
-                inner.free_bytes -= block_size;
-
-                // Leading padding (needed for alignment) becomes its own
-                // small free block, if it's big enough to hold one — this
-                // is what makes arbitrary-alignment allocation possible
-                // without a separate, parallel bookkeeping structure.
-                if padding >= MIN_BLOCK {
-                    let pad_node = block_start as *mut FreeNode;
-                    // SAFETY: `block_start` is this block's own start,
-                    // which we just unlinked — nothing else references it.
-                    unsafe { pad_node.write(FreeNode { size: padding, next: inner.head }) };
-                    inner.head = NonNull::new(pad_node);
-                    inner.free_bytes += padding;
-                } else if padding > 0 {
-                    // Padding too small to be its own block: it's simply
-                    // lost to alignment, same as any real allocator pays
-                    // for alignment slop. Rare in practice once MIN_BLOCK
-                    // is respected by the search below.
-                }
-
                 let used_from_here = block_size - padding;
                 let remainder = used_from_here - size;
-                if remainder >= MIN_BLOCK {
+
+                // Build replacement chain in-place to preserve strict address ordering:
+                // ... -> prev -> [pad_node] -> [rem_node] -> next -> ...
+                let mut first_replacement: Option<NonNull<FreeNode>> = next;
+
+                let rem_kept = if remainder >= MIN_BLOCK {
                     let rem_ptr = (aligned_start + size) as *mut FreeNode;
-                    // SAFETY: this is unused space inside the block we just
-                    // claimed — nothing else references it yet.
-                    unsafe { rem_ptr.write(FreeNode { size: remainder, next: inner.head }) };
-                    inner.head = NonNull::new(rem_ptr);
-                    inner.free_bytes += remainder;
+                    unsafe { rem_ptr.write(FreeNode { size: remainder, next: first_replacement }) };
+                    first_replacement = NonNull::new(rem_ptr);
+                    remainder
+                } else {
+                    0
+                };
+
+                let pad_kept = if padding >= MIN_BLOCK {
+                    let pad_ptr = block_start as *mut FreeNode;
+                    unsafe { pad_ptr.write(FreeNode { size: padding, next: first_replacement }) };
+                    first_replacement = NonNull::new(pad_ptr);
+                    padding
+                } else {
+                    0
+                };
+
+                // Link the in-place replacement into the list exactly where `cur` was
+                match prev {
+                    Some(mut p) => unsafe { p.as_mut().next = first_replacement },
+                    None => inner.head = first_replacement,
                 }
-                // (If `remainder < MIN_BLOCK` and nonzero, those few bytes
-                // are internal fragmentation inside this allocation — lost
-                // until the whole allocation is freed, same tradeoff every
-                // first-fit allocator with a minimum block size makes.)
+
+                inner.free_bytes -= block_size - rem_kept - pad_kept;
 
                 return aligned_start as *mut u8;
             }
@@ -217,7 +235,7 @@ impl FreeListAllocator {
     }
 
     fn do_dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let size = layout.size().max(MIN_BLOCK);
+        let (_, size) = Self::quantize(layout);
 
         // GrapheneOS hardened_malloc principle: zero-on-free.
         // Scrub the user payload region immediately upon deallocation to eliminate

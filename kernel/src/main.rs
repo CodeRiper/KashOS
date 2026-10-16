@@ -40,6 +40,8 @@ pub mod display;
 pub mod elf;
 pub mod flask;
 #[allow(unsafe_code)]
+pub mod gui;
+#[allow(unsafe_code)]
 mod heap;
 pub mod kapp;
 mod kash;
@@ -317,8 +319,14 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
 
     kprintln!();
     kprintln!("[boot] [OK] KashOS Hardened Microkernel Initialized Successfully.");
-    kprintln!("[boot] [OK] Launching interactive root shell on tty0 (VGA + PS/2 + Serial)...");
-    shell.run_interactive_terminal()
+    if let Some(fb) = arch::framebuffer() {
+        kprintln!("[boot] [OK] Linear Framebuffer active ({}x{} @ {:#x}). Launching Kash UI desktop shell...",
+                  fb.width, fb.height, fb.base_paddr);
+        gui::run(fb);
+    } else {
+        kprintln!("[boot] [OK] Launching interactive root shell on tty0 (VGA + PS/2 + Serial)...");
+        shell.run_interactive_terminal()
+    }
 }
 
 // ── Panic handler ─────────────────────────────────────────────────────────────

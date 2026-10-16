@@ -17,11 +17,31 @@
 //! rather than silently corrupting memory. There is deliberately no
 //! implicit fallback arena to paper over that.
 #![allow(unsafe_code)]
-use core::alloc::Layout;
+use core::alloc::{GlobalAlloc, Layout};
 use kheap::FreeListAllocator;
 
-#[global_allocator]
 static ALLOCATOR: FreeListAllocator = FreeListAllocator::empty();
+
+struct KernelAllocator;
+
+unsafe impl GlobalAlloc for KernelAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let ptr = unsafe { ALLOCATOR.alloc(layout) };
+        if ptr.is_null() {
+            let (free, count, max_b) = ALLOCATOR.dump_stats();
+            crate::kprintln!("[alloc-fail] size={} align={} | heap: free={} count={} max_block={}",
+                             layout.size(), layout.align(), free, count, max_b);
+        }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe { ALLOCATOR.dealloc(ptr, layout) };
+    }
+}
+
+#[global_allocator]
+static GLOBAL: KernelAllocator = KernelAllocator;
 
 /// Hand the global allocator a real region of hardware RAM. Must be called
 /// at most once, with a region no other subsystem also claims — main.rs's
@@ -37,6 +57,10 @@ pub unsafe fn init(start: u64, size: u64) {
 
 pub fn free_bytes() -> usize {
     ALLOCATOR.free_bytes()
+}
+
+pub fn dump_stats() -> (usize, usize, usize) {
+    ALLOCATOR.dump_stats()
 }
 
 /// Exercise the real, live global allocator — not a host test, the actual
