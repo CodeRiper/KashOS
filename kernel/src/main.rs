@@ -270,6 +270,10 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     #[cfg(target_arch = "x86_64")]
     selftest::run_gui_display_tests();
 
+    // ── Phase 10 Hardening & Verification Acceptance Gates ──────────────────
+    #[cfg(target_arch = "x86_64")]
+    selftest::run_hardening_verification_tests();
+
     // ── Step 7b: RTC & Framebuffer Graphics Foundation ───────────────────────
     let rtc_secs = arch::read_rtc_unix_seconds();
     kprintln!("[clock] CMOS RTC unix time: {} seconds UTC", rtc_secs);

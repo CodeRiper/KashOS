@@ -142,7 +142,19 @@ pub fn load_elf<F: FrameAllocator>(
     let ph_num = header.e_phnum as usize;
     let ph_entsize = header.e_phentsize as usize;
 
-    if ph_offset + ph_num * ph_entsize > elf_data.len() {
+    if ph_entsize < core::mem::size_of::<Elf64ProgramHeader>() {
+        return Err(ElfError::InvalidProgramHeaders);
+    }
+
+    let total_ph_bytes = match ph_num.checked_mul(ph_entsize) {
+        Some(b) => b,
+        None => return Err(ElfError::InvalidProgramHeaders),
+    };
+    let ph_end = match ph_offset.checked_add(total_ph_bytes) {
+        Some(e) => e,
+        None => return Err(ElfError::InvalidProgramHeaders),
+    };
+    if ph_end > elf_data.len() {
         return Err(ElfError::InvalidProgramHeaders);
     }
 
@@ -150,7 +162,10 @@ pub fn load_elf<F: FrameAllocator>(
     let mut data_bytes = 0usize;
 
     for i in 0..ph_num {
-        let offset = ph_offset + i * ph_entsize;
+        let offset = match ph_offset.checked_add(i.checked_mul(ph_entsize).unwrap_or(usize::MAX)) {
+            Some(o) => o,
+            None => return Err(ElfError::InvalidProgramHeaders),
+        };
         // SAFETY: Offset checked within elf_data bounds.
         let ph = unsafe { &*(elf_data.as_ptr().add(offset) as *const Elf64ProgramHeader) };
 
@@ -317,7 +332,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use alloc::string::String;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElfSegment {
     pub seg_type: u32,
     pub flags: u32,
@@ -343,7 +358,7 @@ impl ElfSegment {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Elf64Binary {
     pub entry_point: u64,
     pub is_pie: bool,
@@ -378,12 +393,31 @@ impl Elf64Binary {
         let e_phentsize = u16::from_le_bytes([buf[54], buf[55]]) as usize;
         let e_phnum = u16::from_le_bytes([buf[56], buf[57]]) as usize;
 
+        if e_phentsize < 56 {
+            return Err(ElfError::InvalidProgramHeaders);
+        }
+
+        let total_ph_bytes = match e_phnum.checked_mul(e_phentsize) {
+            Some(b) => b,
+            None => return Err(ElfError::InvalidProgramHeaders),
+        };
+        let ph_end = match e_phoff.checked_add(total_ph_bytes) {
+            Some(e) => e,
+            None => return Err(ElfError::InvalidProgramHeaders),
+        };
+        if ph_end > buf.len() {
+            return Err(ElfError::InvalidProgramHeaders);
+        }
+
         let mut segments = Vec::new();
         let mut min_vaddr = u64::MAX;
         let mut max_vaddr = 0u64;
 
         for i in 0..e_phnum {
-            let ph_offset = e_phoff + i * e_phentsize;
+            let ph_offset = match e_phoff.checked_add(i.checked_mul(e_phentsize).unwrap_or(usize::MAX)) {
+                Some(o) => o,
+                None => return Err(ElfError::InvalidProgramHeaders),
+            };
             if ph_offset + 56 > buf.len() {
                 return Err(ElfError::InvalidProgramHeaders);
             }
