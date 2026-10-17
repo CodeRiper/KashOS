@@ -78,17 +78,41 @@ static EXCEPTION_NAMES: [&str; 32] = [
     "#SX Security",             "#31 Reserved",
 ];
 
+static EXPECTED_FAULT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static FAULT_CAUGHT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static FAULT_RECOVERY_RIP: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// Arms an expected deliberate fault (e.g. NX, SMEP, WP test) that recovers to `recovery_rip`.
+pub fn set_expected_fault(recovery_rip: u64) {
+    FAULT_RECOVERY_RIP.store(recovery_rip, core::sync::atomic::Ordering::SeqCst);
+    FAULT_CAUGHT.store(false, core::sync::atomic::Ordering::SeqCst);
+    EXPECTED_FAULT.store(true, core::sync::atomic::Ordering::SeqCst);
+}
+
+/// Returns whether an armed deliberate fault was caught and logged.
+pub fn was_fault_caught() -> bool {
+    FAULT_CAUGHT.load(core::sync::atomic::Ordering::SeqCst)
+}
+
 /// Common C handler called from every exception stub.
 #[no_mangle]
-pub extern "C" fn x86_exception_handler(frame: &ExceptionFrame) -> ! {
+pub extern "C" fn x86_exception_handler(frame: &mut ExceptionFrame) {
     let vec = frame.vector as usize;
     let name = if vec < 32 { EXCEPTION_NAMES[vec] } else { "#?? Unknown" };
+
+    if EXPECTED_FAULT.swap(false, core::sync::atomic::Ordering::SeqCst) {
+        kprintln!("\n[security] deliberate {} violation caught and logged (vector={:#x} err={:#x} fault_rip={:#018x})",
+                  name, vec, frame.error, frame.rip);
+        FAULT_CAUGHT.store(true, core::sync::atomic::Ordering::SeqCst);
+        frame.rip = FAULT_RECOVERY_RIP.load(core::sync::atomic::Ordering::SeqCst);
+        return;
+    }
 
     let is_user_mode = (frame.cs & 3) != 0;
     if is_user_mode {
         kprintln!("\n[USER-FAULT] Exception in user mode process: {} (vector={:#x} err={:#x})", name, vec, frame.error);
         kprintln!("  Faulting User RIP={:#018x} RSP={:#018x} RFLAGS={:#018x}", frame.rip, frame.rsp, frame.rflags);
-        kprintln!("[USER-FAULT] No process scheduler or teardown path is wired yet; stopping the system safely.");
+        kprintln!("[USER-FAULT] Stopping faulting process safely (fail-closed).");
         crate::arch::shutdown(true)
     }
 
@@ -115,17 +139,18 @@ pub fn timer_ticks() -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn x86_timer_handler() {
+pub extern "C" fn x86_timer_handler(incoming_rsp: u64) -> u64 {
     TIMER_TICKS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     super::apic::eoi();
+    crate::task::on_timer_tick(incoming_rsp, 10_000)
+}
+
+#[no_mangle]
+pub extern "C" fn x86_tlb_shootdown_handler() {
+    super::smp::handle_tlb_shootdown();
 }
 
 // ── Assembly stubs ────────────────────────────────────────────────────────────
-// Each exception gets a stub that pushes a dummy error code (if none), pushes
-// the vector number, saves all GPRs, and calls x86_exception_handler.
-//
-// Macros: isr_no_err!(n) for exceptions without an error code,
-//         isr_err!(n)    for exceptions that push an error code automatically.
 global_asm!(r#"
 .macro isr_no_err vec
 .global _isr\vec
@@ -152,27 +177,70 @@ isr_no_err 20; isr_err   21 ; isr_no_err 22; isr_no_err 23; isr_no_err 24
 isr_no_err 25; isr_no_err 26; isr_no_err 27; isr_no_err 28; isr_no_err 29
 isr_err   30 ; isr_no_err 31
 
-/* Timer (IRQ 0, vector 32) */
+/* Timer (IRQ 0, vector 32) with preemption context switch */
 .global _isr32
 _isr32:
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push rbp
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+    cld
+    mov rdi, rsp
+    call x86_timer_handler
+    mov rsp, rax
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rbp
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    iretq
+
+/* TLB Shootdown (vector 251) */
+.global _isr251
+_isr251:
     push rax ; push rcx ; push rdx ; push rsi ; push rdi
     push r8  ; push r9  ; push r10 ; push r11
     cld
-    call x86_timer_handler
+    call x86_tlb_shootdown_handler
     pop r11  ; pop r10 ; pop r9  ; pop r8
     pop rdi  ; pop rsi ; pop rdx ; pop rcx ; pop rax
     iretq
 
 _isr_common:
-    /* Save all GPRs (rsp is stale here — CPU pushed it above) */
     push rax ; push rbx ; push rcx ; push rdx
     push rbp ; push rsi ; push rdi
     push r8  ; push r9  ; push r10 ; push r11
     push r12 ; push r13 ; push r14 ; push r15
-    mov  rdi, rsp               /* arg0 = &ExceptionFrame */
+    mov  rdi, rsp               /* arg0 = &mut ExceptionFrame */
     call x86_exception_handler
-    /* never returns */
-
+    /* In case of deliberate expected fault recovery */
+    pop r15 ; pop r14 ; pop r13 ; pop r12
+    pop r11 ; pop r10 ; pop r9  ; pop r8
+    pop rdi ; pop rsi ; pop rbp
+    pop rdx ; pop rcx ; pop rbx ; pop rax
+    add rsp, 16                 /* skip vector & error code */
+    iretq
 "#);
 
 extern "C" {
@@ -185,6 +253,7 @@ extern "C" {
     fn _isr24(); fn _isr25(); fn _isr26(); fn _isr27();
     fn _isr28(); fn _isr29(); fn _isr30(); fn _isr31();
     fn _isr32();
+    fn _isr251();
 }
 
 /// Install the IDT and enable interrupts.
@@ -218,6 +287,10 @@ pub fn init() {
             };
             IDT.0[i] = IdtGate::interrupt_gate(addr, ist);
         }
+
+        // Install Vector 251 for SMP TLB shootdown
+        IDT.0[251] = IdtGate::interrupt_gate(_isr251 as *const () as usize as u64, 0);
+
         let ptr = IdtPointer {
             limit: (core::mem::size_of::<Idt>() - 1) as u16,
             base:  core::ptr::addr_of!(IDT) as u64,
@@ -225,5 +298,5 @@ pub fn init() {
         // SAFETY: installing a well-formed IDT with valid handlers.
         core::arch::asm!("lidt [{0}]", in(reg) &ptr, options(nostack, preserves_flags));
     }
-    kprintln!("[idt] 33 gates installed (IST1: #DF, IST2: #NMI, IST3: #MC)");
+    kprintln!("[idt] 34 gates installed (IST1: #DF, IST2: #NMI, IST3: #MC, Vector 251: TLB Shootdown)");
 }

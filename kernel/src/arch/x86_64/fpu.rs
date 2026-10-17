@@ -38,3 +38,30 @@ pub fn selftest() {
     }
     crate::kprintln!("[fpu] ✓ SSE/SSE2 enabled and verified: CR0(EM=0,MP=1) CR4(OSFXSR=1,OSXMMEXCPT=1)");
 }
+
+/// 512-byte aligned buffer for saving/restoring FPU/MMX/SSE/XMM state via `fxsave64`/`fxrstor64`.
+#[repr(C, align(16))]
+#[derive(Clone, Copy)]
+pub struct FpuState {
+    pub buffer: [u8; 512],
+}
+
+impl FpuState {
+    pub const fn empty() -> Self {
+        FpuState { buffer: [0u8; 512] }
+    }
+
+    #[inline]
+    pub fn save(&mut self) {
+        unsafe {
+            core::arch::asm!("fxsave64 [{0}]", in(reg) self.buffer.as_mut_ptr(), options(nostack));
+        }
+    }
+
+    #[inline]
+    pub fn restore(&self) {
+        unsafe {
+            core::arch::asm!("fxrstor64 [{0}]", in(reg) self.buffer.as_ptr(), options(nostack));
+        }
+    }
+}

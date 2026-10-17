@@ -17,6 +17,12 @@ pub enum PageError {
     /// should map it read-only+executable, write through a *different*,
     /// writable-only mapping of the same frame, then drop that mapping.
     WriteExecuteViolation,
+    /// The requesting domain has exhausted its allocated frame quota.
+    QuotaExceeded,
+    /// Physical frame was not allocated or has already been freed.
+    FrameNotAllocated,
+    /// Domain identifier exceeds maximum supported domain count.
+    InvalidDomain,
 }
 
 pub type PageResult<T> = Result<T, PageError>;

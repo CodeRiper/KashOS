@@ -207,9 +207,9 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
         nr::SYS_YIELD => 0,
         _ => {
             let table = unsafe { &mut *PROCESS_SANDBOXES.0.get() };
-            // Current PID (defaults to PID 1 root task until scheduler context switch)
-            let current_pid = 1;
-            let sandbox = table.get_or_create(current_pid);
+            // Real current process ID tracked dynamically from scheduler task context
+            let current_pid = crate::task::current_tid().max(1);
+            let sandbox = table.get_or_create(current_pid as u64);
             crate::linux::handle_linux_syscall(sandbox, num, arg1, arg2, arg3, arg4, arg5)
         }
     }

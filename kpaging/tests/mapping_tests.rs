@@ -142,3 +142,72 @@ fn x86_64_executable_pages_are_never_user_and_writable_at_once_even_by_construct
     assert!(!Perm::USER_RX.writable);
     assert!(!Perm::KERNEL_RX.writable);
 }
+
+#[test]
+fn quota_allocator_enforces_domain_budgets() {
+    use kpaging::QuotaFrameAllocator;
+    let mut quotas = [10; 8];
+    quotas[1] = 2; // Domain 1 only gets 2 frames
+    quotas[2] = 5;
+
+    let mut alloc = QuotaFrameAllocator::<64>::new(0x10_0000, 64, quotas).unwrap();
+
+    // Domain 1 allocates its 2 frames
+    let f1 = alloc.allocate_for_domain(1).unwrap();
+    let f2 = alloc.allocate_for_domain(1).unwrap();
+    assert_ne!(f1, f2);
+    assert_eq!(alloc.domain_usage(1).unwrap(), 2);
+
+    // Third allocation fails with QuotaExceeded
+    assert_eq!(alloc.allocate_for_domain(1), Err(PageError::QuotaExceeded));
+
+    // Domain 2 can still allocate freely
+    let f_dom2 = alloc.allocate_for_domain(2).unwrap();
+    assert_eq!(alloc.frame_owner(f_dom2), Ok(2));
+
+    // Freeing a frame for domain 1 allows it to allocate again
+    let freed_owner = alloc.deallocate_frame_checked(f1).unwrap();
+    assert_eq!(freed_owner, 1);
+    assert_eq!(alloc.domain_usage(1).unwrap(), 1);
+
+    let f3 = alloc.allocate_for_domain(1).unwrap();
+    assert_eq!(alloc.frame_owner(f3), Ok(1));
+}
+
+#[test]
+fn quota_allocator_tracks_frame_ownership() {
+    use kpaging::QuotaFrameAllocator;
+    let quotas = [10; 8];
+    let mut alloc = QuotaFrameAllocator::<32>::new(0x20_0000, 32, quotas).unwrap();
+
+    let f = alloc.allocate_for_domain(3).unwrap();
+    assert_eq!(alloc.frame_owner(f), Ok(3));
+
+    let prev = alloc.deallocate_frame_checked(f).unwrap();
+    assert_eq!(prev, 3);
+    assert_eq!(alloc.frame_owner(f), Err(PageError::FrameNotAllocated));
+}
+
+#[test]
+fn share_higher_half_copies_kernel_entries_while_keeping_lower_half_clean() {
+    let mut vs = new_space::<X86_64>();
+    let higher_half_vaddr = 0xFFFF_8000_0000_0000u64;
+    vs.map_4k(higher_half_vaddr, 0x1000, Perm::KERNEL_RX).unwrap();
+
+    // Allocate child space
+    let mut child_alloc = HeapAllocator::new();
+    let child_root = child_alloc.allocate_frame().unwrap();
+
+    vs.share_higher_half_with(child_root).unwrap();
+
+    // Check that child table entry at index 256 matches parent table
+    let parent_table = unsafe { &*(vs.root_paddr as *const PageTable) };
+    let child_table = unsafe { &*(child_root as *const PageTable) };
+    let idx256 = ((higher_half_vaddr >> 39) & 0x1FF) as usize;
+    assert_eq!(idx256, 256);
+    assert_eq!(child_table.entries[256], parent_table.entries[256]);
+    assert_ne!(child_table.entries[256], 0);
+
+    // Entry 0 (lower half) is still 0
+    assert_eq!(child_table.entries[0], 0);
+}

@@ -37,51 +37,7 @@ static WRITE_OPS: AtomicU64 = AtomicU64::new(0);
 static SECTORS_READ: AtomicU64 = AtomicU64::new(0);
 static SECTORS_WRITTEN: AtomicU64 = AtomicU64::new(0);
 
-pub struct SpinLock<T> {
-    locked: AtomicBool,
-    data: UnsafeCell<T>,
-}
-
-unsafe impl<T: Send> Sync for SpinLock<T> {}
-
-impl<T> SpinLock<T> {
-    pub const fn new(data: T) -> Self {
-        SpinLock {
-            locked: AtomicBool::new(false),
-            data: UnsafeCell::new(data),
-        }
-    }
-
-    pub fn lock(&self) -> SpinLockGuard<'_, T> {
-        while self.locked.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
-            core::hint::spin_loop();
-        }
-        SpinLockGuard { lock: self }
-    }
-}
-
-pub struct SpinLockGuard<'a, T> {
-    lock: &'a SpinLock<T>,
-}
-
-impl<T> core::ops::Deref for SpinLockGuard<'_, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        unsafe { &*self.lock.data.get() }
-    }
-}
-
-impl<T> core::ops::DerefMut for SpinLockGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.lock.data.get() }
-    }
-}
-
-impl<T> Drop for SpinLockGuard<'_, T> {
-    fn drop(&mut self) {
-        self.lock.locked.store(false, Ordering::Release);
-    }
-}
+pub use crate::sync::{SpinLock, SpinLockGuard, TicketSpinLock, TicketSpinLockGuard};
 
 /// Fallback Hardware Buffer used when no physical disk is detected in bootloader stage
 struct FallbackRamDriver {

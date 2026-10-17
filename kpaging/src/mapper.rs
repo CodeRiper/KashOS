@@ -141,4 +141,30 @@ impl<F: FrameAllocator, A: Arch> VirtualSpace<F, A> {
         }
         Ok((A::entry_frame_paddr(entry), entry))
     }
+
+    /// Shares higher-half entries (entries 256..511) of this root PML4 into child_root_paddr.
+    /// This establishes shared kernel mappings across per-process address spaces while
+    /// keeping lower-half user entries isolated.
+    pub fn share_higher_half_with(&self, child_root_paddr: u64) -> PageResult<()> {
+        if child_root_paddr % crate::table::PAGE_SIZE as u64 != 0 {
+            return Err(PageError::Misaligned);
+        }
+        // SAFETY: self.root_paddr is a valid PML4; child_root_paddr is guaranteed aligned.
+        let parent = unsafe { &*Self::table_at(self.root_paddr) };
+        let child = unsafe { &mut *Self::table_at(child_root_paddr) };
+        for i in 256..crate::table::ENTRIES {
+            if let (Some(dst), Some(src)) = (child.entries.get_mut(i), parent.entries.get(i)) {
+                *dst = *src;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn allocator(&self) -> &F {
+        &self.allocator
+    }
+
+    pub fn allocator_mut(&mut self) -> &mut F {
+        &mut self.allocator
+    }
 }

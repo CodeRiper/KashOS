@@ -13,8 +13,9 @@ kash_drive.img
 # Distribution archives
 *.zip
 
-# Logs
+# Logs & temp captures
 *.log
+*.ppm
 
 # IDE
 .vscode/

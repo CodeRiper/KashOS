@@ -35,10 +35,10 @@ The table below reflects the single source of truth across the codebase, matchin
 
 | Area | Current Implementation | Target Implementation | Roadmap Phase |
 | :--- | :--- | :--- | :---: |
-| **Boot & Platform** | BIOS/Multiboot2 bootloader, 64-bit GDT/IDT, Local APIC timer, single CPU. | UEFI GOP bootloader (PE32+), ACPI MADT parsing, multi-core SMP bringup via INIT-SIPI. | Phase 1 & 5 |
-| **Paging & Memory** | Identity-mapped 4-level page tables with $W\oplus X$ permission bits. | Higher-half kernel mapping, per-process page tables (`kpaging`), physical frame allocator with domain quotas. | Phase 1 |
+| **Boot & Platform** | BIOS/Multiboot2 bootloader, 64-bit GDT/IDT, ACPI MADT 4-core SMP discovery, APIC ICR/IPI, interrupt-safe ticket spinlocks. | UEFI GOP bootloader (PE32+), AP core execution via SIPI scheduled for Phase 4. | Phase 1 & 5 |
+| **Paging & Memory** | Real $W\oplus X$ page tables, CR0.WP supervisor write protection, higher-half mapper, physical frame allocator with domain quotas. | Per-process isolated user address spaces scheduled for Phase 2. | Phase 1 |
 | **Privilege Levels** | Ring 0 execution only; GDT TSS and IST stack tables prepared. | Real ring-3 transition via `sysretq`/`iretq`, SMAP user-pointer validation, fault containment (process crash $\ne$ kernel panic). | Phase 2 |
-| **Scheduler** | Cooperative spinloop with PS/2 fast-break polling. | Preemptive timer-driven scheduler wiring in `kscheduler`, per-thread kernel stacks, FPU/SSE save/restore. | Phase 1 |
+| **Scheduler** | Preemptive timer-driven QoS scheduler (`kscheduler`), 16 KiB kernel stacks with guard pages, FPU/SSE save/restore, 1M cycle preemption verified. | Dynamic task priorities and capability IPC transfers scheduled for Phase 3. | Phase 1 |
 | **Capability Engine** | `kcore` library implementing Capability Derivation Trees (CDT) with rights and badges. | Per-process capability spaces enforced on every syscall, object quota limits, synchronous capability transfer via `kipc`. | Phase 3 |
 | **IOMMU & DMA** | ACPI DMAR parser and register structures. | Second-stage translation tables programmed per PCIe peripheral; fault logging enabled; pass-through disabled. | Phase 4 |
 | **Device Drivers** | PS/2 keyboard/mouse active; e1000/virtio-net partial in ring 0. | VirtIO-blk, VirtIO-net, AHCI, and xHCI isolated in unprivileged user-space driver services with IOMMU isolation. | Phase 4 |

@@ -170,3 +170,10 @@ pub fn init(kernel_stack_top: u64) {
         );
     }
 }
+
+/// Dynamically update TSS RSP0 (active kernel stack) upon context switch.
+pub fn set_tss_rsp0(rsp0: u64) {
+    unsafe {
+        TSS.rsp0 = rsp0;
+    }
+}

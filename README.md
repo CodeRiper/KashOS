@@ -26,10 +26,10 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 
 | Subsystem | Current State | Gap to Real Implementation |
 | :--- | :--- | :--- |
-| **Boot, GDT/IDT/APIC, Heap** | Working (BIOS / Multiboot2, 64-bit IDT, APIC timer, buddy heap) | UEFI loader is a stub; SMP not started (CPU count hardcoded to 1) |
-| **Paging & Memory** | Real identity-mapped $W\oplus X$ page tables | No higher-half kernel, no per-process address spaces, no KASLR/KPTI |
-| **Ring 3 / Syscalls** | Entry assembly and GDT segment descriptors exist | `enter_user_mode()` not yet called; all code runs in ring 0 |
-| **Scheduler & IPC** | `kscheduler` (3-band QoS) and `kipc` (SPSC ring) pass unit tests | Not yet wired into kernel runtime loop; context switch not linked |
+| **Boot, GDT/IDT/APIC, Heap** | Working (ACPI MADT multi-core discovery, 4 CPUs in QEMU, APIC ICR/IPI, ticket locks) | UEFI PE32+ loader is a stub; AP full bring-up via SIPI scheduled for Phase 4 |
+| **Paging & Memory** | Real $W\oplus X$ page tables, CR0.WP supervisor write protection, domain frame quotas | Higher-half shared mapper complete; per-process isolated user tables in Phase 2 |
+| **Ring 3 / Syscalls** | Entry assembly and GDT segment descriptors exist | `enter_user_mode()` scheduled for Phase 2; currently running kernel tasks |
+| **Scheduler & IPC** | Preemptive 3-band QoS scheduler (`kscheduler`) active, FPU/SSE save/restore, 1M cycle test passed | IPC capability transfer scheduled for Phase 3 |
 | **Capability Engine** | `kcore` capability derivations and rights pass host tests | Capability spaces not yet active around unprivileged processes |
 | **kash_kernel.rs** | Model untyped memory allocator & ARINC scheduler structures | Wire in or delete in Phase 3 |
 | **IOMMU (VT-d)** | Register definitions and ACPI DMAR table parser | Off unless DMAR found; no driver domain translation; no AMD-Vi |

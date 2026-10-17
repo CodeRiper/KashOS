@@ -58,9 +58,14 @@ pub mod scheme;
 #[allow(unsafe_code)]
 mod security;
 pub mod sectools;
+#[allow(unsafe_code)]
 mod selftest;
 #[allow(unsafe_code)]
 pub mod status;
+#[allow(unsafe_code)]
+pub mod sync;
+#[allow(unsafe_code)]
+pub mod task;
 mod shell;
 #[allow(unsafe_code)]
 mod vfs;

@@ -13,6 +13,7 @@ pub struct CpuFeatures {
     pub has_vmx:     bool,  // Intel VT-x (hardware virtualisation)
     pub has_smep:    bool,  // Supervisor Mode Execution Protection
     pub has_smap:    bool,  // Supervisor Mode Access Protection
+    pub has_umip:    bool,  // User-Mode Instruction Prevention
     pub has_tme:     bool,  // Intel TME (Total Memory Encryption)
     pub has_fsgsbase: bool, // FSGSBASE instructions
     pub has_pcid:    bool,  // Process-Context Identifiers (TLB tags)
@@ -30,7 +31,7 @@ impl Default for CpuFeatures {
             brand: [0; 48],
             vendor: [0; 12],
             has_nx: false, has_rdrand: false, has_rdseed: false, has_vmx: false,
-            has_smep: false, has_smap: false, has_tme: false, has_fsgsbase: false,
+            has_smep: false, has_smap: false, has_umip: false, has_tme: false, has_fsgsbase: false,
             has_pcid: false, has_ibrs: false, has_stibp: false, has_l1d_flush: false,
             has_ssbd: false, max_phys_bits: 0, max_virt_bits: 0,
         }
@@ -79,6 +80,7 @@ pub fn detect() -> CpuFeatures {
     let (_, ebx7, ecx7, edx7) = cpuid(7, 0);
     f.has_smep      = ebx7 & (1 << 7)  != 0;
     f.has_smap      = ebx7 & (1 << 20) != 0;
+    f.has_umip      = ecx7 & (1 << 2)  != 0;
     f.has_rdseed    = ebx7 & (1 << 18) != 0;
     f.has_fsgsbase  = ebx7 & (1 << 0)  != 0;
     f.has_tme       = ecx7 & (1 << 13) != 0;

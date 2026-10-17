@@ -18,6 +18,8 @@ pub mod nic;
 pub mod fpu;
 pub mod clock;
 pub mod fb;
+pub mod acpi;
+pub mod smp;
 
 pub use pci::{scan_bus as scan_pci, PciDevice};
 pub use vbox::{probe_environment as probe_vbox, VirtualBoxProfile, VBoxBgaDisplay, VBoxAtaDriver, AtaDriveInfo};
@@ -26,7 +28,8 @@ pub use input::{init as init_input, poll_input_event, Ps2Controller, XhciControl
 pub use nic::{init as init_nic, transmit as nic_transmit, receive as nic_receive, get_mac_address as nic_mac};
 pub use fb::{get_framebuffer as framebuffer, fill_gradient_test, clear_framebuffer};
 pub use clock::{calibrate_tsc, elapsed_seconds, read_rtc_unix_seconds, tsc_frequency_hz};
-pub use fpu::{enable_sse, selftest as sse_selftest};
+pub use fpu::{enable_sse, selftest as sse_selftest, FpuState};
+pub use smp::{cpu_count, PerCpuData, broadcast_tlb_shootdown};
 
 use khal::{Arch, MemRegion, Platform, MAX_MEM_REGIONS};
 use kpaging::{FrameAllocator as _, X86_64};
@@ -182,7 +185,7 @@ pub fn discover(mb_ptr: usize, kernel_end: u64) -> Option<Platform> {
             arch: Arch::X86_64,
             ram_base,
             ram_size,
-            cpu_count: 1,
+            cpu_count: smp::cpu_count(),
             free,
             free_count,
         });
@@ -242,7 +245,7 @@ pub fn discover(mb_ptr: usize, kernel_end: u64) -> Option<Platform> {
             arch: Arch::X86_64,
             ram_base,
             ram_size,
-            cpu_count: 1,
+            cpu_count: smp::cpu_count(),
             free,
             free_count,
         });
@@ -337,7 +340,7 @@ pub fn discover(mb_ptr: usize, kernel_end: u64) -> Option<Platform> {
         arch: Arch::X86_64,
         ram_base,
         ram_size,
-        cpu_count: 1, // SMP enumeration from MADT comes later
+        cpu_count: smp::cpu_count(),
         free,
         free_count,
     })
@@ -377,6 +380,10 @@ pub fn init(kernel_stack_top: u64) {
     clock::calibrate_tsc();
     syscall::init();
     vtd::early_init();
+    smp::init(apic::bsp_id());
+
+    // Initialize preemptive task manager with initial kernel stack
+    crate::task::init(kernel_stack_top);
 
     // Enable hardware interrupts via sti (Part A9)
     unsafe {
@@ -448,10 +455,20 @@ pub fn enable_wx_paging(
     }
     kprintln!("[mmu] CR3 switched — W^X now enforced kernel-wide");
 
-    // SMEP/SMAP: checked individually via CPUID before being added to CR4 —
-    // setting an unsupported CR4 bit faults, confirmed relevant by this
-    // project's own `-cpu core2duo` testing (an old enough CPU to lack
-    // both).
+    // Enable CR0.WP (bit 16): Write Protect supervisor access to read-only pages
+    let mut cr0: u64;
+    unsafe {
+        core::arch::asm!("mov {0}, cr0", out(reg) cr0, options(nostack, preserves_flags));
+        cr0 |= 1 << 16;
+        core::arch::asm!("mov cr0, {0}", in(reg) cr0, options(nostack));
+    }
+    let cr0_check: u64;
+    unsafe {
+        core::arch::asm!("mov {0}, cr0", out(reg) cr0_check, options(nostack, preserves_flags));
+    }
+    kprintln!("[mmu] CR0.WP supervisor write-protect active: cr0={:#x} (WP={})", cr0_check, (cr0_check >> 16) & 1);
+
+    // SMEP/SMAP/UMIP: checked individually via CPUID before being added to CR4
     let f = cpuid::detect();
     let mut cr4: u64;
     unsafe { core::arch::asm!("mov {0}, cr4", out(reg) cr4, options(nostack, preserves_flags)) };
@@ -461,13 +478,17 @@ pub fn enable_wx_paging(
     if f.has_smap {
         cr4 |= 1 << 21;
     }
-    if f.has_smep || f.has_smap {
+    if f.has_umip {
+        cr4 |= 1 << 11;
+    }
+    if f.has_smep || f.has_smap || f.has_umip {
         unsafe { core::arch::asm!("mov cr4, {0}", in(reg) cr4, options(nostack)) };
     }
     kprintln!(
-        "[mmu] SMEP={} SMAP={}",
+        "[mmu] WP=on SMEP={} SMAP={} UMIP={}",
         if f.has_smep { "on" } else { "unsupported, skipped" },
-        if f.has_smap { "on" } else { "unsupported, skipped" }
+        if f.has_smap { "on" } else { "unsupported, skipped" },
+        if f.has_umip { "on" } else { "unsupported, skipped" }
     );
 }
 

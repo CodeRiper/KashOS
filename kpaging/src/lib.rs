@@ -24,6 +24,7 @@
 extern crate std;
 
 mod aarch64;
+mod allocator;
 mod error;
 mod mapper;
 mod perm;
@@ -31,6 +32,7 @@ mod table;
 mod x86_64;
 
 pub use aarch64::{AArch64, MAIR_EL1_VALUE};
+pub use allocator::{QuotaFrameAllocator, DEFAULT_FRAME_CAPACITY, MAX_DOMAINS};
 pub use error::{PageError, PageResult};
 pub use mapper::VirtualSpace;
 pub use perm::{Arch, Perm};

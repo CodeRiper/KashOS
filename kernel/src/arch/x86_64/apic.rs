@@ -12,6 +12,8 @@ const APIC_VERSION:   usize = 0x030;
 const APIC_TPR:       usize = 0x080;   // Task Priority Register
 const APIC_EOI:       usize = 0x0B0;
 const APIC_SVR:       usize = 0x0F0;   // Spurious Vector Register
+const APIC_ICR_LOW:  usize = 0x300;   // Interrupt Command Register Low
+const APIC_ICR_HIGH: usize = 0x310;   // Interrupt Command Register High
 const APIC_LVT_TIMER: usize = 0x320;
 const APIC_TIMER_ICR: usize = 0x380;   // Initial Count Register
 const APIC_TIMER_CCR: usize = 0x390;   // Current Count Register
@@ -28,6 +30,43 @@ unsafe fn read32(off: usize) -> u32 {
 #[inline]
 unsafe fn write32(off: usize, val: u32) {
     unsafe { core::ptr::write_volatile((APIC_BASE as usize + off) as *mut u32, val) };
+}
+
+/// Send an IPI to all other CPU cores excluding self (e.g. for TLB shootdown).
+pub fn send_broadcast_ipi(vector: u8) {
+    unsafe {
+        // Destination shorthand 0b11 = All Including Self / 0b10 = All Excluding Self
+        // Delivery mode 000 (Fixed), Edge triggered (0), Assert (1 << 14)
+        let icr_low = (vector as u32) | (0b10 << 18) | (1 << 14);
+        write32(APIC_ICR_LOW, icr_low);
+        while (read32(APIC_ICR_LOW) & (1 << 12)) != 0 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+/// Send an INIT IPI to a target CPU core by APIC ID.
+pub fn send_init_ipi(target_apic_id: u8) {
+    unsafe {
+        write32(APIC_ICR_HIGH, (target_apic_id as u32) << 24);
+        // Delivery mode 101 (INIT = 0x500), Assert (1 << 14)
+        write32(APIC_ICR_LOW, 0x0000_4500);
+        while (read32(APIC_ICR_LOW) & (1 << 12)) != 0 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+/// Send a Start-up IPI (SIPI) to a target CPU core, pointing to trampoline page frame.
+pub fn send_sipi(target_apic_id: u8, page_frame: u8) {
+    unsafe {
+        write32(APIC_ICR_HIGH, (target_apic_id as u32) << 24);
+        // Delivery mode 110 (Start-up = 0x600), Assert (1 << 14), vector = page_frame
+        write32(APIC_ICR_LOW, 0x0000_4600 | (page_frame as u32));
+        while (read32(APIC_ICR_LOW) & (1 << 12)) != 0 {
+            core::hint::spin_loop();
+        }
+    }
 }
 
 /// Enable the Local APIC and set up a periodic timer at ~100 Hz.

@@ -17,6 +17,7 @@ def main():
 
     cmd = [
         "qemu-system-x86_64",
+        "-smp", "4",
         "-kernel", "isodir/boot/kash-kernel",
         "-m", "512M",
         "-vga", "std",
@@ -29,7 +30,7 @@ def main():
     proc = subprocess.Popen(cmd)
     
     # Wait for kernel to boot and render
-    time.sleep(8)
+    time.sleep(12)
     
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

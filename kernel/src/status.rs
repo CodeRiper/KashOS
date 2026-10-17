@@ -63,6 +63,9 @@ pub struct StatusRegistry {
     pub spec_mitigations: ComponentStatus,
     pub lockdown_mode: ComponentStatus,
     pub security_toolkit: ComponentStatus,
+    pub kscheduler_preempt: ComponentStatus,
+    pub smp_multicore: ComponentStatus,
+    pub quota_frames: ComponentStatus,
 }
 
 impl StatusRegistry {
@@ -96,6 +99,9 @@ impl StatusRegistry {
             spec_mitigations: ComponentStatus::Partial,
             lockdown_mode: ComponentStatus::Partial,
             security_toolkit: ComponentStatus::Stub,
+            kscheduler_preempt: ComponentStatus::Partial,
+            smp_multicore: ComponentStatus::Partial,
+            quota_frames: ComponentStatus::Partial,
         }
     }
 }
@@ -130,6 +136,9 @@ pub fn print_boot_banner() {
         ("GDT + TSS Stack Handling", reg.gdt_tss, "kernel stack setup; no user-mode proof"),
         ("IDT & Interrupt / Exception Handlers", reg.idt_interrupts, "kernel exception handling"),
         ("Timer & RTC", reg.apic_timer, "platform timer and RTC support varies"),
+        ("Preemptive QoS Scheduler", reg.kscheduler_preempt, "3-band timer preemption"),
+        ("SMP Multicore Processor Cores", reg.smp_multicore, "ACPI MADT multi-core discovery"),
+        ("Physical Frame Domain Quotas", reg.quota_frames, "per-domain frame quotas"),
         ("Capability Engine", reg.kcore_caps, "library implementation; OS isolation incomplete"),
         ("Linear Framebuffer Desktop Shell", reg.linear_framebuffer, "Liquid-Glass GUI compositor surface"),
         ("Hardware Cryptographic Entropy", reg.hw_entropy, "RDRAND / RDSEED / VirtIO-RNG"),
