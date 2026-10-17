@@ -39,26 +39,39 @@ fn main() {
             "as"
         };
 
-        let mut cmd = Command::new(as_cmd);
-        cmd.args(["-c", "-target", "x86_64-unknown-none", "-o"])
-            .arg(&obj_out)
-            .arg(&asm_src);
-
-        let status = match cmd.status() {
-            Ok(s) if s.success() => s,
-            _ => {
-                // Fallback to GNU as syntax
-                Command::new(as_cmd)
-                    .args(["--64", "-o"])
-                    .arg(&obj_out)
-                    .arg(&asm_src)
-                    .status()
-                    .expect("failed to run assembler on boot.S")
+        // Assemble boot.S with GNU as (--64) or clang
+        let mut assembled = false;
+        for assembler in [as_cmd, "as", "x86_64-linux-gnu-as", "x86_64-elf-as", "x86_64-w64-mingw32-as"] {
+            let res = Command::new(assembler)
+                .args(["--64", "-o"])
+                .arg(&obj_out)
+                .arg(&asm_src)
+                .status();
+            if let Ok(s) = res {
+                if s.success() && obj_out.exists() {
+                    assembled = true;
+                    break;
+                }
             }
-        };
+        }
+
+        if !assembled {
+            let res = Command::new("clang")
+                .args(["-c", "-target", "x86_64-unknown-none", "-o"])
+                .arg(&obj_out)
+                .arg(&asm_src)
+                .status();
+            if let Ok(s) = res {
+                if s.success() && obj_out.exists() {
+                    assembled = true;
+                }
+            }
+        }
+
         assert!(
-            status.success(),
-            "assembling boot.S failed (see `as` output above)"
+            assembled && obj_out.exists(),
+            "assembling boot.S failed: could not produce {}",
+            obj_out.display()
         );
 
         println!("cargo:rustc-link-arg-bins={}", obj_out.display());
