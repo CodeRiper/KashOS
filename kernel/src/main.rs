@@ -77,6 +77,7 @@ pub mod csprng;
 pub mod kms;
 #[allow(unsafe_code)]
 pub mod vfs;
+pub mod net;
 
 fn show_loading_screen() {
     kprintln!();
@@ -251,6 +252,11 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     // ── Phase 6 Storage & Crypto Acceptance Gates ────────────────────────────
     #[cfg(target_arch = "x86_64")]
     selftest::run_storage_crypto_tests();
+
+    // ── Phase 7 Network & Privacy Initialization & Acceptance Gates ─────────
+    net::init();
+    #[cfg(target_arch = "x86_64")]
+    selftest::run_network_privacy_tests();
 
     // ── Step 7b: RTC & Framebuffer Graphics Foundation ───────────────────────
     let rtc_secs = arch::read_rtc_unix_seconds();

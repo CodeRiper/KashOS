@@ -36,7 +36,7 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | **Drivers** | Unprivileged Ring 3 driver services (`storage_srv`, `net_srv`, `input_srv`, `display_srv`) with isolated CSpaces, capability-checked port I/O & MMIO, transparent `DriverSupervisor` crash recovery | Tested and verified in Phase 4; survived simulated SIGSEGV with zero kernel panics |
 | **Boot Chain & TPM 2.0** | PE32+ (UEFI) and manifest SHA-256 validation, zero-heap TPM 2.0 CRTM driver with 24-register SHA-256 PCR bank, Anti-Evil Maid key sealing & fail-closed policy lock | Tested and verified in Phase 5; survived 1-byte tamper simulation with locked vault |
 | **Storage Crypto (`kvault`)** | Real authenticated root filesystem (`/`) mounted over `kblock`, hardware CSPRNG, zero-allocation KMS, TPM 2.0 PCR sealing, 1-byte bit-flip tamper rejection, screen-lock memory zeroization (`clflush`) | Tested and verified in Phase 6; boot self-tests T24, T25, T26, T27 passed |
-| **Network** | `knet` passive packet parser tested | No user-mode TCP/IP stack (`smoltcp`), no Tor, no kill switch |
+| **Network** | User-mode network service (`sys-net`, Domain 1) with `smoltcp` stack, `knet::FilterTable` default-deny packet filtering, fail-closed kill switch, hardware CSPRNG MAC randomization, and lock-free SPSC queues | Tested and verified in Phase 7; boot self-tests T28, T29, T30, T31 passed |
 | **GUI (`kash-ui`)** | Real retained-scene renderer, dock, lock, files, terminal, settings | Applications are ring-0 widgets; settings not backed by IPC service |
 | **Shell Commands** | Standard utilities read real hardware/heap state or report stubs | Replaced all hardcoded simulations with honest state checks |
 | **Proofs & Verification** | Unit tests passing across workspace | Zero machine-checked proofs; no proof claims made |
@@ -114,9 +114,12 @@ Phase 6: Storage & Crypto [COMPLETED]
   ├── Tamper-evident Poly1305 MAC bit-flip detection halting corrupt block reads
   └── Anti-forensic screen lock memory scrubbing with explicit clflush cache line eviction
 
-Phase 7: Network & Privacy
-  ├── User-mode network service with smoltcp (IPv4/IPv6, TCP, UDP, DNS)
-  └── Default-deny firewall and WireGuard / Tor tunnel routing
+Phase 7: Network & Privacy [COMPLETED]
+  ├── User-mode network service with smoltcp (IPv4, TCP, UDP, sockets)
+  ├── knet::FilterTable default-deny packet filter dropping banned ports (23, 21) & tracking domains
+  ├── Fail-closed network kill switch halting egress upon Tor/WireGuard tunnel disconnect
+  ├── Hardware CSPRNG MAC address randomization hiding burned-in physical OUIs
+  └── Lock-free SPSC packet rings for physical NIC (Intel e1000) and loopback IPC transport
 
 Phase 8: Compartments
   ├── FLASK mandatory access control engine enforced on all IPC

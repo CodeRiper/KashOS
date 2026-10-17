@@ -293,7 +293,7 @@ pub enum NetMsg {
 // ── smoltcp & Lock-Free Ring Interface ──────────────────────────────────────
 
 pub const MAX_PACKET_SIZE: usize = 1514;
-pub const RING_CAPACITY: usize   = 64;
+pub const RING_CAPACITY: usize   = 8;
 
 #[derive(Clone, Copy)]
 pub struct RawFrame {
