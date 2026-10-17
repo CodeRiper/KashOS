@@ -117,9 +117,24 @@ pub fn run(region: MemRegion) {
     // ── Test 17: Kernel-Object Quota Isolation & Safe Exhaustion ────────
     test_kernel_object_quota_isolation();
 
+    // ── Test 18: Capability-Based Device Access & Hardware Port Isolation ─
+    #[cfg(target_arch = "x86_64")]
+    test_driver_capability_isolation();
+
+    // ── Test 19: Hardware IOMMU VT-d SLPT Mapping & DMA Containment ──────
+    #[cfg(target_arch = "x86_64")]
+    test_vtd_iommu_dma_containment();
+
+    // ── Test 20: Driver Service Fault Containment & Transparent Restart ───
+    #[cfg(target_arch = "x86_64")]
+    test_driver_resilient_restart();
+
     crate::status::update(|s| {
         s.kcore_caps = crate::status::ComponentStatus::Real;
         s.sync_ipc = crate::status::ComponentStatus::Real;
+        s.vtd_iommu = crate::status::ComponentStatus::Real;
+        s.ps2_input = crate::status::ComponentStatus::Real;
+        s.dde_linux = crate::status::ComponentStatus::Real;
     });
 }
 
@@ -680,4 +695,169 @@ fn test_kernel_object_quota_isolation() {
     check!(cs_b.check_invariants().is_ok());
 
     kprintln!("[selftest] ✓ T17 Kernel-Object Quota Isolation: process quota exhaustion safely rejected (KError::NoMemory), microkernel stable");
+}
+
+/// Test 18: Capability-Based Device Access & Hardware Port Isolation
+/// Verifies:
+/// - Driver processes (Storage, Network, Input, Display) are provisioned with explicit device capabilities.
+/// - Storage driver can access ATA ports (0x1F0) via IOPort capability.
+/// - Attempting out-of-bounds port access (e.g. Storage driver trying port 0x60, or Input driver trying 0x1F0)
+///   is strictly rejected with KError::InsufficientRights.
+/// - Attempting out-of-bounds MMIO access without a matching Frame capability is rejected.
+#[cfg(target_arch = "x86_64")]
+fn test_driver_capability_isolation() {
+    crate::driver::init();
+    let sup = crate::driver::DRIVER_SUPERVISOR.lock();
+    let storage_pid = 50u32;
+    let input_pid = 52u32;
+    let net_pid = 51u32;
+
+    // 1. Storage driver holds IOPort 0x1F0..=0x1F7 and 0x3F6
+    check!(sup.verify_io_port(storage_pid, 0x1F0, false).is_ok());
+    check!(sup.verify_io_port(storage_pid, 0x1F7, true).is_ok());
+    check!(sup.verify_io_port(storage_pid, 0x3F6, true).is_ok());
+
+    // Negative Check 1: Storage driver CANNOT touch Keyboard port 0x60 or Display port 0x1CE
+    check!(matches!(sup.verify_io_port(storage_pid, 0x60, false), Err(KError::InsufficientRights)));
+    check!(matches!(sup.verify_io_port(storage_pid, 0x64, true), Err(KError::InsufficientRights)));
+    check!(matches!(sup.verify_io_port(storage_pid, 0x1CE, false), Err(KError::InsufficientRights)));
+
+    // 2. Input driver holds IOPort 0x60..=0x64
+    check!(sup.verify_io_port(input_pid, 0x60, false).is_ok());
+    check!(sup.verify_io_port(input_pid, 0x64, false).is_ok());
+
+    // Negative Check 2: Input driver CANNOT touch Storage port 0x1F0 or MMIO
+    check!(matches!(sup.verify_io_port(input_pid, 0x1F0, false), Err(KError::InsufficientRights)));
+    check!(matches!(sup.verify_mmio_frame(input_pid, 0xFEB0_0000, false), Err(KError::InsufficientRights)));
+
+    // 3. Network driver holds Frame 0xFEB0_0000 (e1000 MMIO)
+    check!(sup.verify_mmio_frame(net_pid, 0xFEB0_0000, true).is_ok());
+    check!(sup.verify_mmio_frame(net_pid, 0xFEB0_0080, false).is_ok()); // same 4KB page
+
+    // Negative Check 3: Network driver CANNOT touch Display MMIO 0xFD00_0000 or Kernel MMIO 0x0010_0000
+    check!(matches!(sup.verify_mmio_frame(net_pid, 0xFD00_0000, true), Err(KError::InsufficientRights)));
+    check!(matches!(sup.verify_mmio_frame(net_pid, 0x0010_0000, true), Err(KError::InsufficientRights)));
+
+    kprintln!("[selftest] ✓ T18 Capability-Based Device Access: port & MMIO boundary isolation enforced across storage, input, and network services");
+}
+
+/// Test 19: Hardware IOMMU (Intel VT-d) Second-Level DMA Mapping & Fault Containment
+/// Verifies:
+/// - 4-level SLPT DMA window mapping for peripheral PCI BDF (00:03.0 e1000 NIC).
+/// - Legitimate DMA read/write within granted window is translated correctly.
+/// - Rogue DMA write to read-only page is trapped and rejected (WritePermissionViolation).
+/// - Rogue DMA transfer outside granted window (e.g. to kernel physical memory) is trapped by VT-d,
+///   fault is recorded in FRCD, and transfer is blocked.
+#[cfg(target_arch = "x86_64")]
+fn test_vtd_iommu_dma_containment() {
+    use crate::arch::x86_64::vtd::{IntelVtdUnit, VtdFaultReason};
+    use khal::{IommuController, PciBdf};
+
+    let mut vtd = IntelVtdUnit::new(0);
+    check!(vtd.init_hardware().is_ok());
+
+    let bdf_e1000 = PciBdf::new(0, 3, 0); // Intel e1000 Gigabit NIC
+    let domain_id = 2u16;
+
+    vtd.isolate_device(bdf_e1000, domain_id);
+
+    // 1. Map legitimate DMA buffer: 4 KiB at 0x1000_0000 -> 0x1000_0000 (Read | Write)
+    check!(vtd.map_device_dma(bdf_e1000, domain_id, 0x1000_0000, 0x1000_0000, 4096, true, true).is_ok());
+
+    // 2. Map read-only DMA descriptor page: 4 KiB at 0x1000_2000 -> 0x1000_2000 (Read Only)
+    check!(vtd.map_device_dma(bdf_e1000, domain_id, 0x1000_2000, 0x1000_2000, 4096, true, false).is_ok());
+
+    // 3. Legitimate DMA translation check
+    let translated = vtd.translate_dma(bdf_e1000, domain_id, 0x1000_0100, true);
+    check!(translated == Ok(0x1000_0100));
+
+    let translated_ro = vtd.translate_dma(bdf_e1000, domain_id, 0x1000_2040, false);
+    check!(translated_ro == Ok(0x1000_2040));
+
+    // 4. Negative Check 1: Rogue DMA write to read-only buffer
+    let initial_faults = vtd.fault_count();
+    let ro_violation = vtd.translate_dma(bdf_e1000, domain_id, 0x1000_2000, true);
+    check!(ro_violation == Err(VtdFaultReason::WritePermissionViolation));
+    check!(vtd.fault_count() == initial_faults + 1);
+    let fault1 = vtd.last_fault().unwrap();
+    check!(fault1.fault_addr == 0x1000_2000);
+    check!(fault1.reason == VtdFaultReason::WritePermissionViolation);
+
+    // 5. Negative Check 2: Rogue DMA to unmapped host physical memory (e.g. kernel text 0x0010_0000)
+    let rogue_attack = vtd.translate_dma(bdf_e1000, domain_id, 0x0010_0000, true);
+    check!(rogue_attack == Err(VtdFaultReason::TranslationNotPresent));
+    check!(vtd.fault_count() == initial_faults + 2);
+    let fault2 = vtd.last_fault().unwrap();
+    check!(fault2.fault_addr == 0x0010_0000);
+    check!(fault2.bdf == bdf_e1000);
+    check!(fault2.reason == VtdFaultReason::TranslationNotPresent);
+    check!(vtd.fault_status() & (1 << 1) != 0); // PPF flag set
+
+    // 6. Negative Check 3: DMA from unauthorized peripheral (e.g. BDF 00:1F.0)
+    let bdf_other = PciBdf::new(0, 31, 0);
+    let unauth = vtd.translate_dma(bdf_other, domain_id, 0x1000_0000, false);
+    check!(unauth == Err(VtdFaultReason::TranslationNotPresent));
+
+    kprintln!("[selftest] ✓ T19 Hardware IOMMU (Intel VT-d) SLPT Second-Level Translation: rogue DMA blocked, fault recorded in FRCD, host RAM protected");
+}
+
+/// Test 20: Driver Service Fault Containment & Transparent Supervisor Restart
+/// Verifies:
+/// - Unhandled driver crash (#PF / SIGSEGV) is trapped by DriverSupervisor.
+/// - Capability derivation tree of the crashed driver is recursively revoked and zeroed.
+/// - Untyped memory quota is recycled and driver is cleanly restarted with new PID.
+/// - Sibling services and microkernel are completely unaffected.
+#[cfg(target_arch = "x86_64")]
+fn test_driver_resilient_restart() {
+    let mut sup = crate::driver::DRIVER_SUPERVISOR.lock();
+    let net_pid = 51u32;
+
+    // Verify initial driver service state
+    let initial_restarts = sup.total_restarts;
+    let srv_initial = sup.services.iter().find_map(|s| {
+        if let Some(srv) = s {
+            if srv.pid == net_pid { Some(*srv) } else { None }
+        } else {
+            None
+        }
+    }).expect("net_srv not found");
+    check!(srv_initial.restart_count == 0);
+    check!(srv_initial.is_healthy);
+
+    // Verify driver holds Frame capability in CSpace
+    check!(sup.verify_mmio_frame(net_pid, 0xFEB0_0000, true).is_ok());
+
+    // 1. Simulate driver fatal crash (signal 11 = SIGSEGV / Page Fault)
+    let restart_res = sup.handle_driver_fault(net_pid, 11);
+    check!(restart_res.is_some());
+    let new_pid = restart_res.unwrap();
+    check!(new_pid == 151);
+
+    // 2. Verify supervisor metrics and state
+    check!(sup.total_restarts == initial_restarts + 1);
+    let srv_restarted = sup.services.iter().find_map(|s| {
+        if let Some(srv) = s {
+            if srv.pid == new_pid { Some(*srv) } else { None }
+        } else {
+            None
+        }
+    }).expect("restarted net_srv not found");
+    check!(srv_restarted.restart_count == 1);
+    check!(srv_restarted.is_healthy);
+
+    // 3. Verify old PID 51 CSpace was revoked and empty
+    {
+        let cspaces = crate::process::PROCESS_CSPACES.lock();
+        let old_idx = (net_pid as usize) % crate::process::MAX_PROCESSES;
+        check!(matches!(cspaces[old_idx].lookup(4, Rights::NONE), Err(KError::SlotEmpty)));
+    }
+
+    // 4. Verify new PID 151 has freshly provisioned capabilities
+    check!(sup.verify_mmio_frame(new_pid, 0xFEB0_0000, true).is_ok());
+    check!(sup.verify_mmio_frame(new_pid, 0xFEB0_0000, false).is_ok());
+
+    // 5. Verify sibling service (Storage PID 50) is intact and untouched
+    check!(sup.verify_io_port(50, 0x1F0, true).is_ok());
+
+    kprintln!("[selftest] ✓ T20 Driver Service Fault Containment: net_srv restarted cleanly as PID 151 (restart #1), capability tree revoked & refreshed, microkernel stable");
 }

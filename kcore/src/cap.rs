@@ -114,6 +114,14 @@ impl CapKind {
             CapKind::IOPort { .. } => None,
         }
     }
+
+    /// Verifies if this capability grants access to a specific x86 I/O port.
+    pub const fn allows_port(&self, port: u16) -> bool {
+        match *self {
+            CapKind::IOPort { start_port, end_port } => port >= start_port && port <= end_port,
+            _ => false,
+        }
+    }
 }
 
 /// A capability. Fields are crate-private so no other crate can forge one;
@@ -165,6 +173,30 @@ impl Cap {
     pub const fn new_frame(paddr: u64, rights: Rights) -> Self {
         Cap {
             kind: CapKind::Frame { paddr },
+            rights,
+            badge: 0,
+        }
+    }
+
+    pub const fn new_ioport(start_port: u16, end_port: u16, rights: Rights) -> Self {
+        Cap {
+            kind: CapKind::IOPort { start_port, end_port },
+            rights,
+            badge: 0,
+        }
+    }
+
+    pub const fn new_notification(addr: u64, rights: Rights, badge: u64) -> Self {
+        Cap {
+            kind: CapKind::Notification { addr },
+            rights,
+            badge,
+        }
+    }
+
+    pub const fn new_iospace(pci_bdf: u16, domain_id: u16, rights: Rights) -> Self {
+        Cap {
+            kind: CapKind::IOSpace { pci_bdf, domain_id },
             rights,
             badge: 0,
         }

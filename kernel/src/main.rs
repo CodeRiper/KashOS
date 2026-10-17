@@ -39,6 +39,8 @@ pub mod cap;
 #[allow(unsafe_code)]
 pub mod dde;
 pub mod display;
+#[allow(unsafe_code)]
+pub mod driver;
 pub mod elf;
 pub mod flask;
 #[allow(unsafe_code)]
@@ -229,6 +231,7 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     arch::init_nic();
     blockdev::init();
     dde::init();
+    driver::init();
     powerbox::init();
     lockdown::init();
 

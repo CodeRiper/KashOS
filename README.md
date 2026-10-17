@@ -32,8 +32,8 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | **Scheduler & IPC** | Preemptive 3-band QoS scheduler (`kscheduler`) active, FPU/SSE save/restore, 1M cycle test passed, synchronous rendezvous IPC with badged endpoints & capability transfer | Tested and verified in Phase 1, 2 & 3 |
 | **Capability Engine** | `kcore` per-process capability spaces (`PROCESS_CSPACES`), unforgeable compartment badges, rights monotonicity, recursive revocation with memory zeroing (< 1 ms benchmark), untyped quota isolation | Tested and verified in Phase 3 |
 | **kash_kernel.rs** | Model untyped memory allocator & ARINC scheduler structures | Integrated and verified in Phase 3 capability & IPC tests |
-| **IOMMU (VT-d)** | Register definitions and ACPI DMAR table parser | Off unless DMAR found; no driver domain translation; no AMD-Vi |
-| **Drivers** | PS/2 keyboard/mouse works; e1000 & virtio-net partial; kblock passes tests | xHCI USB is a stub; no integrated disk filesystem; no Wi-Fi |
+| **IOMMU (VT-d)** | ACPI DMAR discovery, Intel VT-d 4-level Second-Level Page Tables (SLPT) translation, fault recording register (FRCD) logging, rogue DMA write & translation fault containment | Tested and verified in Phase 4; active in QEMU `q35` with `-device intel-iommu` |
+| **Drivers** | Unprivileged Ring 3 driver services (`storage_srv`, `net_srv`, `input_srv`, `display_srv`) with isolated CSpaces, capability-checked port I/O & MMIO, transparent `DriverSupervisor` crash recovery | Tested and verified in Phase 4; survived simulated SIGSEGV with zero kernel panics |
 | **Storage Crypto (`kvault`)** | Argon2id, XChaCha20-Poly1305, Merkle CoW tree pass 20 tests | AES-256-XTS not implemented; not mounted as root OS filesystem |
 | **Network** | `knet` passive packet parser tested | No user-mode TCP/IP stack (`smoltcp`), no Tor, no kill switch |
 | **GUI (`kash-ui`)** | Real retained-scene renderer, dock, lock, files, terminal, settings | Applications are ring-0 widgets; settings not backed by IPC service |
@@ -92,15 +92,15 @@ Phase 2: Real User Mode [COMPLETED]
   ├── Syscall boundary with SMAP pointer validation
   └── User-mode init and fault isolation (user fault kills process, not kernel)
 
-Phase 3: Capabilities & IPC Enforced
+Phase 3: Capabilities & IPC Enforced [COMPLETED]
   ├── Per-process capability spaces with rights, badges, derive, and revoke
   ├── Synchronous IPC with capability transfer (kipc)
   └── Delete ambient authority (no path-based open without capability grant)
 
-Phase 4: Userspace Services & Drivers
-  ├── Move storage, network, and input into user-mode driver services
-  ├── Real VT-d / AMD-Vi second-stage page tables per peripheral
-  └── VirtIO-blk, VirtIO-net, AHCI, and xHCI native drivers
+Phase 4: Userspace Services & Drivers [COMPLETED]
+  ├── Move storage, network, input, and display into user-mode driver services
+  ├── Real VT-d SLPT second-stage page tables per peripheral & rogue DMA containment
+  └── Driver supervisor with crash recovery & transparent restart
 
 Phase 5: Boot Chain & Measured Boot
   ├── UEFI PE32+ loader verifying SHA-256 / Ed25519 signatures

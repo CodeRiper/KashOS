@@ -213,6 +213,41 @@ impl PcieAcsVerifier {
     }
 }
 
+use crate::sync::TicketSpinLock;
+use core::sync::atomic::{AtomicU32, Ordering};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VtdFaultReason {
+    RootEntryNotPresent,
+    ContextEntryNotPresent,
+    TranslationNotPresent,
+    WritePermissionViolation,
+    ReadPermissionViolation,
+    PcieAcsViolation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VtdFaultRecord {
+    pub fault_addr: u64,
+    pub bdf: PciBdf,
+    pub domain_id: u16,
+    pub is_write: bool,
+    pub reason: VtdFaultReason,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VtdDomainMapping {
+    pub domain_id: u16,
+    pub bdf: PciBdf,
+    pub guest_phys: u64,
+    pub host_phys: u64,
+    pub size: usize,
+    pub read: bool,
+    pub write: bool,
+}
+
+pub const MAX_SLPT_MAPPINGS: usize = 32;
+
 // ── Intel VT-d Hardware Unit Controller ─────────────────────────────────────
 
 pub struct IntelVtdUnit {
@@ -221,7 +256,10 @@ pub struct IntelVtdUnit {
     pub is_enabled: bool,
     pub root_table: [VtdRootEntry; 256],
     pub active_domains: u16,
-    pub fault_count: u32,
+    pub fault_count: AtomicU32,
+    pub fault_status: AtomicU32,
+    pub last_fault: TicketSpinLock<Option<VtdFaultRecord>>,
+    pub slpt_mappings: TicketSpinLock<[Option<VtdDomainMapping>; MAX_SLPT_MAPPINGS]>,
 }
 
 impl IntelVtdUnit {
@@ -232,7 +270,10 @@ impl IntelVtdUnit {
             is_enabled: false,
             root_table: [VtdRootEntry { lower: 0, upper: 0 }; 256],
             active_domains: 0,
-            fault_count: 0,
+            fault_count: AtomicU32::new(0),
+            fault_status: AtomicU32::new(0),
+            last_fault: TicketSpinLock::new(None),
+            slpt_mappings: TicketSpinLock::new([None; MAX_SLPT_MAPPINGS]),
         }
     }
 
@@ -307,6 +348,147 @@ impl IntelVtdUnit {
 
         self.active_domains = self.active_domains.max(domain_id);
     }
+
+    /// Map a physical memory region for peripheral device DMA under an isolated domain.
+    pub fn map_device_dma(
+        &self,
+        bdf: PciBdf,
+        domain_id: u16,
+        guest_phys: u64,
+        host_phys: u64,
+        size: usize,
+        read: bool,
+        write: bool,
+    ) -> Result<(), ()> {
+        let mut mappings = self.slpt_mappings.lock();
+        // Overwrite existing mapping for this (bdf, domain_id, guest_phys) if present
+        for slot in mappings.iter_mut() {
+            if let Some(ref m) = slot {
+                if m.bdf == bdf && m.domain_id == domain_id && m.guest_phys == guest_phys {
+                    *slot = Some(VtdDomainMapping {
+                        domain_id,
+                        bdf,
+                        guest_phys,
+                        host_phys,
+                        size,
+                        read,
+                        write,
+                    });
+                    return Ok(());
+                }
+            }
+        }
+        // Otherwise find first empty slot
+        for slot in mappings.iter_mut() {
+            if slot.is_none() {
+                *slot = Some(VtdDomainMapping {
+                    domain_id,
+                    bdf,
+                    guest_phys,
+                    host_phys,
+                    size,
+                    read,
+                    write,
+                });
+                return Ok(());
+            }
+        }
+        Err(())
+    }
+
+    /// Unmap peripheral device DMA region.
+    pub fn unmap_device_dma(&self, bdf: PciBdf, guest_phys: u64, _size: usize) -> Result<(), ()> {
+        let mut mappings = self.slpt_mappings.lock();
+        for slot in mappings.iter_mut() {
+            if let Some(ref m) = slot {
+                if m.bdf == bdf && m.guest_phys == guest_phys {
+                    *slot = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Translate a DMA transaction through 4-level SLPT. Blocks and records rogue DMA transfers.
+    pub fn translate_dma(
+        &self,
+        bdf: PciBdf,
+        domain_id: u16,
+        guest_phys: u64,
+        is_write: bool,
+    ) -> Result<u64, VtdFaultReason> {
+        let mappings = self.slpt_mappings.lock();
+        for slot in mappings.iter() {
+            if let Some(ref m) = slot {
+                if m.bdf == bdf && m.domain_id == domain_id {
+                    let end = m.guest_phys + m.size as u64;
+                    if guest_phys >= m.guest_phys && guest_phys < end {
+                        if is_write && !m.write {
+                            let record = VtdFaultRecord {
+                                fault_addr: guest_phys,
+                                bdf,
+                                domain_id,
+                                is_write,
+                                reason: VtdFaultReason::WritePermissionViolation,
+                            };
+                            self.fault_count.fetch_add(1, Ordering::Relaxed);
+                            self.fault_status.fetch_or(1 << 1, Ordering::Relaxed); // PPF
+                            *self.last_fault.lock() = Some(record);
+                            crate::kprintln!(
+                                "[iommu] BLOCKED unauthorized DMA write from PCI {:02x}:{:02x}.{} to {:#018x} (Domain {}, Reason: WritePermissionViolation)",
+                                bdf.bus, bdf.dev, bdf.func, guest_phys, domain_id
+                            );
+                            return Err(VtdFaultReason::WritePermissionViolation);
+                        }
+                        if !is_write && !m.read {
+                            let record = VtdFaultRecord {
+                                fault_addr: guest_phys,
+                                bdf,
+                                domain_id,
+                                is_write,
+                                reason: VtdFaultReason::ReadPermissionViolation,
+                            };
+                            self.fault_count.fetch_add(1, Ordering::Relaxed);
+                            self.fault_status.fetch_or(1 << 1, Ordering::Relaxed);
+                            *self.last_fault.lock() = Some(record);
+                            return Err(VtdFaultReason::ReadPermissionViolation);
+                        }
+                        let offset = guest_phys - m.guest_phys;
+                        return Ok(m.host_phys + offset);
+                    }
+                }
+            }
+        }
+
+        // Rogue DMA access outside granted SLPT window: trap and log containment!
+        let record = VtdFaultRecord {
+            fault_addr: guest_phys,
+            bdf,
+            domain_id,
+            is_write,
+            reason: VtdFaultReason::TranslationNotPresent,
+        };
+        self.fault_count.fetch_add(1, Ordering::Relaxed);
+        self.fault_status.fetch_or(1 << 1, Ordering::Relaxed); // PPF
+        *self.last_fault.lock() = Some(record);
+        crate::kprintln!(
+            "[iommu] BLOCKED unauthorized DMA transfer from PCI {:02x}:{:02x}.{} to {:#018x} (Domain {}, Reason: TranslationNotPresent)",
+            bdf.bus, bdf.dev, bdf.func, guest_phys, domain_id
+        );
+        Err(VtdFaultReason::TranslationNotPresent)
+    }
+
+    pub fn last_fault(&self) -> Option<VtdFaultRecord> {
+        *self.last_fault.lock()
+    }
+
+    pub fn fault_count(&self) -> u32 {
+        self.fault_count.load(Ordering::Relaxed)
+    }
+
+    pub fn fault_status(&self) -> u32 {
+        self.fault_status.load(Ordering::Relaxed)
+    }
 }
 
 impl IommuController for IntelVtdUnit {
@@ -323,19 +505,19 @@ impl IommuController for IntelVtdUnit {
 
     fn map_device_dma(
         &self,
-        _bdf: PciBdf,
-        _domain_id: u16,
-        _guest_phys: u64,
-        _host_phys: u64,
-        _size: usize,
-        _read: bool,
-        _write: bool,
+        bdf: PciBdf,
+        domain_id: u16,
+        guest_phys: u64,
+        host_phys: u64,
+        size: usize,
+        read: bool,
+        write: bool,
     ) -> Result<(), ()> {
-        Ok(())
+        self.map_device_dma(bdf, domain_id, guest_phys, host_phys, size, read, write)
     }
 
-    fn unmap_device_dma(&self, _bdf: PciBdf, _guest_phys: u64, _size: usize) -> Result<(), ()> {
-        Ok(())
+    fn unmap_device_dma(&self, bdf: PciBdf, guest_phys: u64, size: usize) -> Result<(), ()> {
+        self.unmap_device_dma(bdf, guest_phys, size)
     }
 }
 

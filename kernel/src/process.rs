@@ -200,7 +200,8 @@ pub fn on_user_process_fault(pid: u32, exit_code: i32) {
             pcb.exit_code = Some(exit_code);
         }
     }
-    {
+    let restarted = crate::driver::DRIVER_SUPERVISOR.lock().handle_driver_fault(pid, exit_code);
+    if restarted.is_none() {
         let mut cspaces = PROCESS_CSPACES.lock();
         let idx = (pid as usize) % MAX_PROCESSES;
         let _ = cspaces[idx].revoke(0);

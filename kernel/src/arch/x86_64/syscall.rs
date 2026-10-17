@@ -41,6 +41,8 @@ pub mod nr {
     pub const SYS_RETYPE:     usize = 8;
     pub const SYS_REVOKE:     usize = 9;
     pub const SYS_PRINT:      usize = 10;
+    pub const SYS_DEV_PORT:   usize = 11;
+    pub const SYS_DEV_MMIO:   usize = 12;
 }
 
 /// Validates that a user memory buffer resides strictly within the canonical user space.
@@ -323,6 +325,38 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
                 len as i64
             } else {
                 SyscallError::InvalidMemoryAccess as i64
+            }
+        }
+        nr::SYS_DEV_PORT => {
+            let port = arg1 as u16;
+            let val = arg2 as u32;
+            let is_write = arg3 != 0;
+            let size = (arg4 as u8).max(1);
+            let current_pid = crate::task::current_tid();
+            match crate::driver::DRIVER_SUPERVISOR.lock().execute_port_io(current_pid, port, val, is_write, size) {
+                Ok(res) => res as i64,
+                Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
+                Err(_) => SyscallError::InvalidArgument as i64,
+            }
+        }
+        nr::SYS_DEV_MMIO => {
+            let paddr = arg1 as u64;
+            let val = arg2 as u64;
+            let is_write = arg3 != 0;
+            let size = (arg4 as u8).max(1);
+            let current_pid = crate::task::current_tid();
+            if is_write {
+                match crate::driver::DRIVER_SUPERVISOR.lock().execute_mmio_write(current_pid, paddr, val, size) {
+                    Ok(()) => 0,
+                    Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
+                    Err(_) => SyscallError::InvalidArgument as i64,
+                }
+            } else {
+                match crate::driver::DRIVER_SUPERVISOR.lock().execute_mmio_read(current_pid, paddr, size) {
+                    Ok(res) => res as i64,
+                    Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
+                    Err(_) => SyscallError::InvalidArgument as i64,
+                }
             }
         }
         _ => {
