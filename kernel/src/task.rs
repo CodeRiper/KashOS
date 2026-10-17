@@ -72,6 +72,11 @@ pub fn current_tid() -> u32 {
     CURRENT_TID.load(Ordering::Relaxed)
 }
 
+/// Set the TID of the currently executing thread (used during dispatch/context switch/tests).
+pub fn set_current_tid(tid: u32) {
+    CURRENT_TID.store(tid, Ordering::Relaxed);
+}
+
 /// Total number of successful thread preemptions observed.
 pub fn preemption_count() -> u64 {
     PREEMPTION_COUNT.load(Ordering::Relaxed)

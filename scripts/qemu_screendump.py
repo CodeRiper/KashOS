@@ -15,10 +15,14 @@ def main():
     if os.path.exists(png_path):
         os.remove(png_path)
 
+    kernel_path = "target/x86_64-unknown-none/release/kernel"
+    if not os.path.exists(kernel_path):
+        kernel_path = "isodir/boot/kash-kernel"
+
     cmd = [
         "qemu-system-x86_64",
         "-smp", "4",
-        "-kernel", "isodir/boot/kash-kernel",
+        "-kernel", kernel_path,
         "-m", "512M",
         "-vga", "std",
         "-display", "none",

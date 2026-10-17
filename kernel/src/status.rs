@@ -68,6 +68,7 @@ pub struct StatusRegistry {
     pub quota_frames: ComponentStatus,
     pub user_mode_ring3: ComponentStatus,
     pub elf_loader: ComponentStatus,
+    pub sync_ipc: ComponentStatus,
 }
 
 impl StatusRegistry {
@@ -106,6 +107,7 @@ impl StatusRegistry {
             quota_frames: ComponentStatus::Partial,
             user_mode_ring3: ComponentStatus::Stub,
             elf_loader: ComponentStatus::Stub,
+            sync_ipc: ComponentStatus::Stub,
         }
     }
 }
@@ -145,7 +147,8 @@ pub fn print_boot_banner() {
         ("Physical Frame Domain Quotas", reg.quota_frames, "per-domain frame quotas"),
         ("Ring 3 User Mode & Syscalls", reg.user_mode_ring3, "Ring 3 isolation & fault containment"),
         ("ELF64 Loader & W^X Enforcement", reg.elf_loader, "validates ELF64 and enforces W^X"),
-        ("Capability Engine", reg.kcore_caps, "library implementation; OS isolation incomplete"),
+        ("Capability Engine", reg.kcore_caps, "handles, CSpace, revocation & IPC"),
+        ("Synchronous Rendezvous IPC", reg.sync_ipc, "badged endpoints & cap transfer"),
         ("Linear Framebuffer Desktop Shell", reg.linear_framebuffer, "Liquid-Glass GUI compositor surface"),
         ("Hardware Cryptographic Entropy", reg.hw_entropy, "RDRAND / RDSEED / VirtIO-RNG"),
         ("Register Key Staging", reg.tresor_debug_regs, "experimental; not a hardware security claim"),

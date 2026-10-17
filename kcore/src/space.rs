@@ -79,6 +79,17 @@ impl<const N: usize> CapSpace<N> {
         Ok(())
     }
 
+    /// Microkernel mediation: install a capability transferred across spaces or initialized for a new process.
+    pub fn install_transferred(&mut self, idx: usize, cap: Cap) -> KResult<()> {
+        self.require_empty(idx)?;
+        if cap.is_null() {
+            return Err(KError::InvalidArgument);
+        }
+        let dst = self.slots.get_mut(idx).ok_or(KError::InvalidSlot)?;
+        *dst = Slot { cap, parent: None };
+        Ok(())
+    }
+
     /// Duplicate `src` into `dst` with rights `src.rights & mask`.
     pub fn copy(&mut self, src: usize, dst: usize, mask: Rights) -> KResult<()> {
         self.derive(src, dst, mask, None)

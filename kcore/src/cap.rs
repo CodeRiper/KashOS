@@ -33,6 +33,20 @@ impl Rights {
     }
 }
 
+impl core::ops::BitOr for Rights {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        self.union(rhs)
+    }
+}
+
+impl core::ops::BitAnd for Rights {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        self.intersect(rhs)
+    }
+}
+
 pub const MIN_UNTYPED_BITS: u8 = 4; // 16 bytes
 pub const MAX_UNTYPED_BITS: u8 = 47; // 128 TiB, keeps every shift/add overflow-free
 pub const FRAME_BITS: u8 = 12; // 4 KiB
@@ -130,6 +144,30 @@ impl Cap {
             rights: Rights::ALL,
             badge: 0,
         })
+    }
+
+    pub const fn new_endpoint(addr: u64, rights: Rights, badge: u64) -> Self {
+        Cap {
+            kind: CapKind::Endpoint { addr },
+            rights,
+            badge,
+        }
+    }
+
+    pub const fn new_tcb(tcb_id: u64, rights: Rights) -> Self {
+        Cap {
+            kind: CapKind::TCB { tcb_id },
+            rights,
+            badge: 0,
+        }
+    }
+
+    pub const fn new_frame(paddr: u64, rights: Rights) -> Self {
+        Cap {
+            kind: CapKind::Frame { paddr },
+            rights,
+            badge: 0,
+        }
     }
 
     pub const fn kind(&self) -> CapKind {
@@ -244,10 +282,8 @@ impl ProcessSecurityContext {
             entry.1 = entry.1.intersect(rights);
             return Ok(());
         }
-        if self.unveiled_count >= self.unveiled_namespaces.len() {
-            return Err(KError::TableFull);
-        }
-        self.unveiled_namespaces[self.unveiled_count] = (inode_id, rights);
+        let slot = self.unveiled_namespaces.get_mut(self.unveiled_count).ok_or(KError::TableFull)?;
+        *slot = (inode_id, rights);
         self.unveiled_count += 1;
         Ok(())
     }
@@ -257,9 +293,11 @@ impl ProcessSecurityContext {
         if self.unveiled_count == 0 {
             return true; // No unveil restrictions installed yet
         }
-        self.unveiled_namespaces[..self.unveiled_count]
-            .iter()
-            .any(|(id, rights)| *id == inode_id && rights.contains(required))
+        if let Some(slice) = self.unveiled_namespaces.get(..self.unveiled_count) {
+            slice.iter().any(|(id, rights)| *id == inode_id && rights.contains(required))
+        } else {
+            false
+        }
     }
 }
 

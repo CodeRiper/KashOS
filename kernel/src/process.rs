@@ -15,6 +15,7 @@ use crate::mmu::BumpFrameAllocator;
 use crate::sync::TicketSpinLock;
 use crate::task::{current_tid, exit_current_thread, Thread, KERNEL_STACK_SIZE, SCHEDULER, THREADS, THREAD_STACKS};
 use kscheduler::{QoSClass, SchedError, MAX_TASKS};
+use kcore::{Cap, CapSpace, Rights};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 pub const MAX_PROCESSES: usize = MAX_TASKS;
@@ -55,6 +56,9 @@ impl ProcessControlBlock {
 
 pub static PROCESS_TABLE: TicketSpinLock<[ProcessControlBlock; MAX_PROCESSES]> =
     TicketSpinLock::new([const { ProcessControlBlock::empty() }; MAX_PROCESSES]);
+
+pub static PROCESS_CSPACES: TicketSpinLock<[CapSpace<64>; MAX_PROCESSES]> =
+    TicketSpinLock::new([const { CapSpace::<64>::new() }; MAX_PROCESSES]);
 
 static NEXT_PID: AtomicU32 = AtomicU32::new(10);
 static FAULT_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -141,6 +145,20 @@ pub fn spawn_user_process(
         in_use: true,
     };
 
+    // Initialize per-process Capability Space (CSpace) with seL4-style authority
+    {
+        let mut cspaces = PROCESS_CSPACES.lock();
+        let mut cs = CapSpace::<64>::new();
+        let untyped_base = 0x3000_0000u64 + ((pid as u64) * 0x1_0000u64);
+        if let Ok(ut) = Cap::new_untyped(untyped_base, 16) {
+            let _ = cs.install_root(0, ut);
+        }
+        let _ = cs.install_transferred(1, Cap::new_tcb(pid as u64, Rights::ALL));
+        let _ = cs.install_transferred(2, Cap::new_frame(loaded.cr3, Rights::ALL));
+        let _ = cs.install_transferred(3, Cap::new_endpoint(pid as u64, Rights::ALL, pid as u64));
+        cspaces[slot] = cs;
+    }
+
     let task_idx = sched.create_task_with_vspace(pid, qos, slot as u64, loaded.cr3, stack_top)
         .map_err(|_| "Scheduler task creation failed")?;
     sched.enqueue_ready(task_idx)
@@ -160,6 +178,12 @@ pub fn exit_process(exit_code: i32) -> ! {
             pcb.exit_code = Some(exit_code);
         }
     }
+    {
+        let mut cspaces = PROCESS_CSPACES.lock();
+        let idx = (pid as usize) % MAX_PROCESSES;
+        let _ = cspaces[idx].revoke(0);
+        cspaces[idx] = CapSpace::new();
+    }
     exit_current_thread()
 }
 
@@ -175,6 +199,12 @@ pub fn on_user_process_fault(pid: u32, exit_code: i32) {
             pcb.state = ProcessState::Zombie(exit_code);
             pcb.exit_code = Some(exit_code);
         }
+    }
+    {
+        let mut cspaces = PROCESS_CSPACES.lock();
+        let idx = (pid as usize) % MAX_PROCESSES;
+        let _ = cspaces[idx].revoke(0);
+        cspaces[idx] = CapSpace::new();
     }
     {
         let mut sched = SCHEDULER.lock();

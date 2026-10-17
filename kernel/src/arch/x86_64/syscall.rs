@@ -165,20 +165,109 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
 
     match num {
         nr::SYS_CAP_INVOKE => {
-            let cptr = arg1 as u64;
-            let core = crate::cap::CAP_CORE.lock();
-            let cap_res = core.lookup_cptr(cptr, crate::cap::CapRights::WRITE);
-            match cap_res {
-                Ok(cap) => match cap.kind {
-                    crate::cap::CapKind::Endpoint { badge, .. } => badge as i64,
-                    crate::cap::CapKind::TCB { tcb_id, .. } => tcb_id as i64,
-                    crate::cap::CapKind::Frame { paddr, .. } => paddr as i64,
-                    _ => 0,
-                },
-                Err(err) => match err {
-                    crate::cap::SeL4Error::InsufficientRights => SyscallError::InsufficientRights as i64,
-                    _ => SyscallError::InvalidCapability as i64,
-                },
+            let cptr = arg1;
+            let op = arg2;
+            let current_pid = crate::task::current_tid();
+            let cspace_idx = (current_pid as usize) % crate::process::MAX_PROCESSES;
+            let mut cspaces = crate::process::PROCESS_CSPACES.lock();
+            let cs = &mut cspaces[cspace_idx];
+
+            match op {
+                0 => {
+                    // Lookup / inspect
+                    match cs.lookup(cptr, kcore::Rights::NONE) {
+                        Ok(cap) => cap.badge() as i64,
+                        Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
+                        Err(_) => SyscallError::InvalidCapability as i64,
+                    }
+                }
+                1 => {
+                    // Copy: src = cptr, dst = arg3, mask = arg4
+                    let mask = kcore::Rights::from_bits(arg4 as u8).unwrap_or(kcore::Rights::ALL);
+                    match cs.copy(cptr, arg3, mask) {
+                        Ok(()) => 0,
+                        Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
+                        Err(_) => SyscallError::InvalidCapability as i64,
+                    }
+                }
+                2 => {
+                    // Mint: src = cptr, dst = arg3, mask = arg4, badge = arg5
+                    let mask = kcore::Rights::from_bits(arg4 as u8).unwrap_or(kcore::Rights::ALL);
+                    match cs.mint(cptr, arg3, mask, arg5 as u64) {
+                        Ok(()) => 0,
+                        Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
+                        Err(_) => SyscallError::InvalidCapability as i64,
+                    }
+                }
+                3 => {
+                    // Delete: slot = cptr
+                    match cs.delete(cptr) {
+                        Ok(()) => 0,
+                        Err(_) => SyscallError::InvalidCapability as i64,
+                    }
+                }
+                4 => {
+                    // Revoke: slot = cptr
+                    match cs.revoke(cptr) {
+                        Ok(()) => 0,
+                        Err(_) => SyscallError::InvalidCapability as i64,
+                    }
+                }
+                _ => SyscallError::InvalidArgument as i64,
+            }
+        }
+        nr::SYS_IPC_SEND => {
+            let endpoint_cptr = arg1;
+            let tag = arg2 as u64;
+            let words_ptr = arg3 as *const u64;
+            let words_len = arg4;
+            let cap_to_transfer = if arg5 != 0 { Some(arg5) } else { None };
+
+            let mut words_buf = [0u64; crate::ipc::MAX_IPC_WORDS];
+            let count = words_len.min(crate::ipc::MAX_IPC_WORDS);
+            if count > 0 {
+                if count == 1 && (words_ptr as usize) < crate::elf::USER_SPACE_FLOOR as usize {
+                    // Fast single-word in register argument
+                    words_buf[0] = arg3 as u64;
+                } else if validate_user_memory_region(words_ptr as *const u8, count * 8).is_ok() {
+                    unsafe {
+                        let _ = copy_from_user(
+                            core::slice::from_raw_parts_mut(words_buf.as_mut_ptr() as *mut u8, count * 8),
+                            words_ptr as *const u8,
+                        );
+                    }
+                } else {
+                    return SyscallError::InvalidMemoryAccess as i64;
+                }
+            }
+
+            match crate::ipc::sys_ipc_send(endpoint_cptr, tag, &words_buf[..count], cap_to_transfer) {
+                Ok(()) => 0,
+                Err(e) => e as i64,
+            }
+        }
+        nr::SYS_IPC_RECV => {
+            let endpoint_cptr = arg1;
+            let dest_cap_slot = if arg2 != 0 { Some(arg2) } else { None };
+            let user_buf = arg3 as *mut u64;
+            let user_buf_len = arg4;
+
+            match crate::ipc::sys_ipc_recv(endpoint_cptr, dest_cap_slot) {
+                Ok(msg) => {
+                    if user_buf_len > 0 && !user_buf.is_null() {
+                        let count = user_buf_len.min(msg.words_len);
+                        if validate_user_memory_region(user_buf as *const u8, count * 8).is_ok() {
+                            unsafe {
+                                let _ = copy_to_user(
+                                    user_buf as *mut u8,
+                                    core::slice::from_raw_parts(msg.words.as_ptr() as *const u8, count * 8),
+                                );
+                            }
+                        }
+                    }
+                    msg.sender_badge as i64
+                }
+                Err(e) => e as i64,
             }
         }
         nr::SYS_RETYPE => {
@@ -186,21 +275,30 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
             let obj_type_raw = arg2;
             let dest_slot = arg3;
             let target_type = match obj_type_raw {
-                0 => crate::cap::KernelObjType::Frame4K,
-                1 => crate::cap::KernelObjType::Frame2M,
-                2 => crate::cap::KernelObjType::Endpoint,
-                3 => crate::cap::KernelObjType::Notification,
-                4 => crate::cap::KernelObjType::TCB,
+                0 => kcore::ObjType::Frame,
+                1 => kcore::ObjType::Endpoint,
+                2 => kcore::ObjType::Notification,
+                3 => kcore::ObjType::TCB,
                 _ => return SyscallError::InvalidArgument as i64,
             };
-            match crate::cap::sel4_untyped_retype(untyped_slot, target_type, dest_slot) {
-                Ok(paddr) => paddr as i64,
+            let current_pid = crate::task::current_tid();
+            let cspace_idx = (current_pid as usize) % crate::process::MAX_PROCESSES;
+            let mut cspaces = crate::process::PROCESS_CSPACES.lock();
+            let cs = &mut cspaces[cspace_idx];
+            match cs.retype(untyped_slot, target_type, dest_slot, &mut |_paddr, _len| {}) {
+                Ok(()) => 0,
+                Err(kcore::KError::NoMemory) => -12, // ENOMEM
+                Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
                 Err(_) => SyscallError::InvalidCapability as i64,
             }
         }
         nr::SYS_REVOKE => {
             let slot_idx = arg1;
-            match crate::cap::sel4_cnode_revoke(slot_idx) {
+            let current_pid = crate::task::current_tid();
+            let cspace_idx = (current_pid as usize) % crate::process::MAX_PROCESSES;
+            let mut cspaces = crate::process::PROCESS_CSPACES.lock();
+            let cs = &mut cspaces[cspace_idx];
+            match cs.revoke(slot_idx) {
                 Ok(()) => 0,
                 Err(_) => SyscallError::InvalidCapability as i64,
             }

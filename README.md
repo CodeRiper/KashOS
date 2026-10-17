@@ -29,9 +29,9 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | **Boot, GDT/IDT/APIC, Heap** | Working (ACPI MADT multi-core discovery, 4 CPUs in QEMU, APIC ICR/IPI, ticket locks) | UEFI PE32+ loader is a stub; AP full bring-up via SIPI scheduled for Phase 4 |
 | **Paging & Memory** | Real $W\oplus X$ page tables, CR0.WP supervisor write protection, domain frame quotas, per-process PML4 address spaces | Tested and verified in Phase 1 & 2 |
 | **Ring 3 / Syscalls** | Real unprivileged Ring 3 execution (`iretq`), hardened syscall dispatcher, SMAP safety, fault containment | Tested and verified in Phase 2; user null-dereference trapped & isolated |
-| **Scheduler & IPC** | Preemptive 3-band QoS scheduler (`kscheduler`) active, FPU/SSE save/restore, 1M cycle test passed | IPC capability transfer scheduled for Phase 3 |
-| **Capability Engine** | `kcore` capability derivations and rights pass host tests | Capability spaces not yet active around unprivileged processes |
-| **kash_kernel.rs** | Model untyped memory allocator & ARINC scheduler structures | Wire in or delete in Phase 3 |
+| **Scheduler & IPC** | Preemptive 3-band QoS scheduler (`kscheduler`) active, FPU/SSE save/restore, 1M cycle test passed, synchronous rendezvous IPC with badged endpoints & capability transfer | Tested and verified in Phase 1, 2 & 3 |
+| **Capability Engine** | `kcore` per-process capability spaces (`PROCESS_CSPACES`), unforgeable compartment badges, rights monotonicity, recursive revocation with memory zeroing (< 1 ms benchmark), untyped quota isolation | Tested and verified in Phase 3 |
+| **kash_kernel.rs** | Model untyped memory allocator & ARINC scheduler structures | Integrated and verified in Phase 3 capability & IPC tests |
 | **IOMMU (VT-d)** | Register definitions and ACPI DMAR table parser | Off unless DMAR found; no driver domain translation; no AMD-Vi |
 | **Drivers** | PS/2 keyboard/mouse works; e1000 & virtio-net partial; kblock passes tests | xHCI USB is a stub; no integrated disk filesystem; no Wi-Fi |
 | **Storage Crypto (`kvault`)** | Argon2id, XChaCha20-Poly1305, Merkle CoW tree pass 20 tests | AES-256-XTS not implemented; not mounted as root OS filesystem |

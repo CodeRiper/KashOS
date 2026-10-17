@@ -45,6 +45,8 @@ pub mod flask;
 pub mod gui;
 #[allow(unsafe_code)]
 mod heap;
+#[allow(unsafe_code)]
+pub mod ipc;
 pub mod kapp;
 mod kash;
 pub mod kash_kernel;
