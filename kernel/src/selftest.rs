@@ -92,6 +92,18 @@ pub fn run(region: MemRegion) {
     // ── Test 10: Preemptive multitasking 1,000,000 cycles concurrency ────
     #[cfg(target_arch = "x86_64")]
     test_preemptive_multitasking();
+
+    // ── Test 11: ELF64 Executable Loader & Mandatory W^X Policy ─────────
+    #[cfg(target_arch = "x86_64")]
+    test_elf_loader_and_wx_rejection();
+
+    // ── Test 12: Hardened System Call Layer 10,000 Iteration Fuzz Test ────
+    #[cfg(target_arch = "x86_64")]
+    test_syscall_fuzzing();
+
+    // ── Test 13: Ring 3 User Mode, Syscalls & Hardware Fault Containment ──
+    #[cfg(target_arch = "x86_64")]
+    test_user_mode_execution_and_fault_containment();
 }
 
 fn test_frame_allocator_quotas() {
@@ -215,4 +227,219 @@ pub fn test_nx_smep_fault() {
     } else {
         kprintln!("[security] ⚠ deliberate protection violation was not caught");
     }
+}
+
+#[repr(align(4096))]
+pub struct FramePool<const N: usize>(pub [[u8; 4096]; N]);
+
+pub struct StaticFrameAllocator<'a, const N: usize> {
+    base: u64,
+    allocated: usize,
+    _marker: core::marker::PhantomData<&'a mut ()>,
+}
+
+impl<'a, const N: usize> StaticFrameAllocator<'a, N> {
+    pub fn new(pool: &'a mut FramePool<N>) -> Self {
+        let base = pool.0.as_mut_ptr() as u64;
+        Self { base, allocated: 0, _marker: core::marker::PhantomData }
+    }
+}
+
+impl<'a, const N: usize> kpaging::FrameAllocator for StaticFrameAllocator<'a, N> {
+    fn allocate_frame(&mut self) -> Result<u64, kpaging::PageError> {
+        if self.allocated >= N {
+            return Err(kpaging::PageError::OutOfFrames);
+        }
+        let frame = self.base + (self.allocated as u64) * 4096;
+        self.allocated += 1;
+        unsafe { core::ptr::write_bytes(frame as *mut u8, 0, 4096); }
+        Ok(frame)
+    }
+
+    fn deallocate_frame(&mut self, _paddr: u64) {}
+}
+
+#[cfg(target_arch = "x86_64")]
+static mut ELF_TEST_FRAME_POOL: FramePool<32> = FramePool([[0; 4096]; 32]);
+
+#[cfg(target_arch = "x86_64")]
+pub fn test_elf_loader_and_wx_rejection() {
+    kprintln!("[selftest] T11: verifying ELF64 loader and mandatory W^X policy...");
+    let code = [0x90u8; 16];
+    let elf_buf = crate::elf::create_test_elf(&code);
+
+    let mut alloc = StaticFrameAllocator::new(unsafe { &mut *core::ptr::addr_of_mut!(ELF_TEST_FRAME_POOL) });
+
+    let mut kernel_cr3: u64;
+    unsafe {
+        core::arch::asm!("mov {0}, cr3", out(reg) kernel_cr3, options(nostack));
+    }
+
+    // 1. Valid ELF64 loading
+    let loaded = match crate::elf::load_elf(&elf_buf, &mut alloc, kernel_cr3) {
+        Ok(l) => l,
+        Err(e) => panic!("selftest: failed to load valid ELF: {:?}", e),
+    };
+    check!(loaded.entry_point == 0x0000_0001_0000_0078);
+    check!(loaded.user_stack_top == crate::elf::USER_STACK_TOP);
+    check!(loaded.cr3 != 0);
+
+    // 2. Reject W^X violation (PF_W | PF_X in segment flags)
+    let mut bad_wx_elf = elf_buf;
+    unsafe {
+        let flags_ptr = bad_wx_elf.as_mut_ptr().add(68) as *mut u32;
+        *flags_ptr = crate::elf::PF_W | crate::elf::PF_X;
+    }
+    let wx_res = crate::elf::load_elf(&bad_wx_elf, &mut alloc, kernel_cr3);
+    check!(wx_res == Err(crate::elf::ElfError::WriteExecuteViolation));
+
+    // 3. Reject Out-Of-Bounds segment (>= USER_SPACE_CEILING)
+    let mut oob_elf = elf_buf;
+    unsafe {
+        let vaddr_ptr = oob_elf.as_mut_ptr().add(80) as *mut u64;
+        *vaddr_ptr = 0x0000_8000_0000_0000;
+    }
+    let oob_res = crate::elf::load_elf(&oob_elf, &mut alloc, kernel_cr3);
+    check!(oob_res == Err(crate::elf::ElfError::AddressOutOfBounds));
+
+    kprintln!("[selftest] ✓ T11 ELF64 loader verified: W^X enforced (W|X rejected), bounds protected, PML4 isolated");
+    crate::status::update(|s| s.elf_loader = crate::status::ComponentStatus::Real);
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn test_syscall_fuzzing() {
+    kprintln!("[selftest] T12: launching 10,000 random-syscall fuzz stress test on dispatcher...");
+    let mut rng_state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next_rnd = || -> u64 {
+        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state
+    };
+
+    let extreme_ptrs = [
+        0u64,
+        1u64,
+        0x0000_7FFF_FFFF_FFFFu64,     // USER_SPACE_CEILING
+        0x0000_8000_0000_0000u64,     // Non-canonical boundary
+        0xFFFF_8000_0000_0000u64,     // Supervisor memory
+        u64::MAX,
+        0x0040_0000u64,
+    ];
+
+    let mut rejected_count = 0u32;
+    for _ in 0..10_000 {
+        let raw_num = (next_rnd() % 100) as usize;
+        // Avoid calling SYS_EXIT or Linux SYS_EXIT/SYS_EXIT_GROUP directly on the selftest runner
+        let num = if raw_num == 7 || raw_num == 60 || raw_num == 231 { 10 } else { raw_num };
+
+        let ptr_idx = (next_rnd() as usize) % extreme_ptrs.len();
+        let arg1 = extreme_ptrs[ptr_idx] as usize;
+        let arg2 = (next_rnd() % 0x10000) as usize;
+        let arg3 = next_rnd() as usize;
+        let arg4 = next_rnd() as usize;
+        let arg5 = next_rnd() as usize;
+
+        let res = crate::arch::x86_64::syscall::kash_rust_syscall_dispatcher(
+            num, arg1, arg2, arg3, arg4, arg5
+        );
+        if res < 0 {
+            rejected_count += 1;
+        }
+    }
+
+    kprintln!("[selftest] ✓ T12 10,000 syscall fuzz calls survived with 0 kernel panics ({} rejected safely)",
+              rejected_count);
+}
+
+#[cfg(target_arch = "x86_64")]
+static mut USER_PROCESS_FRAME_POOL: FramePool<64> = FramePool([[0; 4096]; 64]);
+
+#[cfg(target_arch = "x86_64")]
+pub fn test_user_mode_execution_and_fault_containment() {
+    kprintln!("[selftest] T13: testing unprivileged Ring 3 execution & fault containment...");
+    let mut alloc = StaticFrameAllocator::new(unsafe { &mut *core::ptr::addr_of_mut!(USER_PROCESS_FRAME_POOL) });
+
+    // ── Sub-test A: User program executing SYS_PRINT and SYS_EXIT(0) ──
+    // Machine code for user hello:
+    // 0:  48 8d 3d 1d 00 00 00   lea rdi, [rip + 29] (points to msg at offset 36)
+    // 7:  48 c7 c6 23 00 00 00   mov rsi, 35 (msg len)
+    // 14: 48 c7 c0 0a 00 00 00   mov rax, 10 (SYS_PRINT)
+    // 21: 0f 05                  syscall
+    // 23: 48 31 ff               xor rdi, rdi (exit code 0)
+    // 26: 48 c7 c0 07 00 00 00   mov rax, 7 (SYS_EXIT)
+    // 33: 0f 05                  syscall
+    // 35: f4                     hlt
+    // 36: b"[user] Hello from Ring 3 syscall!\n" (34 bytes)
+    let mut code_payload = [0u8; 70];
+    let code_prefix = [
+        0x48, 0x8d, 0x3d, 0x1d, 0x00, 0x00, 0x00,
+        0x48, 0xc7, 0xc6, 0x22, 0x00, 0x00, 0x00,
+        0x48, 0xc7, 0xc0, 0x0a, 0x00, 0x00, 0x00,
+        0x0f, 0x05,
+        0x48, 0x31, 0xff,
+        0x48, 0xc7, 0xc0, 0x07, 0x00, 0x00, 0x00,
+        0x0f, 0x05,
+        0xf4,
+    ];
+    code_payload[..36].copy_from_slice(&code_prefix);
+    let msg = b"[user] Hello from Ring 3 syscall!\n";
+    code_payload[36..70].copy_from_slice(msg);
+
+    let hello_elf = crate::elf::create_test_elf(&code_payload);
+    let pid1 = match crate::process::spawn_user_elf("user-hello", &hello_elf, &mut alloc, kscheduler::QoSClass::UserInteractive) {
+        Ok(p) => p,
+        Err(e) => panic!("selftest: failed to spawn user-hello: {}", e),
+    };
+
+    let mut spins = 0;
+    let mut exited_cleanly = false;
+    while spins < 10_000_000 {
+        {
+            let pcb_table = crate::process::PROCESS_TABLE.lock();
+            if let Some(pcb) = pcb_table.iter().find(|p| p.in_use && p.pid == pid1) {
+                if let crate::process::ProcessState::Zombie(code) = pcb.state {
+                    check!(code == 0);
+                    exited_cleanly = true;
+                    break;
+                }
+            }
+        }
+        core::hint::spin_loop();
+        spins += 1;
+    }
+    check!(exited_cleanly);
+    kprintln!("[selftest] ✓ Sub-test A passed: user program executed SYS_PRINT and exited voluntarily with code 0");
+
+    // ── Sub-test B: User program fault containment (null pointer dereference) ──
+    // Machine code for null dereference:
+    // 0: 48 8b 04 25 00 00 00 00   mov rax, [0]
+    // 8: f4                        hlt
+    let crash_code = [0x48, 0x8b, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0xf4];
+    let crash_elf = crate::elf::create_test_elf(&crash_code);
+    let pid2 = match crate::process::spawn_user_elf("user-crash", &crash_elf, &mut alloc, kscheduler::QoSClass::UserInteractive) {
+        Ok(p) => p,
+        Err(e) => panic!("selftest: failed to spawn user-crash: {}", e),
+    };
+
+    let initial_faults = crate::process::user_fault_count();
+    let mut spins2 = 0;
+    let mut fault_contained = false;
+    while spins2 < 10_000_000 {
+        {
+            let pcb_table = crate::process::PROCESS_TABLE.lock();
+            if let Some(pcb) = pcb_table.iter().find(|p| p.in_use && p.pid == pid2) {
+                if let crate::process::ProcessState::Zombie(_) = pcb.state {
+                    fault_contained = true;
+                    break;
+                }
+            }
+        }
+        core::hint::spin_loop();
+        spins2 += 1;
+    }
+    check!(fault_contained);
+    check!(crate::process::user_fault_count() > initial_faults);
+    kprintln!("[selftest] ✓ Sub-test B passed: user null-dereference #PF trapped, PID {} killed, microkernel survived!", pid2);
+
+    kprintln!("[selftest] ✓ T13 User Mode Ring 3 & Fault Containment fully verified");
+    crate::status::update(|s| s.user_mode_ring3 = crate::status::ComponentStatus::Real);
 }

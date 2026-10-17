@@ -66,6 +66,8 @@ pub struct StatusRegistry {
     pub kscheduler_preempt: ComponentStatus,
     pub smp_multicore: ComponentStatus,
     pub quota_frames: ComponentStatus,
+    pub user_mode_ring3: ComponentStatus,
+    pub elf_loader: ComponentStatus,
 }
 
 impl StatusRegistry {
@@ -102,6 +104,8 @@ impl StatusRegistry {
             kscheduler_preempt: ComponentStatus::Partial,
             smp_multicore: ComponentStatus::Partial,
             quota_frames: ComponentStatus::Partial,
+            user_mode_ring3: ComponentStatus::Stub,
+            elf_loader: ComponentStatus::Stub,
         }
     }
 }
@@ -133,12 +137,14 @@ pub fn print_boot_banner() {
 
     let entries = [
         ("W^X Paging & Memory Protection", reg.wx_paging, "kernel page tables; no proof claim"),
-        ("GDT + TSS Stack Handling", reg.gdt_tss, "kernel stack setup; no user-mode proof"),
+        ("GDT + TSS Stack Handling", reg.gdt_tss, "TSS RSP0 & IST stacks active"),
         ("IDT & Interrupt / Exception Handlers", reg.idt_interrupts, "kernel exception handling"),
         ("Timer & RTC", reg.apic_timer, "platform timer and RTC support varies"),
         ("Preemptive QoS Scheduler", reg.kscheduler_preempt, "3-band timer preemption"),
         ("SMP Multicore Processor Cores", reg.smp_multicore, "ACPI MADT multi-core discovery"),
         ("Physical Frame Domain Quotas", reg.quota_frames, "per-domain frame quotas"),
+        ("Ring 3 User Mode & Syscalls", reg.user_mode_ring3, "Ring 3 isolation & fault containment"),
+        ("ELF64 Loader & W^X Enforcement", reg.elf_loader, "validates ELF64 and enforces W^X"),
         ("Capability Engine", reg.kcore_caps, "library implementation; OS isolation incomplete"),
         ("Linear Framebuffer Desktop Shell", reg.linear_framebuffer, "Liquid-Glass GUI compositor surface"),
         ("Hardware Cryptographic Entropy", reg.hw_entropy, "RDRAND / RDSEED / VirtIO-RNG"),

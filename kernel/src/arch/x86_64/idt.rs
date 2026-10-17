@@ -94,6 +94,13 @@ pub fn was_fault_caught() -> bool {
     FAULT_CAUGHT.load(core::sync::atomic::Ordering::SeqCst)
 }
 
+static USER_FAULT_RECOVERY_RIP: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// Arms an expected user fault recovery target RIP for selftests.
+pub fn set_user_fault_recovery(recovery_rip: u64) {
+    USER_FAULT_RECOVERY_RIP.store(recovery_rip, core::sync::atomic::Ordering::SeqCst);
+}
+
 /// Common C handler called from every exception stub.
 #[no_mangle]
 pub extern "C" fn x86_exception_handler(frame: &mut ExceptionFrame) {
@@ -110,10 +117,32 @@ pub extern "C" fn x86_exception_handler(frame: &mut ExceptionFrame) {
 
     let is_user_mode = (frame.cs & 3) != 0;
     if is_user_mode {
-        kprintln!("\n[USER-FAULT] Exception in user mode process: {} (vector={:#x} err={:#x})", name, vec, frame.error);
+        let pid = crate::task::current_tid();
+        kprintln!("\n[USER-FAULT] Exception in user mode process (PID {}): {} (vector={:#x} err={:#x})",
+                  pid, name, vec, frame.error);
         kprintln!("  Faulting User RIP={:#018x} RSP={:#018x} RFLAGS={:#018x}", frame.rip, frame.rsp, frame.rflags);
-        kprintln!("[USER-FAULT] Stopping faulting process safely (fail-closed).");
-        crate::arch::shutdown(true)
+        if vec == 14 {
+            let cr2: u64;
+            unsafe { core::arch::asm!("mov {0}, cr2", out(reg) cr2, options(nostack)); }
+            kprintln!("  Faulting Address (CR2)={:#018x}", cr2);
+        }
+        kprintln!("[USER-FAULT] Terminating faulting process safely (fail-closed) — microkernel continues running.");
+        crate::process::on_user_process_fault(pid, -((vec as i32) + 1));
+
+        let rec_rip = USER_FAULT_RECOVERY_RIP.swap(0, core::sync::atomic::Ordering::SeqCst);
+        let target_rip = if rec_rip != 0 {
+            rec_rip
+        } else {
+            crate::process::user_fault_terminate_trampoline as *const () as usize as u64
+        };
+
+        // Redirect execution to safe termination trampoline or test recovery in supervisor mode
+        frame.rip = target_rip;
+        frame.cs = super::gdt::KERNEL_CODE_SELECTOR as u64;
+        frame.rflags = 0x202;
+        frame.ss = super::gdt::KERNEL_DATA_SELECTOR as u64;
+        frame.rsp = (frame as *const ExceptionFrame as u64) & !0xF;
+        return;
     }
 
     kprintln!("\n[KERNEL-PANIC] Unrecoverable Supervisor Exception: {} (vector={:#x} err={:#x})", name, vec, frame.error);

@@ -16,6 +16,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+pub const USER_SPACE_FLOOR: usize   = 0x0000_0000_4000_0000; // 1 GiB canonical floor
 pub const USER_SPACE_CEILING: usize = 0x0000_7FFF_FFFF_FFFF;
 
 // ── Linux Syscall Numbers (x86-64 ABI) ───────────────────────────────────────
@@ -320,10 +321,30 @@ pub fn validate_user_ptr(ptr: usize, len: usize) -> Result<(), i64> {
         Some(e) => e,
         None => return Err(EFAULT),
     };
-    if ptr > USER_SPACE_CEILING || end > USER_SPACE_CEILING {
+    if ptr < USER_SPACE_FLOOR || end > USER_SPACE_CEILING {
         return Err(EFAULT);
     }
     Ok(())
+}
+
+#[inline(always)]
+pub unsafe fn user_access_begin() {
+    #[cfg(target_arch = "x86_64")]
+    if crate::arch::x86_64::cpuid::detect().has_smap {
+        unsafe {
+            core::arch::asm!("stac", options(nomem, nostack, preserves_flags));
+        }
+    }
+}
+
+#[inline(always)]
+pub unsafe fn user_access_end() {
+    #[cfg(target_arch = "x86_64")]
+    if crate::arch::x86_64::cpuid::detect().has_smap {
+        unsafe {
+            core::arch::asm!("clac", options(nomem, nostack, preserves_flags));
+        }
+    }
 }
 
 /// Safely copy a null-terminated string from user space with bounds checking.
@@ -333,8 +354,10 @@ pub fn copy_user_string(ptr: usize, max_len: usize) -> Result<String, i64> {
     }
     let mut bytes = Vec::new();
     let mut curr = ptr;
+    unsafe { user_access_begin(); }
     while bytes.len() < max_len {
         if validate_user_ptr(curr, 1).is_err() {
+            unsafe { user_access_end(); }
             return Err(EFAULT);
         }
         let b = unsafe { core::ptr::read_volatile(curr as *const u8) };
@@ -344,6 +367,7 @@ pub fn copy_user_string(ptr: usize, max_len: usize) -> Result<String, i64> {
         bytes.push(b);
         curr = curr.saturating_add(1);
     }
+    unsafe { user_access_end(); }
     String::from_utf8(bytes).map_err(|_| ENOENT)
 }
 
@@ -372,8 +396,12 @@ pub fn handle_linux_syscall(
             } else if fd >= 3 && fd < 100 {
                 // Active file handle from VFS or Powerbox
                 let len = count.min(64);
-                let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len) };
-                slice.fill(0x20); // space padding
+                unsafe {
+                    user_access_begin();
+                    let slice = core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len);
+                    slice.fill(0x20); // space padding
+                    user_access_end();
+                }
                 len as i64
             } else {
                 EBADF
@@ -388,14 +416,30 @@ pub fn handle_linux_syscall(
 
             if fd == 1 || fd == 2 {
                 // Echo directly to kernel console (stdout / stderr)
-                let slice = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, count) };
-                if let Ok(s) = core::str::from_utf8(slice) {
-                    crate::kprint!("{}", s);
+                let mut chunk = [0u8; 128];
+                let mut remaining = count;
+                let mut src = buf_ptr as *const u8;
+                while remaining > 0 {
+                    let to_read = remaining.min(chunk.len());
+                    unsafe {
+                        user_access_begin();
+                        core::ptr::copy_nonoverlapping(src, chunk.as_mut_ptr(), to_read);
+                        user_access_end();
+                    }
+                    if let Ok(s) = core::str::from_utf8(&chunk[..to_read]) {
+                        crate::kprint!("{}", s);
+                    }
+                    remaining -= to_read;
+                    src = unsafe { src.add(to_read) };
                 }
                 count as i64
             } else {
                 count as i64
             }
+        }
+        nr::SYS_EXIT | nr::SYS_EXIT_GROUP => {
+            let code = arg1 as i32;
+            crate::process::exit_process(code);
         }
         nr::SYS_OPEN => {
             if sandbox.check_pledge(PLEDGE_RPATH).is_err() { return EPERM; }
@@ -450,7 +494,9 @@ pub fn handle_linux_syscall(
                 __unused: [0; 3],
             };
             unsafe {
+                user_access_begin();
                 core::ptr::write_unaligned(stat_ptr as *mut LinuxStat, stat);
+                user_access_end();
             }
             0
         }
@@ -485,11 +531,10 @@ pub fn handle_linux_syscall(
             }
             let uts = LinuxUtsname::new();
             unsafe {
+                user_access_begin();
                 core::ptr::write_unaligned(buf_ptr as *mut LinuxUtsname, uts);
+                user_access_end();
             }
-            0
-        }
-        nr::SYS_EXIT | nr::SYS_EXIT_GROUP => {
             0
         }
         nr::SYS_CLOCK_GETTIME => {
@@ -500,7 +545,9 @@ pub fn handle_linux_syscall(
             let cur_time = crate::arch::read_rtc_unix_seconds() as i64;
             let ts = LinuxTimeSpec { tv_sec: cur_time, tv_nsec: 0 };
             unsafe {
+                user_access_begin();
                 core::ptr::write_unaligned(tp_ptr as *mut LinuxTimeSpec, ts);
+                user_access_end();
             }
             0
         }
@@ -513,7 +560,9 @@ pub fn handle_linux_syscall(
                 let cur_time = crate::arch::read_rtc_unix_seconds() as i64;
                 let tv = LinuxTimeVal { tv_sec: cur_time, tv_usec: 0 };
                 unsafe {
+                    user_access_begin();
                     core::ptr::write_unaligned(tv_ptr as *mut LinuxTimeVal, tv);
+                    user_access_end();
                 }
             }
             0
@@ -529,9 +578,11 @@ pub fn handle_linux_syscall(
             0
         }
         nr::SYS_DUP => {
+            if arg1 > 1024 { return EBADF; }
             (arg1 + 1) as i64
         }
         nr::SYS_DUP2 | nr::SYS_DUP3 => {
+            if arg2 > 1024 { return EBADF; }
             arg2 as i64
         }
         nr::SYS_FCNTL => {
@@ -556,9 +607,11 @@ pub fn handle_linux_syscall(
             let pipefd_ptr = arg1;
             if validate_user_ptr(pipefd_ptr, 8).is_err() { return EFAULT; }
             unsafe {
+                user_access_begin();
                 let ptr = pipefd_ptr as *mut i32;
                 *ptr = 3;     // Read end
                 *ptr.add(1) = 4; // Write end
+                user_access_end();
             }
             0
         }
@@ -615,7 +668,7 @@ pub fn handle_linux_syscall(
         }
         nr::SYS_CLONE | nr::SYS_FORK => {
             if sandbox.check_pledge(PLEDGE_PROC).is_err() { return EPERM; }
-            (sandbox.pid + 1) as i64 // Return child PID
+            sandbox.pid.saturating_add(1) as i64 // Return child PID
         }
         nr::SYS_EXECVE => {
             if sandbox.check_pledge(PLEDGE_EXEC).is_err() { return EPERM; }
@@ -668,9 +721,15 @@ pub fn handle_linux_syscall(
             if crate::lockdown::get_engine().validate_mprotect(write, exec).is_err() {
                 return EACCES;
             }
-            let len = (arg2 + 4095) & !4095;
+            if arg2 == 0 || arg2 > 0x1000_0000 {
+                return EINVAL;
+            }
+            let len = match arg2.checked_add(4095) {
+                Some(l) => l & !4095,
+                None => return EINVAL,
+            };
             let addr = sandbox.heap_brk;
-            sandbox.heap_brk += len;
+            sandbox.heap_brk = sandbox.heap_brk.saturating_add(len);
             addr as i64
         }
         nr::SYS_MPROTECT => {

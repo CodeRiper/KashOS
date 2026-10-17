@@ -13,6 +13,15 @@ pub trait FrameAllocator {
     fn deallocate_frame(&mut self, paddr: u64);
 }
 
+impl<T: FrameAllocator + ?Sized> FrameAllocator for &mut T {
+    fn allocate_frame(&mut self) -> PageResult<u64> {
+        (**self).allocate_frame()
+    }
+    fn deallocate_frame(&mut self, paddr: u64) {
+        (**self).deallocate_frame(paddr)
+    }
+}
+
 #[repr(C, align(4096))]
 pub struct PageTable {
     pub entries: [u64; ENTRIES],

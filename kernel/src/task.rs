@@ -55,7 +55,7 @@ impl Thread {
     }
 }
 
-static THREAD_STACKS: TicketSpinLock<[ThreadStack; MAX_TASKS]> =
+pub static THREAD_STACKS: TicketSpinLock<[ThreadStack; MAX_TASKS]> =
     TicketSpinLock::new([const { ThreadStack::new() }; MAX_TASKS]);
 
 pub static THREADS: TicketSpinLock<[Thread; MAX_TASKS]> =

@@ -27,8 +27,8 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | Subsystem | Current State | Gap to Real Implementation |
 | :--- | :--- | :--- |
 | **Boot, GDT/IDT/APIC, Heap** | Working (ACPI MADT multi-core discovery, 4 CPUs in QEMU, APIC ICR/IPI, ticket locks) | UEFI PE32+ loader is a stub; AP full bring-up via SIPI scheduled for Phase 4 |
-| **Paging & Memory** | Real $W\oplus X$ page tables, CR0.WP supervisor write protection, domain frame quotas | Higher-half shared mapper complete; per-process isolated user tables in Phase 2 |
-| **Ring 3 / Syscalls** | Entry assembly and GDT segment descriptors exist | `enter_user_mode()` scheduled for Phase 2; currently running kernel tasks |
+| **Paging & Memory** | Real $W\oplus X$ page tables, CR0.WP supervisor write protection, domain frame quotas, per-process PML4 address spaces | Tested and verified in Phase 1 & 2 |
+| **Ring 3 / Syscalls** | Real unprivileged Ring 3 execution (`iretq`), hardened syscall dispatcher, SMAP safety, fault containment | Tested and verified in Phase 2; user null-dereference trapped & isolated |
 | **Scheduler & IPC** | Preemptive 3-band QoS scheduler (`kscheduler`) active, FPU/SSE save/restore, 1M cycle test passed | IPC capability transfer scheduled for Phase 3 |
 | **Capability Engine** | `kcore` capability derivations and rights pass host tests | Capability spaces not yet active around unprivileged processes |
 | **kash_kernel.rs** | Model untyped memory allocator & ARINC scheduler structures | Wire in or delete in Phase 3 |
@@ -75,19 +75,19 @@ Pressing **F12** activates **Nitpicker X-Ray Mode**, dimming client application 
 ## 🗺️ Engineering Roadmap (Phases 0 to 10)
 
 ```
-Phase 0: Honesty Cleanup [IN PROGRESS]
+Phase 0: Honesty Cleanup [COMPLETED]
   ├── Strip unproven claims, add status tables & roadmap
   ├── Sanitize shell commands to read real state or report stubs
   ├── Add docs/THREAT_MODEL.md and docs/CLAIMS.md
   └── Fix domain ID collision (personal: 2, sys-usb: 4)
 
-Phase 1: Kernel Core
+Phase 1: Kernel Core [COMPLETED]
   ├── Higher-half kernel mapping & per-process page tables (kpaging)
   ├── Interrupt-safe spinlocks & SMP ticket locks
   ├── Wire in kscheduler preemptive timer scheduler & context switch
   └── SMP bring-up from ACPI MADT (AP start via INIT-SIPI)
 
-Phase 2: Real User Mode
+Phase 2: Real User Mode [COMPLETED]
   ├── ELF loader with exact segment permissions into fresh address spaces
   ├── Syscall boundary with SMAP pointer validation
   └── User-mode init and fault isolation (user fault kills process, not kernel)

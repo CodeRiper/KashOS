@@ -40,6 +40,7 @@ pub mod nr {
     pub const SYS_EXIT:       usize = 7;
     pub const SYS_RETYPE:     usize = 8;
     pub const SYS_REVOKE:     usize = 9;
+    pub const SYS_PRINT:      usize = 10;
 }
 
 /// Validates that a user memory buffer resides strictly within the canonical user space.
@@ -50,7 +51,7 @@ pub fn validate_user_memory_region(ptr: *const u8, len: usize) -> Result<(), Sys
         Some(e) => e,
         None => return Err(SyscallError::InvalidMemoryAccess),
     };
-    if start == 0 || start > USER_SPACE_CEILING || end > USER_SPACE_CEILING {
+    if start == 0 || (start as u64) < crate::elf::USER_SPACE_FLOOR || end > USER_SPACE_CEILING {
         return Err(SyscallError::PrivilegeEscalationAttempted);
     }
     Ok(())
@@ -205,6 +206,27 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
             }
         }
         nr::SYS_YIELD => 0,
+        nr::SYS_EXIT => {
+            let code = arg1 as i32;
+            crate::process::exit_process(code);
+        }
+        nr::SYS_PRINT => {
+            let ptr = arg1 as *const u8;
+            let len = arg2;
+            if validate_user_memory_region(ptr, len).is_err() {
+                return SyscallError::InvalidMemoryAccess as i64;
+            }
+            let mut buf = [0u8; 256];
+            let to_copy = len.min(buf.len());
+            if unsafe { copy_from_user(&mut buf[..to_copy], ptr) }.is_ok() {
+                if let Ok(s) = core::str::from_utf8(&buf[..to_copy]) {
+                    crate::kprint!("{}", s);
+                }
+                len as i64
+            } else {
+                SyscallError::InvalidMemoryAccess as i64
+            }
+        }
         _ => {
             let table = unsafe { &mut *PROCESS_SANDBOXES.0.get() };
             // Real current process ID tracked dynamically from scheduler task context

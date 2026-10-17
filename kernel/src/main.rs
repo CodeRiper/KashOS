@@ -54,6 +54,8 @@ pub mod lockdown;
 mod mmu;
 #[allow(unsafe_code)]
 pub mod powerbox;
+#[allow(unsafe_code)]
+pub mod process;
 pub mod scheme;
 #[allow(unsafe_code)]
 mod security;
@@ -152,8 +154,12 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     //    boot with the permissive provisional map still installed.
     match pt_region {
         Some(pt) => {
-            let mut extra_rw: [(u64, u64); 2] = [(cap_region.base, cap_region.size_bytes()), (0, 0)];
-            let mut n = 1;
+            let mut extra_rw: [(u64, u64); 3] = [
+                (cap_region.base, cap_region.size_bytes()),
+                (pt.base, pt.size_bytes()),
+                (0, 0),
+            ];
+            let mut n = 2;
             if let Some(hr) = heap_region {
                 extra_rw[n] = (hr.base, hr.size_bytes());
                 n += 1;
