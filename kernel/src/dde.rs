@@ -94,10 +94,9 @@ pub struct ApplePlatformSubsystem {
 
 impl ApplePlatformSubsystem {
     pub fn probe() -> Self {
-        // Probe system tables and PCI devices
         Self {
             has_t2_security_chip: false,
-            has_smc_controller: true,
+            has_smc_controller: false,
             has_gmux_dual_gpu: false,
             has_apple_silicon_dart: false,
         }
@@ -109,11 +108,11 @@ impl ApplePlatformSubsystem {
         crate::kprintln!("├──────────────────────────┬───────────────────────┬─────────────────────┤");
         crate::kprintln!("│ Subsystem Component      │ Target Compatibility  │ Driver Status       │");
         crate::kprintln!("├──────────────────────────┼───────────────────────┼─────────────────────┤");
-        crate::kprintln!("│ x86_64 PC ACPI/APIC/PCIe │ Dell, Asus, Mini-PCs  │ ACTIVE (Native HAL) │");
-        crate::kprintln!("│ Apple SMC (LPC/SMBus)    │ Intel Mac (2009-2017) │ READY (Thermal/Fan) │");
-        crate::kprintln!("│ Apple-gmux Dual-GPU      │ MacBook Pro 15/17     │ READY (Backlight/SW)│");
-        crate::kprintln!("│ Apple T2 BCE (apple-bce) │ Intel Mac (2018-2020) │ READY (Mailbox/DMA) │");
-        crate::kprintln!("│ Apple Silicon AIC/DART   │ M1..M4 (ARMv8.5/v9)   │ READY (16KB Paging) │");
+        crate::kprintln!("│ x86_64 PC ACPI/APIC/PCIe │ Standard PC / QEMU    │ ACTIVE (Native HAL) │");
+        crate::kprintln!("│ Apple SMC (LPC/SMBus)    │ Intel Mac (2009-2017) │ NOT AVAILABLE       │");
+        crate::kprintln!("│ Apple-gmux Dual-GPU      │ MacBook Pro 15/17     │ NOT AVAILABLE       │");
+        crate::kprintln!("│ Apple T2 BCE (apple-bce) │ Intel Mac (2018-2020) │ NOT AVAILABLE       │");
+        crate::kprintln!("│ Apple Silicon AIC/DART   │ M1..M4 (ARMv8.5/v9)   │ NOT AVAILABLE       │");
         crate::kprintln!("└──────────────────────────┴───────────────────────┴─────────────────────┘");
     }
 }
@@ -184,19 +183,12 @@ impl TransducerSafetyEngine {
     }
 
     pub fn print_status(&self) {
-        let pwr = if self.is_amplifier_powered.load(Ordering::Relaxed) { "POWERED (Safe)" } else { "SHUTDOWN (Tripped)" };
         crate::kprintln!("┌────────────────────────────────────────────────────────────────────────┐");
         crate::kprintln!("│       APPLE SILICON TRANSDUCER SAFETY ENGINE (speakersafetyd)          │");
         crate::kprintln!("├────────────────────────────────────────────────────────────────────────┤");
-        crate::kprintln!("│ Amplifier State        : {:<45} │", pwr);
-        crate::kprintln!("│ TI TAS2764 V/ISENSE    : Real-time Telemetry Sampling ACTIVE           │");
-        crate::kprintln!("│ Voice Coil Temperature : {:.1} C (Thermal Limit: {:.1} C)               │",
-            self.telemetry.estimated_coil_temp_c, self.max_safe_temp_c);
-        crate::kprintln!("│ Cone Displacement      : {:.2} mm (Excursion Limit: {:.2} mm)          │",
-            self.telemetry.cone_displacement_mm, self.max_safe_displacement_mm);
-        crate::kprintln!("│ DSP High-Pass Filter   : Steep cut below {} Hz (PipeWire/LV2 active)    │",
-            self.high_pass_cutoff_hz);
-        crate::kprintln!("│ Hardware Watchdog      : ACTIVE (Trips in <10ms if daemon halts)       │");
+        crate::kprintln!("│ Hardware Status        : NOT AVAILABLE (Platform is not Apple Silicon) │");
+        crate::kprintln!("│ TI TAS2764 V/ISENSE    : NOT DETECTED (No hardware smartamp present)   │");
+        crate::kprintln!("│ DSP Filter Chain       : NOT IMPLEMENTED (See Part D5 audio drivers)   │");
         crate::kprintln!("└────────────────────────────────────────────────────────────────────────┘");
     }
 }
@@ -207,15 +199,11 @@ static mut GLOBAL_DDE: Option<LinuxDdeHarness> = None;
 static mut GLOBAL_SAFETY: TransducerSafetyEngine = TransducerSafetyEngine::new();
 
 pub fn init() {
-    let mut dde = LinuxDdeHarness::new();
-    dde.register_driver("iwlwifi / mt7921", "PCIe");
-    dde.register_driver("nvme_core", "PCIe");
-    dde.register_driver("xhci_hcd", "PCIe");
-
+    let dde = LinuxDdeHarness::new();
     unsafe {
         GLOBAL_DDE = Some(dde);
     }
-    crate::kprintln!("[dde] Multi-Driver Engine initialized (Linux DDE + Transducer Safety)");
+    crate::kprintln!("[dde] Linux DDE subsystem initialized (container harness ready, 0 drivers loaded)");
 }
 
 pub fn get_safety_engine() -> &'static mut TransducerSafetyEngine {

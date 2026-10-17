@@ -24,8 +24,8 @@ pub use vbox::{probe_environment as probe_vbox, VirtualBoxProfile, VBoxBgaDispla
 pub use vtd::{init as init_vtd, get_iommu_status, IntelVtdUnit, PcieAcsVerifier};
 pub use input::{init as init_input, poll_input_event, Ps2Controller, XhciController};
 pub use nic::{init as init_nic, transmit as nic_transmit, receive as nic_receive, get_mac_address as nic_mac};
-pub use fb::{get_framebuffer as framebuffer, fill_gradient_test};
-pub use clock::{calibrate_tsc, elapsed_seconds, read_rtc_unix_seconds};
+pub use fb::{get_framebuffer as framebuffer, fill_gradient_test, clear_framebuffer};
+pub use clock::{calibrate_tsc, elapsed_seconds, read_rtc_unix_seconds, tsc_frequency_hz};
 pub use fpu::{enable_sse, selftest as sse_selftest};
 
 use khal::{Arch, MemRegion, Platform, MAX_MEM_REGIONS};
@@ -376,6 +376,12 @@ pub fn init(kernel_stack_top: u64) {
     apic::init();
     clock::calibrate_tsc();
     syscall::init();
+    vtd::early_init();
+
+    // Enable hardware interrupts via sti (Part A9)
+    unsafe {
+        core::arch::asm!("sti", options(nomem, nostack));
+    }
 }
 
 /// Local APIC default MMIO base — the one piece of MMIO this kernel touches
@@ -412,12 +418,13 @@ pub fn enable_wx_paging(
     let mut mmio = [
         MmioRegion::uncached(APIC_MMIO_BASE, APIC_MMIO_LEN),
         MmioRegion::uncached(0xB8000, 0x8000),
+        MmioRegion::uncached(0xE0000, 0x20000), // BIOS / ACPI tables
         MmioRegion::write_combining(0, 0),
     ];
-    let mut mmio_count = 2;
+    let mut mmio_count = 3;
     if let Some(fb_info) = fb::get_framebuffer() {
-        mmio[2] = MmioRegion::write_combining(fb_info.base_paddr, fb_info.size_bytes);
-        mmio_count = 3;
+        mmio[3] = MmioRegion::write_combining(fb_info.base_paddr, fb_info.size_bytes);
+        mmio_count = 4;
     }
     let mut vs = mmu::build::<X86_64>(frames, root, &sections, extra_rw_regions, &mmio[..mmio_count]);
     let guard_paddr = core::ptr::addr_of!(_boot_stack_guard) as u64;

@@ -410,21 +410,23 @@ pub struct IconBmp { pub n: i32, pub px: alloc::vec::Vec<u32> }
 
 const LEVELS: [i32; 7] = [32, 48, 64, 96, 128, 192, 256];
 
-#[derive(Default)]
-pub struct IconCache { map: BTreeMap<(u16, i32), IconBmp> }
+pub struct IconCache { map: BTreeMap<(u16, i32), IconBmp>, max_level: i32 }
 
 impl IconCache {
-    pub fn new() -> IconCache { IconCache { map: BTreeMap::new() } }
+    pub fn new() -> IconCache { IconCache { map: BTreeMap::new(), max_level: 256 } }
 
-    fn level_for(px: f32) -> i32 {
-        for l in LEVELS.iter() { if (*l as f32) >= px * 0.98 { return *l; } }
-        *LEVELS.last().unwrap()
+    /// Bound raster-cache memory on devices whose compositor uses reduced resolution.
+    pub fn set_max_level(&mut self, level: i32) { self.max_level = level.clamp(32, 256); }
+
+    fn level_for(&self, px: f32) -> i32 {
+        for l in LEVELS.iter() { if *l <= self.max_level && (*l as f32) >= px * 0.98 { return *l; } }
+        self.max_level
     }
 
     /// Draw cached icon `key` (rendered lazily by `paint` onto a transparent square) into `dest`.
     pub fn draw(&mut self, cv: &mut Canvas, key: u16, dest: Rect, alpha: f32, paint: &dyn Fn(&mut Canvas, Rect)) {
         if dest.w < 1.0 || dest.h < 1.0 { return; }
-        let level = Self::level_for(dest.w.max(dest.h));
+        let level = self.level_for(dest.w.max(dest.h));
         if !self.map.contains_key(&(key, level)) {
             let mut c = Canvas::new(level, level);
             let r = Rect::new(0.0, 0.0, level as f32, level as f32);
@@ -445,6 +447,10 @@ impl IconCache {
         let bmp = self.map.get(&(key, level)).unwrap();
         cv.blit_icon(bmp, dest, alpha);
     }
+}
+
+impl Default for IconCache {
+    fn default() -> Self { Self::new() }
 }
 
 impl Canvas {
@@ -507,6 +513,31 @@ pub fn downloads_icon(cv: &mut Canvas, r: Rect, dark: bool) {
     let s = r.w / 64.0;
     if dark { tile_ex(cv, r, Color::hex(0x2C5F9E), Color::hex(0x0A1B36), 0.55); } else { tile_ex(cv, r, Color::hex(0x7FD3FF), Color::hex(0x1670F0), 1.0); }
     let gr = Rect::new(r.x + 13.0 * s, r.y + 11.0 * s, 38.0 * s, 38.0 * s);
-    for (k, a) in [(0.8f32, 70u8), (1.8, 45), (3.0, 24)] { draw_icon(cv, Icon::Download, gr.offset(0.0, k * s), Color::rgba(0, 20, 80, a)); }
     draw_icon(cv, Icon::Download, gr, if dark { Color::hex(0x9ED8FF) } else { Color::WHITE });
 }
+
+// ── Distinct Geometric Domain Glyphs (PDF Specification) ────────────────────
+
+use crate::registry::DomainKind;
+
+#[derive(Clone, Copy, Debug)]
+pub enum SecurityGlyph {
+    VerifiedShieldDom0,
+    ImmutableTemplateCube,
+    CompartmentAppCube,
+    HardwareJailHexagon,
+    EphemeralFlameDisp,
+    AirgapVaultKey,
+}
+
+pub const fn glyph_for_domain(kind: DomainKind) -> SecurityGlyph {
+    match kind {
+        DomainKind::AdminDom0 => SecurityGlyph::VerifiedShieldDom0,
+        DomainKind::TemplateVm => SecurityGlyph::ImmutableTemplateCube,
+        DomainKind::AppVm => SecurityGlyph::CompartmentAppCube,
+        DomainKind::ServiceVm => SecurityGlyph::HardwareJailHexagon,
+        DomainKind::DisposableVm => SecurityGlyph::EphemeralFlameDisp,
+        DomainKind::VaultVm => SecurityGlyph::AirgapVaultKey,
+    }
+}
+

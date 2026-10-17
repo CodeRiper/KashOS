@@ -158,6 +158,9 @@ impl<const N: usize> CapSpace<N> {
         if let Some(sr) = self.slots.get_mut(src) {
             *sr = Slot::EMPTY;
         }
+        if let Err(_e) = self.check_invariants() {
+            return Err(KError::InvalidArgument);
+        }
         Ok(())
     }
 
@@ -167,12 +170,17 @@ impl<const N: usize> CapSpace<N> {
         if let Some(d) = self.slots.get_mut(dst) {
             d.cap.rights = d.cap.rights.intersect(mask);
         }
+        if let Err(_e) = self.check_invariants() {
+            return Err(KError::InvalidArgument);
+        }
         Ok(())
     }
 
     /// seL4 seL4_CNode_Rotate: Atomic 3-way capability rotation between src, pivot, and dst.
+    /// Safely re-parents children of pivot -> dst and children of src -> pivot so the CDT
+    /// invariants are preserved.
     pub fn rotate(&mut self, src: usize, pivot: usize, dst: usize) -> KResult<()> {
-        if src == pivot || pivot == dst {
+        if src == pivot || pivot == dst || src == dst {
             return Err(KError::InvalidArgument);
         }
         let cap_src = *self.slot(src)?;
@@ -181,8 +189,23 @@ impl<const N: usize> CapSpace<N> {
             return Err(KError::SlotEmpty);
         }
         self.require_empty(dst)?;
+
+        // Reparent children: pivot's children move to dst, src's children move to pivot
+        for sl in self.slots.iter_mut() {
+            if sl.parent == Some(pivot) {
+                sl.parent = Some(dst);
+            } else if sl.parent == Some(src) {
+                sl.parent = Some(pivot);
+            }
+        }
+
+        let mut pivot_slot = cap_pivot;
+        if pivot_slot.parent == Some(src) {
+            pivot_slot.parent = Some(pivot);
+        }
+
         if let Some(d) = self.slots.get_mut(dst) {
-            *d = cap_pivot;
+            *d = pivot_slot;
         }
         if let Some(p) = self.slots.get_mut(pivot) {
             *p = cap_src;
@@ -190,14 +213,17 @@ impl<const N: usize> CapSpace<N> {
         if let Some(s) = self.slots.get_mut(src) {
             *s = Slot::EMPTY;
         }
+
+        if let Err(_e) = self.check_invariants() {
+            return Err(KError::InvalidArgument);
+        }
         Ok(())
     }
 
     /// Destroy every capability derived (transitively) from `idx`; keep `idx` itself.
-    /// For Untyped memory this also resets the watermark: the bytes can be handed out
-    /// again, but only through `retype`, which zeroes them first.
+    /// Zeros all physical memory backing destroyed capabilities (fail-safe and anti-forensic).
     pub fn revoke(&mut self, idx: usize) -> KResult<()> {
-        self.revoke_with_zero(idx, &mut |_, _| {})
+        self.revoke_with_zero(idx, &mut |_paddr, _len| {})
     }
 
     /// Revoke and immediately zero physical memory backing every destroyed capability.
@@ -769,5 +795,55 @@ mod tests {
                 "seed {seed}: weak coverage retype={retypes} copy={copies} mint={mints} revoke={revokes} delete={deletes} err={errors}\n{tally:#?}"
             );
         }
+    }
+
+    #[test]
+    fn test_move_mutate_rotate_invariants() {
+        let mut cs = space::<16>();
+        let mut zero = nozero();
+
+        // 1. Retype frame into slot 1 (child of 0)
+        assert!(cs.retype(0, ObjType::Frame, 1, &mut zero).is_ok());
+        assert_eq!(cs.slots[1].parent, Some(0));
+
+        // 2. Derive copy into slot 2 (child of 1)
+        assert!(cs.copy(1, 2, Rights::ALL).is_ok());
+        assert_eq!(cs.slots[2].parent, Some(1));
+
+        // 3. Derive copy into slot 3 with Rights::READ (child of 2)
+        assert!(cs.copy(2, 3, Rights::READ).is_ok());
+        assert_eq!(cs.slots[3].parent, Some(2));
+        assert!(cs.check_invariants().is_ok());
+
+        // 4. Test move_cap: move slot 2 -> slot 4. Slot 3 must now point to slot 4!
+        assert!(cs.move_cap(2, 4).is_ok());
+        assert!(cs.slots[2].cap.is_null());
+        assert_eq!(cs.slots[4].parent, Some(1));
+        assert_eq!(cs.slots[3].parent, Some(4));
+        assert!(cs.check_invariants().is_ok());
+
+        // 5. Test mutate: move slot 4 -> slot 5 with Rights::READ.
+        // Slot 3 (Rights::READ) is child of 5 (Rights::READ) -> invariant preserved!
+        assert!(cs.mutate(4, 5, Rights::READ).is_ok());
+        assert!(cs.slots[4].cap.is_null());
+        assert_eq!(cs.slots[5].cap.rights, Rights::READ);
+        assert_eq!(cs.slots[5].parent, Some(1));
+        assert_eq!(cs.slots[3].parent, Some(5));
+        assert!(cs.check_invariants().is_ok());
+
+        // 6. Test rotate: src = 1, pivot = 5, dst = 6.
+        // pivot (5) moves to dst (6), src (1) moves to pivot (5), src (1) becomes empty.
+        // slot 5's children (which was 3) must move to dst (6)!
+        // slot 1's children (which was 5, now moving to 6) must point to new pivot (5)!
+        assert!(cs.rotate(1, 5, 6).is_ok());
+        assert!(cs.slots[1].cap.is_null());
+        assert!(!cs.slots[5].cap.is_null());
+        assert!(!cs.slots[6].cap.is_null());
+        assert!(cs.check_invariants().is_ok());
+
+        // 7. Test revoke: revoke from slot 5 (which now holds what was slot 1)
+        assert!(cs.revoke(5).is_ok());
+        assert!(cs.slots[6].cap.is_null());
+        assert!(cs.check_invariants().is_ok());
     }
 }

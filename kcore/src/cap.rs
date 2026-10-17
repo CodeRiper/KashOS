@@ -28,6 +28,9 @@ impl Rights {
     pub const fn intersect(self, other: Rights) -> Rights {
         Rights(self.0 & other.0)
     }
+    pub const fn union(self, other: Rights) -> Rights {
+        Rights(self.0 | other.0)
+    }
 }
 
 pub const MIN_UNTYPED_BITS: u8 = 4; // 16 bytes

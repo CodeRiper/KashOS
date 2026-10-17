@@ -32,6 +32,12 @@ impl KdfParams {
     pub const RFC9106_HIGH_MEMORY: KdfParams = KdfParams { m_kib: 2 * 1024 * 1024, t: 1, p: 4 };
     /// RFC 9106 second recommended option: 64 MiB, t=3, p=4.
     pub const RFC9106_LOW_MEMORY: KdfParams = KdfParams { m_kib: 64 * 1024, t: 3, p: 4 };
+    /// KashOS 1 GiB Legacy Profile (Pages 10-11 of Architectural Blueprint):
+    /// 256 MiB RAM scratchpad, 12 passes, 1 lane. Uses exactly 25% of 1 GiB RAM.
+    pub const KASHOS_1GIB_LEGACY: KdfParams = KdfParams { m_kib: 256 * 1024, t: 12, p: 1 };
+    /// KashOS Ultra-Low RAM Fallback (for 100 MiB systems):
+    /// 64 MiB scratchpad, 32 passes, 1 lane.
+    pub const KASHOS_ULTRA_LOW_RAM: KdfParams = KdfParams { m_kib: 64 * 1024, t: 32, p: 1 };
     /// Floor for small devices (OWASP minimum): 19 MiB, t=2, p=1. Pair with a long passphrase.
     pub const LOW_END: KdfParams = KdfParams { m_kib: 19 * 1024, t: 2, p: 1 };
     /// FOR TESTS ONLY: trivially brute-forceable.

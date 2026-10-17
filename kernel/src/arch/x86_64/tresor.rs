@@ -1,13 +1,11 @@
-//! TRESOR-style key storage: hold sensitive key material in CPU debug
-//! registers (DR0–DR3) instead of RAM, so a cold-boot attack (dumping DRAM
-//! within the few minutes its contents can survive after power loss) finds
-//! nothing — the key was never in DRAM in the first place.
+//! TRESOR-style register key staging: hold 32-byte key material in CPU debug
+//! registers (DR0–DR3) during transit and staging.
 //!
-//! This is the "legacy hardware, no TPM" path the architecture audit asked
-//! for specifically; TPM 2.0 PCR-sealed keys are the modern-hardware
-//! equivalent and are **not** implemented here — see this module's
-//! limitations section below for exactly why, rather than a half-working
-//! TPM2 command driver masquerading as one.
+//! Note on limitations (Part A11):
+//! Loading keys from DR0–DR3 copies bytes onto the execution stack during
+//! consumption; this module does NOT implement full AES entirely in CPU
+//! registers, and does NOT claim "0 bytes in DRAM / cold-boot immune".
+//! DR0–DR3 serve as isolated hardware register staging.
 //!
 //! DR0–DR3 are each a 64-bit "debug address" register, normally used to set
 //! hardware breakpoint addresses. TRESOR's technique (Müller, Freiling &

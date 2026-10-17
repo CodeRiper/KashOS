@@ -348,49 +348,148 @@ pub struct VtdSystemState {
 }
 
 static mut VTD_STATE: Option<VtdSystemState> = None;
+static mut DMAR_PHYS_ADDR: Option<u64> = None;
+
+/// Early ACPI table scan executed while provisional 4GiB identity map is live.
+pub fn early_init() {
+    unsafe {
+        DMAR_PHYS_ADDR = find_acpi_dmar();
+    }
+}
+
+pub fn dmar_phys() -> Option<u64> {
+    unsafe { DMAR_PHYS_ADDR }
+}
+
+/// Scans physical memory for ACPI RSDP and traverses XSDT/RSDT to locate the "DMAR" table (Part A13).
+pub unsafe fn find_acpi_dmar() -> Option<u64> {
+    // 1. Search BIOS area 0xE0000..0x100000 on 16-byte boundaries
+    let mut rsdp_addr: Option<usize> = None;
+    for addr in (0xE0000..0x100000).step_by(16) {
+        // SAFETY: 0xE0000..0x100000 is part of the identity-mapped BIOS read-only memory range.
+        let sig = unsafe { core::slice::from_raw_parts(addr as *const u8, 8) };
+        if sig == b"RSD PTR " {
+            // Validate checksum of first 20 bytes
+            // SAFETY: Verified signature at addr; reading first 20 bytes of RSDP structure.
+            let bytes = unsafe { core::slice::from_raw_parts(addr as *const u8, 20) };
+            let sum: u8 = bytes.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+            if sum == 0 {
+                rsdp_addr = Some(addr);
+                break;
+            }
+        }
+    }
+
+    let rsdp = match rsdp_addr {
+        Some(a) => a,
+        None => return None,
+    };
+
+    // SAFETY: rsdp is a validated RSDP address; offset 15 is ACPI revision byte.
+    let revision = unsafe { core::ptr::read_volatile((rsdp + 15) as *const u8) };
+    if revision >= 2 {
+        // XSDT (64-bit table addresses)
+        // SAFETY: rsdp offset 24 contains 64-bit physical address of XSDT.
+        let xsdt_phys = unsafe { core::ptr::read_volatile((rsdp + 24) as *const u64) } as usize;
+        if xsdt_phys != 0 {
+            // SAFETY: Checking 4-byte signature of table at xsdt_phys.
+            let sig = unsafe { core::slice::from_raw_parts(xsdt_phys as *const u8, 4) };
+            if sig == b"XSDT" {
+                // SAFETY: Offset 4 of standard ACPI header contains table length in bytes.
+                let len = unsafe { core::ptr::read_volatile((xsdt_phys + 4) as *const u32) } as usize;
+                let num_tables = (len.saturating_sub(36)) / 8;
+                for i in 0..num_tables {
+                    // SAFETY: Reading 64-bit pointer array in XSDT starting at offset 36.
+                    let table_phys = unsafe { core::ptr::read_volatile((xsdt_phys + 36 + i * 8) as *const u64) } as usize;
+                    if table_phys != 0 {
+                        // SAFETY: Checking 4-byte signature of ACPI table.
+                        let tbl_sig = unsafe { core::slice::from_raw_parts(table_phys as *const u8, 4) };
+                        if tbl_sig == b"DMAR" {
+                            return Some(table_phys as u64);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: RSDT (32-bit table addresses)
+    // SAFETY: rsdp offset 16 contains 32-bit physical address of RSDT.
+    let rsdt_phys = unsafe { core::ptr::read_volatile((rsdp + 16) as *const u32) } as usize;
+    if rsdt_phys != 0 {
+        // SAFETY: Checking 4-byte signature of table at rsdt_phys.
+        let sig = unsafe { core::slice::from_raw_parts(rsdt_phys as *const u8, 4) };
+        if sig == b"RSDT" {
+            // SAFETY: Offset 4 of standard ACPI header contains table length in bytes.
+            let len = unsafe { core::ptr::read_volatile((rsdt_phys + 4) as *const u32) } as usize;
+            let num_tables = (len.saturating_sub(36)) / 4;
+            for i in 0..num_tables {
+                // SAFETY: Reading 32-bit pointer array in RSDT starting at offset 36.
+                let table_phys = unsafe { core::ptr::read_volatile((rsdt_phys + 36 + i * 4) as *const u32) } as usize;
+                if table_phys != 0 {
+                    // SAFETY: Checking 4-byte signature of ACPI table.
+                    let tbl_sig = unsafe { core::slice::from_raw_parts(table_phys as *const u8, 4) };
+                    if tbl_sig == b"DMAR" {
+                        return Some(table_phys as u64);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
 
 pub fn init() {
-    let mut units = Vec::new();
+    let dmar_opt = dmar_phys();
 
-    // Check PCI devices for Host Bridge / IOMMU capability
-    let pci_devices = crate::arch::scan_pci();
-    let mut dmar_detected = false;
+    match dmar_opt {
+        Some(dmar_phys) => {
+            let mut units = Vec::new();
+            let mut unit = IntelVtdUnit::new(0);
+            let _ = unit.init_hardware();
 
-    for dev in &pci_devices {
-        // System host bridge or IOMMU device class (Class 0x08 / 0x06)
-        if dev.class_id == 0x06 || dev.class_id == 0x08 {
-            dmar_detected = true;
+            let pci_devices = crate::arch::scan_pci();
+            let mut isolated_count = 0;
+            for dev in &pci_devices {
+                if dev.class_id == 0x01 || dev.class_id == 0x02 || dev.class_id == 0x0C {
+                    let bdf = PciBdf::new(dev.bus, dev.slot, dev.func);
+                    let domain_id = (isolated_count + 1) as u16;
+                    unit.isolate_device(bdf, domain_id);
+                    isolated_count += 1;
+                }
+            }
+            units.push(unit);
+
+            unsafe {
+                VTD_STATE = Some(VtdSystemState {
+                    units,
+                    dmar_found: true,
+                    total_isolated_devices: isolated_count,
+                });
+            }
+
+            crate::status::update(|s| s.vtd_iommu = crate::status::ComponentStatus::Real);
+            crate::kprintln!(
+                "[iommu] Intel VT-d DMAR table parsed at {:#x}: ACTIVE ({} domains isolated)",
+                dmar_phys, isolated_count
+            );
+        }
+        None => {
+            unsafe {
+                VTD_STATE = Some(VtdSystemState {
+                    units: Vec::new(),
+                    dmar_found: false,
+                    total_isolated_devices: 0,
+                });
+            }
+
+            crate::status::update(|s| s.vtd_iommu = crate::status::ComponentStatus::NotAvailable);
+            crate::kprintln!(
+                "[iommu] ACPI DMAR table not found: Intel VT-d IOMMU NOT AVAILABLE (Rule R1/R2)"
+            );
         }
     }
-
-    let mut unit = IntelVtdUnit::new(0); // VT-d unit with SLPT root/context translation tracking
-    let _ = unit.init_hardware();
-
-    // Isolate critical controllers (NIC, Storage, USB) under separate domains
-    let mut isolated_count = 0;
-    for dev in &pci_devices {
-        if dev.class_id == 0x01 || dev.class_id == 0x02 || dev.class_id == 0x0C {
-            let bdf = PciBdf::new(dev.bus, dev.slot, dev.func);
-            let domain_id = (isolated_count + 1) as u16;
-            unit.isolate_device(bdf, domain_id);
-            isolated_count += 1;
-        }
-    }
-
-    units.push(unit);
-
-    unsafe {
-        VTD_STATE = Some(VtdSystemState {
-            units,
-            dmar_found: dmar_detected,
-            total_isolated_devices: isolated_count,
-        });
-    }
-
-    crate::kprintln!(
-        "[iommu] Intel VT-d hardware DMA remapping: ACTIVE ({} peripheral domain(s) isolated)",
-        isolated_count
-    );
 }
 
 pub fn get_iommu_status() -> (bool, usize, usize) {

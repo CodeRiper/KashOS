@@ -1,9 +1,20 @@
 # Build artifacts
 target/
+**/target/
+kash-ui/out/
 
-# Generated files
-*.ppm
+# Large disk images and virtual disks
+*.img
+*.vdi
+*.vmdk
 *.iso
+kash_drive.img
+
+# Distribution archives
+*.zip
+
+# Logs
+*.log
 
 # IDE
 .vscode/
@@ -12,3 +23,4 @@ target/
 # OS-specific
 Thumbs.db
 .DS_Store
+

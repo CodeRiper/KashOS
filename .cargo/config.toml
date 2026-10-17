@@ -8,6 +8,7 @@ rustflags = [
     "--cfg", "poly1305_force_soft",
     "--cfg", 'poly1305_backend="soft"',
     "--cfg", 'chacha20_backend="soft"',
+    "--cfg", 'curve25519_dalek_backend="serial"',
 ]
 
 # AArch64 bare-metal: no FPU/NEON in the kernel.

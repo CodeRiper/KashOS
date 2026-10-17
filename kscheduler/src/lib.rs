@@ -45,16 +45,42 @@ pub enum ThreadState {
     Terminated,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CalleeSavedRegisters {
+    pub rbx: u64,
+    pub rsp: u64,
+    pub rbp: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+    pub rip: u64,
+    pub rflags: u64,
+    pub cr3: u64,
+    pub rsp0: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContextSwitchPlan {
+    pub prev_task_idx: Option<usize>,
+    pub next_task_idx: usize,
+    pub next_context_handle: u64,
+    pub next_cr3: u64,
+    pub next_rsp0: u64,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct TaskControlBlock {
     pub tid: u32,
     pub qos: QoSClass,
     pub state: ThreadState,
-    /// Opaque, architecture-side identifier for this task's saved register
-    /// context (e.g. a pointer into a per-task stack). This crate never
-    /// reads or writes it — it only carries it so the caller's arch-side
-    /// `switch_to` has something to look up.
+    /// Opaque, architecture-side identifier for this task's saved register context.
     pub context_handle: u64,
+    /// Virtual address space (CR3) root for this task's isolated VSpace.
+    pub cr3: u64,
+    /// Dedicated 16 KiB per-thread kernel stack loaded into TSS.RSP0.
+    pub rsp0: u64,
     pub slice_budget_us: u32,
     pub consumed_slice_us: u32,
     pub in_use: bool,
@@ -66,6 +92,8 @@ impl TaskControlBlock {
         qos: QoSClass::Background,
         state: ThreadState::Terminated,
         context_handle: 0,
+        cr3: 0,
+        rsp0: 0,
         slice_budget_us: 0,
         consumed_slice_us: 0,
         in_use: false,
@@ -135,7 +163,20 @@ impl QoSScheduler {
     /// Create a task in a free slot. Does not make it ready to run — call
     /// `enqueue_ready` for that, separately, once (e.g.) its initial stack
     /// and context are set up.
+    /// Create a task in a free slot with default kernel address space.
     pub fn create_task(&mut self, tid: u32, qos: QoSClass, context_handle: u64) -> Result<usize, SchedError> {
+        self.create_task_with_vspace(tid, qos, context_handle, 0, 0)
+    }
+
+    /// Create a task with isolated CR3 virtual address space and dedicated TSS RSP0 stack.
+    pub fn create_task_with_vspace(
+        &mut self,
+        tid: u32,
+        qos: QoSClass,
+        context_handle: u64,
+        cr3: u64,
+        rsp0: u64,
+    ) -> Result<usize, SchedError> {
         let idx = self.tasks.iter().position(|t| !t.in_use).ok_or(SchedError::TableFull)?;
         if let Some(slot) = self.tasks.get_mut(idx) {
             *slot = TaskControlBlock {
@@ -143,6 +184,8 @@ impl QoSScheduler {
                 qos,
                 state: ThreadState::Blocked,
                 context_handle,
+                cr3,
+                rsp0,
                 slice_budget_us: 0,
                 consumed_slice_us: 0,
                 in_use: true,
@@ -262,6 +305,25 @@ impl QoSScheduler {
             self.schedule()
         } else {
             Some(curr_idx)
+        }
+    }
+
+    /// Evaluates timer tick and computes a hardware context switch plan
+    /// (callee-saved registers, CR3 page table reload, and TSS.RSP0 stack).
+    pub fn plan_context_switch(&mut self, elapsed_us: u32) -> Option<ContextSwitchPlan> {
+        let prev = self.current;
+        let next = self.on_timer_tick(elapsed_us)?;
+        if Some(next) != prev {
+            let tcb = self.tasks.get(next)?;
+            Some(ContextSwitchPlan {
+                prev_task_idx: prev,
+                next_task_idx: next,
+                next_context_handle: tcb.context_handle,
+                next_cr3: tcb.cr3,
+                next_rsp0: tcb.rsp0,
+            })
+        } else {
+            None
         }
     }
 }

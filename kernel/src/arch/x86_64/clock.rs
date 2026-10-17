@@ -144,3 +144,8 @@ pub fn elapsed_seconds() -> f32 {
         0.016 // ~60 fps default
     }
 }
+
+/// Returns the calibrated TSC frequency in Hertz
+pub fn tsc_frequency_hz() -> u64 {
+    TSC_HZ.load(Ordering::Relaxed)
+}

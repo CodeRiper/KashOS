@@ -38,6 +38,8 @@ pub mod nr {
     pub const SYS_UNVEIL:     usize = 5;
     pub const SYS_YIELD:      usize = 6;
     pub const SYS_EXIT:       usize = 7;
+    pub const SYS_RETYPE:     usize = 8;
+    pub const SYS_REVOKE:     usize = 9;
 }
 
 /// Validates that a user memory buffer resides strictly within the canonical user space.
@@ -55,19 +57,35 @@ pub fn validate_user_memory_region(ptr: *const u8, len: usize) -> Result<(), Sys
 }
 
 /// Safely copies bytes from an unprivileged user memory region into a kernel buffer.
+/// Enforces STAC/CLAC SMAP user-access toggle when supported by hardware.
 pub unsafe fn copy_from_user(dst: &mut [u8], src_user: *const u8) -> Result<(), SyscallError> {
     validate_user_memory_region(src_user, dst.len())?;
+    let has_smap = super::cpuid::detect().has_smap;
     unsafe {
+        if has_smap {
+            core::arch::asm!("stac", options(nomem, nostack, preserves_flags));
+        }
         core::ptr::copy_nonoverlapping(src_user, dst.as_mut_ptr(), dst.len());
+        if has_smap {
+            core::arch::asm!("clac", options(nomem, nostack, preserves_flags));
+        }
     }
     Ok(())
 }
 
 /// Safely copies bytes from a kernel buffer out to an unprivileged user memory region.
+/// Enforces STAC/CLAC SMAP user-access toggle when supported by hardware.
 pub unsafe fn copy_to_user(dst_user: *mut u8, src: &[u8]) -> Result<(), SyscallError> {
     validate_user_memory_region(dst_user, src.len())?;
+    let has_smap = super::cpuid::detect().has_smap;
     unsafe {
+        if has_smap {
+            core::arch::asm!("stac", options(nomem, nostack, preserves_flags));
+        }
         core::ptr::copy_nonoverlapping(src.as_ptr(), dst_user, src.len());
+        if has_smap {
+            core::arch::asm!("clac", options(nomem, nostack, preserves_flags));
+        }
     }
     Ok(())
 }
@@ -106,9 +124,33 @@ pub unsafe fn wrmsr(msr: u32, val: u64) {
 
 static SYSCALL_INVOCATIONS: AtomicU64 = AtomicU64::new(0);
 
-/// Rust-side system call dispatcher.
-/// Rust-side system call dispatcher.
-/// Called from assembly after user registers are saved.
+// Multi-process sandbox table (Part A5 & A8: One sandbox per process, not global)
+pub struct ProcessSandboxTable {
+    pub sandboxes: [Option<crate::linux::ProcessSandbox>; 16],
+}
+
+impl ProcessSandboxTable {
+    pub const fn new() -> Self {
+        Self {
+            sandboxes: [None, None, None, None, None, None, None, None,
+                        None, None, None, None, None, None, None, None],
+        }
+    }
+
+    pub fn get_or_create(&mut self, pid: u64) -> &mut crate::linux::ProcessSandbox {
+        let idx = (pid as usize) % 16;
+        if self.sandboxes[idx].is_none() {
+            self.sandboxes[idx] = Some(crate::linux::ProcessSandbox::new(pid));
+        }
+        self.sandboxes[idx].as_mut().unwrap()
+    }
+}
+
+struct SyncCell<T>(core::cell::UnsafeCell<T>);
+unsafe impl<T> Sync for SyncCell<T> {}
+static PROCESS_SANDBOXES: SyncCell<ProcessSandboxTable> = SyncCell(core::cell::UnsafeCell::new(ProcessSandboxTable::new()));
+
+/// Rust-side system call dispatcher called from assembly after user registers are saved.
 #[no_mangle]
 pub extern "sysv64" fn kash_rust_syscall_dispatcher(
     num: usize,
@@ -120,20 +162,57 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
 ) -> i64 {
     SYSCALL_INVOCATIONS.fetch_add(1, Ordering::Relaxed);
 
-    struct SyncCell<T>(core::cell::UnsafeCell<T>);
-    unsafe impl<T> Sync for SyncCell<T> {}
-    static ROOT_SANDBOX: SyncCell<Option<crate::linux::ProcessSandbox>> =
-        SyncCell(core::cell::UnsafeCell::new(None));
-
-    let cell_ptr = ROOT_SANDBOX.0.get();
-    let sandbox = unsafe {
-        if (*cell_ptr).is_none() {
-            *cell_ptr = Some(crate::linux::ProcessSandbox::new(1));
+    match num {
+        nr::SYS_CAP_INVOKE => {
+            let cptr = arg1 as u64;
+            let core = crate::cap::CAP_CORE.lock();
+            let cap_res = core.lookup_cptr(cptr, crate::cap::CapRights::WRITE);
+            match cap_res {
+                Ok(cap) => match cap.kind {
+                    crate::cap::CapKind::Endpoint { badge, .. } => badge as i64,
+                    crate::cap::CapKind::TCB { tcb_id, .. } => tcb_id as i64,
+                    crate::cap::CapKind::Frame { paddr, .. } => paddr as i64,
+                    _ => 0,
+                },
+                Err(err) => match err {
+                    crate::cap::SeL4Error::InsufficientRights => SyscallError::InsufficientRights as i64,
+                    _ => SyscallError::InvalidCapability as i64,
+                },
+            }
         }
-        (*cell_ptr).as_mut().unwrap()
-    };
-
-    crate::linux::handle_linux_syscall(sandbox, num, arg1, arg2, arg3, arg4, arg5)
+        nr::SYS_RETYPE => {
+            let untyped_slot = arg1;
+            let obj_type_raw = arg2;
+            let dest_slot = arg3;
+            let target_type = match obj_type_raw {
+                0 => crate::cap::KernelObjType::Frame4K,
+                1 => crate::cap::KernelObjType::Frame2M,
+                2 => crate::cap::KernelObjType::Endpoint,
+                3 => crate::cap::KernelObjType::Notification,
+                4 => crate::cap::KernelObjType::TCB,
+                _ => return SyscallError::InvalidArgument as i64,
+            };
+            match crate::cap::sel4_untyped_retype(untyped_slot, target_type, dest_slot) {
+                Ok(paddr) => paddr as i64,
+                Err(_) => SyscallError::InvalidCapability as i64,
+            }
+        }
+        nr::SYS_REVOKE => {
+            let slot_idx = arg1;
+            match crate::cap::sel4_cnode_revoke(slot_idx) {
+                Ok(()) => 0,
+                Err(_) => SyscallError::InvalidCapability as i64,
+            }
+        }
+        nr::SYS_YIELD => 0,
+        _ => {
+            let table = unsafe { &mut *PROCESS_SANDBOXES.0.get() };
+            // Current PID (defaults to PID 1 root task until scheduler context switch)
+            let current_pid = 1;
+            let sandbox = table.get_or_create(current_pid);
+            crate::linux::handle_linux_syscall(sandbox, num, arg1, arg2, arg3, arg4, arg5)
+        }
+    }
 }
 
 #[repr(align(4096))]
@@ -146,6 +225,7 @@ pub static mut SYSCALL_KERNEL_STACK: SyscallKernelStack = SyscallKernelStack([0;
 pub static mut USER_RSP_SCRATCH: u64 = 0;
 
 pub const IA32_EFER: u32 = 0xC000_0080;
+pub const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
 
 // Global assembly system call entrypoint.
 core::arch::global_asm!(
@@ -192,7 +272,7 @@ core::arch::global_asm!(
         cld
         call kash_rust_syscall_dispatcher
 
-        // 5. Restore user registers in reverse order
+        // 5. Restore non-scratch user registers in reverse order
         pop rdi
         pop rsi
         pop rdx
@@ -206,11 +286,41 @@ core::arch::global_asm!(
         pop rcx               // Restore user RIP
         pop rsp               // Restore user RSP
 
-        // 6. Restore user GS base
+        // 6. Security Check (Part A8): Verify that RCX is a canonical user address (<= 0x00007FFFFFFFFFFF).
+        // If non-canonical, do NOT sysretq (which faults in Ring 0); fall back to iretq.
+        mov r10, 0x00007FFFFFFFFFFF
+        cmp rcx, r10
+        ja 1f
+
+        // Clear scratch registers before returning to user mode to prevent kernel information leakage
+        xor rdx, rdx
+        xor rsi, rsi
+        xor rdi, rdi
+        xor r8, r8
+        xor r9, r9
+        xor r10, r10
+
+        // Restore user GS base
         swapgs
 
-        // 7. Fast return to Ring 3 (drops privilege, restores RIP from RCX and RFLAGS from R11)
+        // Fast return to Ring 3
         sysretq
+
+    1:
+        // Fallback to iretq when RCX is non-canonical (prevents supervisor-mode GPF)
+        push 0x1B                               // User SS (0x18 | 3)
+        push qword ptr [rip + USER_RSP_SCRATCH] // User RSP
+        push r11                                // User RFLAGS
+        push 0x23                               // User CS (0x20 | 3)
+        push rcx                                // User RIP (non-canonical target)
+        xor rdx, rdx
+        xor rsi, rsi
+        xor rdi, rdi
+        xor r8, r8
+        xor r9, r9
+        xor r10, r10
+        swapgs
+        iretq
     "#
 );
 
@@ -241,5 +351,34 @@ pub fn init() {
         // 0x200 (IF), 0x400 (DF), 0x100 (TF), 0x40000 (AC)
         let fmask: u64 = 0x200 | 0x400 | 0x100 | 0x40000;
         wrmsr(IA32_FMASK, fmask);
+
+        // IA32_KERNEL_GS_BASE (Part A8): Set kernel GS base for swapgs
+        let gs_base = core::ptr::addr_of!(SYSCALL_KERNEL_STACK) as u64 + 16384;
+        wrmsr(IA32_KERNEL_GS_BASE, gs_base);
+    }
+}
+
+/// Transition current thread of execution into unprivileged Ring 3 (User Space).
+/// Pushes User SS (0x1B), User RSP, RFLAGS (0x202 with IF enabled), User CS (0x23),
+/// and User RIP, and executes iretq.
+#[no_mangle]
+pub unsafe extern "C" fn enter_user_mode(entry_point: usize, user_stack_top: usize) -> ! {
+    unsafe {
+        core::arch::asm!(
+            "mov ax, 0x1B", // User Data Segment (RPL=3)
+            "mov ds, ax",
+            "mov es, ax",
+            "mov fs, ax",
+            "mov gs, ax",
+            "push 0x1B",    // User SS (0x18 | 3)
+            "push {stack}", // User RSP
+            "push 0x202",   // RFLAGS (IF enabled, interrupts unmasked in user mode)
+            "push 0x23",    // User CS (0x20 | 3)
+            "push {entry}", // User RIP
+            "iretq",
+            stack = in(reg) user_stack_top,
+            entry = in(reg) entry_point,
+            options(noreturn)
+        );
     }
 }

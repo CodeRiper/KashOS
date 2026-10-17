@@ -91,7 +91,9 @@ fn freed_blocks_fully_coalesce_back_into_one() {
     let (a, start) = new_allocator();
     let chunk = 4096usize;
     let n = ARENA_SIZE / chunk;
-    let layout = Layout::from_size_align(chunk, chunk).unwrap();
+    // Reserve the allocator's in-band header while keeping each aligned
+    // allocation exactly one chunk wide.
+    let layout = Layout::from_size_align(chunk - 2 * std::mem::size_of::<usize>(), 16).unwrap();
 
     let mut ptrs = Vec::new();
     for _ in 0..n {
@@ -118,8 +120,13 @@ fn freed_blocks_fully_coalesce_back_into_one() {
     }
     assert_eq!(a.free_bytes(), ARENA_SIZE);
 
-    let whole = unsafe { a.alloc(Layout::from_size_align(ARENA_SIZE, 4096).unwrap()) };
-    assert_eq!(whole, start as *mut u8, "fully coalesced arena must satisfy one whole-arena allocation");
+    let (free, blocks, max_block) = a.dump_stats();
+    assert_eq!(free, ARENA_SIZE);
+    assert_eq!(blocks, 1, "free chunks must coalesce into one arena-sized block");
+    assert_eq!(max_block, ARENA_SIZE);
+    let whole = unsafe { a.alloc(Layout::from_size_align(ARENA_SIZE - 8192, 16).unwrap()) };
+    assert!(!whole.is_null(), "coalesced arena must satisfy one large aligned allocation");
+    assert_eq!(whole as usize, start as usize + 16, "aligned payload must preserve its header");
 }
 
 #[test]
@@ -183,6 +190,13 @@ fn fuzz_random_alloc_dealloc_never_corrupts_or_overlaps() {
             let p = unsafe { a.alloc(layout) };
             if p.is_null() {
                 continue; // legitimate under fragmentation/exhaustion — not a bug by itself
+            }
+            for &(q, q_layout, _) in &live {
+                let p0 = p as usize;
+                let p1 = p0 + layout.size();
+                let q0 = q as usize;
+                let q1 = q0 + q_layout.size();
+                assert!(p1 <= q0 || q1 <= p0, "overlapping live allocations at iteration {i}: new {p0:#x}..{p1:#x} (size {}, align {}) old {q0:#x}..{q1:#x} (size {}, align {})", layout.size(), layout.align(), q_layout.size(), q_layout.align());
             }
             let tag = (i % 256) as u8;
             unsafe { std::ptr::write_bytes(p, tag, size) };

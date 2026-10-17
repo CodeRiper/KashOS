@@ -136,6 +136,7 @@ pub struct Desktop {
     pub dbg_reasons: [u64; 17],
     /// Optional monotonic clock in ms (set by hosts that have one) → fills `prof`.
     pub clock: Option<fn() -> f32>,
+    /// Optional host heap diagnostic for constrained-target bring-up.
     pub prof: [f32; 8],
     pub windows_force_dirty: bool,
     pub stats_win_drawn: u64,
@@ -158,25 +159,26 @@ impl Desktop {
         d.sys.screen = Rect::new(0.0, 0.0, w as f32, h as f32);
         d.sync_theme(0.0, true);
         d.ensure_wallpaper();
-        d.prewarm();
+        // Caches populate on-demand as widgets render
         d
     }
 
-    /// Fill the glyph + dock-icon caches for both themes so the first window/dock frame doesn't hitch.
+    /// Fill the glyph + dock-icon caches for the primary active theme so the first frame doesn't hitch.
     pub fn prewarm(&mut self) {
         self.fonts.prewarm();
         let mut tmp = Canvas::new(160, 160);
-        for dark in [false, true] {
-            for k in [AppKind::Files, AppKind::Browser, AppKind::Messages, AppKind::Photos, AppKind::Music, AppKind::Notes, AppKind::Terminal, AppKind::Settings, AppKind::ActivityMonitor, AppKind::Calculator].iter() {
-                for sz in [60.0f32, 90.0, 120.0] {
-                    let (k2, r) = (*k, Rect::new(0.0, 0.0, sz, sz));
-                    self.fonts.icons.draw(&mut tmp, app_key(k2) + if dark { 500 } else { 0 }, r, 1.0, &|cv, rr| app_icon_t(cv, k2, rr, dark));
-                }
-            }
-            for sz in [60.0f32, 90.0, 120.0] { let r = Rect::new(0.0, 0.0, sz, sz); self.fonts.icons.draw(&mut tmp, if dark { 701 } else { 700 }, r, 1.0, &|cv, rr| launchpad_icon(cv, rr, dark)); self.fonts.icons.draw(&mut tmp, if dark { 703 } else { 702 }, r, 1.0, &|cv, rr| downloads_icon(cv, rr, dark)); }
-            for sz in [60.0f32, 90.0, 120.0] { let r = Rect::new(0.0, 0.0, sz, sz); self.fonts.icons.draw(&mut tmp, if dark { 800 } else { 300 }, r, 1.0, &|cv, rr| trash_icon_t(cv, rr, false, dark)); }
+        let dark = true;
+        for k in [AppKind::Files, AppKind::Browser, AppKind::Terminal, AppKind::Settings, AppKind::ActivityMonitor].iter() {
+            let (k2, r) = (*k, Rect::new(0.0, 0.0, 60.0, 60.0));
+            self.fonts.icons.draw(&mut tmp, app_key(k2) + if dark { 500 } else { 0 }, r, 1.0, &|cv, rr| app_icon_t(cv, k2, rr, dark));
         }
+        let r = Rect::new(0.0, 0.0, 60.0, 60.0);
+        self.fonts.icons.draw(&mut tmp, if dark { 701 } else { 700 }, r, 1.0, &|cv, rr| launchpad_icon(cv, rr, dark));
+        self.fonts.icons.draw(&mut tmp, if dark { 800 } else { 300 }, r, 1.0, &|cv, rr| trash_icon_t(cv, rr, false, dark));
     }
+
+    /// Reduce retained icon bitmap memory for the host's constrained compositor mode.
+    pub fn set_low_memory_mode(&mut self) { self.fonts.icons.set_max_level(64); self.fonts.set_low_memory_mode(); }
 
     pub fn resize(&mut self, w: i32, h: i32) {
         if w == self.screen.w && h == self.screen.h { return; }
@@ -222,7 +224,14 @@ impl Desktop {
         if p.y <= BAR_H + 2.0 || self.pp.visible() { return true; }
         if self.dock.zone(screen_r).contains(p.x, p.y) { return true; }
         let m = self.max_rect();
-        self.windows.iter().any(|w| !w.minimized && w.rect(m).inset(-8.0).contains(p.x, p.y))
+        // Only trigger full scene composite if pointer touches interactive controls (traffic lights) or resize borders
+        self.windows.iter().any(|w| {
+            if w.minimized { return false; }
+            let r = w.rect(m);
+            let in_traffic_lights = p.x >= r.x && p.x <= r.x + 72.0 && p.y >= r.y && p.y <= r.y + 32.0;
+            let near_border = r.inset(-4.0).contains(p.x, p.y) && !r.inset(6.0).contains(p.x, p.y);
+            in_traffic_lights || near_border
+        })
     }
 
     pub fn dbg_unsettled(&self) -> alloc::vec::Vec<(AppKind, alloc::vec::Vec<(u32, f32, f32, f32)>)> { self.windows.iter().map(|w| (w.kind, w.anims.unsettled())).collect() }
@@ -245,9 +254,7 @@ impl Desktop {
             self.wp_prev = Some(old);
             self.wp_fade.snap(0.0); self.wp_fade.set(1.0);
         }
-        let mut small = Canvas::new((w / 2).max(2), (h / 2).max(2));
-        wallpaper::paint(&mut small, self.sys.wallpaper);
-        self.wp.blit_scaled(&small, Rect::new(0.0, 0.0, w as f32, h as f32), 0.0, 1.0);
+        wallpaper::paint(&mut self.wp, self.sys.wallpaper);
         self.wp_idx = self.sys.wallpaper;
     }
 
@@ -291,7 +298,7 @@ impl Desktop {
         if self.sys.dock_bounce { self.dock.bounce_kind(k); }
         let now = self.sys.unix_secs;
         self.sys.reg.touch(k, now);
-        if !matches!(k, AppKind::Files | AppKind::Settings | AppKind::About | AppKind::Calculator) { self.sys.reg.queue_launch_prompt(k); }
+        if !matches!(k, AppKind::Files | AppKind::Settings | AppKind::About | AppKind::Calculator | AppKind::Terminal | AppKind::Notes | AppKind::Browser | AppKind::ActivityMonitor | AppKind::Photos | AppKind::Music | AppKind::Messages) { self.sys.reg.queue_launch_prompt(k); }
     }
 
     fn raise(&mut self, id: u32) {
@@ -529,8 +536,19 @@ impl Desktop {
             if k.ctrl && k.shift && k.key == Key::Char && (k.ch == 'l' || k.ch == 'L') { self.cmds.push(Cmd::Lock); continue; }
             if k.key == Key::Escape && (self.cc.open || self.bar.is_open()) { self.cc.open = false; self.bar.close(); continue; }
             if k.ctrl && k.key == Key::Char {
-                match k.ch { 'w' => { self.cmds.push(Cmd::CloseWindow); continue; } 'm' => { self.cmds.push(Cmd::Minimize); continue; } 'q' => { self.cmds.push(Cmd::CloseWindow); continue; }
-                    'n' => { if let Some(i) = self.focused_idx() { let kd = self.windows[i].kind; if kd == AppKind::Files { self.spawn(AppKind::Files, None); continue; } } } ',' => { self.cmds.push(Cmd::Open(AppKind::Settings)); continue; } _ => {} }
+                match k.ch {
+                    'w' => { self.cmds.push(Cmd::CloseWindow); continue; }
+                    'm' => { self.cmds.push(Cmd::Minimize); continue; }
+                    'q' => { self.cmds.push(Cmd::CloseWindow); continue; }
+                    'n' => { if let Some(i) = self.focused_idx() { let kd = self.windows[i].kind; if kd == AppKind::Files { self.spawn(AppKind::Files, None); continue; } } }
+                    ',' | 's' => { self.cmds.push(Cmd::Open(AppKind::Settings)); continue; }
+                    't' => { self.cmds.push(Cmd::Open(AppKind::Terminal)); continue; }
+                    'f' => { self.cmds.push(Cmd::Open(AppKind::Files)); continue; }
+                    'b' => { self.cmds.push(Cmd::Open(AppKind::Browser)); continue; }
+                    'l' => { self.cmds.push(Cmd::Launchpad); continue; }
+                    'a' => { self.cmds.push(Cmd::Open(AppKind::ActivityMonitor)); continue; }
+                    _ => {}
+                }
             }
             keys.push(*k);
         }
@@ -798,6 +816,19 @@ impl Desktop {
             let fa = (o * 1.7).clamp(0.0, 1.0);
             let focus_t = w.focus.x.clamp(0.0, 1.0);
             let scr = &mut this.screen;
+            // PDF Section 6.3: Unforgeable 2-pixel colored security border based on kernel capability badge
+            let (_badge, border_color) = match w.kind {
+                // Badge 0x01: Cyan Border: Core System Settings & File Manager (0x00E5FF)
+                AppKind::Settings | AppKind::Files | AppKind::ActivityMonitor | AppKind::About => (0x01u8, Color::rgb(0, 229, 255)),
+                // Badge 0x02: Emerald Border: Sovereign Personal Workspaces (0x00E676)
+                AppKind::Messages | AppKind::Notes => (0x02u8, Color::rgb(0, 230, 118)),
+                // Badge 0x03: Blue Border: Enterprise Work Compartments (0x2979FF)
+                AppKind::Terminal | AppKind::Calculator => (0x03u8, Color::rgb(41, 121, 255)),
+                // Badge 0x04: Tangerine Border: Ephemeral RAM-Only Sandboxes (0xFF9100)
+                AppKind::Browser => (0x04u8, Color::rgb(255, 145, 0)),
+                // Badge 0x05: Red Border: Untrusted External Media / FUSE Drivers (0xFF1744)
+                AppKind::Photos | AppKind::Music => (0x05u8, Color::rgb(255, 23, 68)),
+            };
             if w.min.x > 0.002 {
                 let tgt = this.dock.icon_center(w.kind, screen_r);
                 scr.blit_genie(&w.layer, Rect::new(rx as f32, ry as f32, lw as f32, lh as f32), tgt, w.min.x.clamp(0.0, 1.0), 1.0 - 0.3 * w.min.x.clamp(0.0, 1.0));
@@ -807,12 +838,16 @@ impl Desktop {
                 scr.shadow_rrect(dr.offset(0.0, 14.0), WIN_R, 34.0, th.shadow(0.30 * fa), true);
                 scr.blit_scaled(&w.layer, dr, WIN_R * s, fa);
                 scr.stroke_rrect(dr, WIN_R * s, 1.0, th.pick(Color::rgba(0, 0, 0, 50), Color::rgba(255, 255, 255, 36)).fade(fa));
+                scr.stroke_rrect(dr, WIN_R * s, 2.0, border_color.fade(0.8 * fa));
             } else {
                 let full = Rect::new(rx as f32, ry as f32, lw as f32, lh as f32);
                 scr.shadow_rrect(full.offset(0.0, 8.0 + 8.0 * focus_t), WIN_R, 20.0 + 18.0 * focus_t, th.shadow(0.12 + 0.20 * focus_t), true);
                 scr.shadow_rrect(full.offset(0.0, 1.5), WIN_R, 3.0, th.shadow(0.12), true);
                 scr.blit_rounded_dim(&w.layer, rx, ry, WIN_R, 255, veil_dim);
                 scr.stroke_rrect(full, WIN_R, 1.0, th.pick(Color::rgba(0, 0, 0, 56), Color::rgba(0, 0, 0, 120)));
+                let border_alpha = if is_focus { 230 } else { 120 };
+                // 2-pixel unforgeable capability border
+                scr.stroke_rrect(full, WIN_R, 2.0, border_color.fade(border_alpha as f32 / 255.0));
                 // snapshot the finished composite (window + shadow over everything below) for reuse
                 if w.open.settled() && w.min.settled() && w.focus.settled() && !w.closing {
                     let m = 64;

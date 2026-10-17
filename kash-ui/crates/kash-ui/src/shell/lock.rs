@@ -40,6 +40,7 @@ pub struct Lock {
     pub t: f32,
     pub show: Spring,
     pass: String,
+    setup_passphrase: Option<String>,
     fail_t: f32,
     pub fails: u32,
     lockout: f32,
@@ -52,7 +53,7 @@ pub struct Lock {
 
 impl Lock {
     pub fn new() -> Lock {
-        Lock { phase: Phase::Run, t: 0.0, show: Spring::new(0.0, 0.42, 1.0), pass: String::new(), fail_t: -1.0, fails: 0, lockout: 0.0, bg: None, bg_key: (usize::MAX, 0, 0), layer: None, events: Vec::new(), idle: 0.0 }
+        Lock { phase: Phase::Run, t: 0.0, show: Spring::new(0.0, 0.42, 1.0), pass: String::new(), setup_passphrase: None, fail_t: -1.0, fails: 0, lockout: 0.0, bg: None, bg_key: (usize::MAX, 0, 0), layer: None, events: Vec::new(), idle: 0.0 }
     }
     pub fn start_boot(&mut self, bios: bool) {
         self.phase = if bios { Phase::Bios } else { Phase::Logo };
@@ -98,8 +99,30 @@ impl Lock {
 
     fn submit(&mut self, sys: &mut SysState) {
         if self.lockout > 0.0 || self.fail_t >= 0.0 { return; }
+        if sys.passphrase.is_empty() {
+            if let Some(first) = self.setup_passphrase.take() {
+                if first != self.pass {
+                    self.fails += 1;
+                    self.fail_t = 0.0;
+                    self.events.push(UiEvent::FailedAttempts(self.fails));
+                    if self.fails >= 5 { self.lockout = 10.0 * (1u32 << (self.fails - 5).min(4)) as f32; }
+                    return;
+                }
+                sys.passphrase = first;
+            } else {
+                if self.pass.chars().count() < 12 {
+                    self.fails += 1;
+                    self.fail_t = 0.0;
+                    self.events.push(UiEvent::FailedAttempts(self.fails));
+                    if self.fails >= 5 { self.lockout = 10.0 * (1u32 << (self.fails - 5).min(4)) as f32; }
+                    return;
+                }
+                self.setup_passphrase = Some(core::mem::take(&mut self.pass));
+                return;
+            }
+        }
         let duress = !sys.duress_pass.is_empty() && self.pass == sys.duress_pass;
-        if sys.passphrase.is_empty() || self.pass == sys.passphrase || duress {
+        if self.pass == sys.passphrase || duress {
             sys.duress_active = duress && self.pass != sys.passphrase;
             self.events.push(if sys.duress_active { UiEvent::DuressUnlock } else { UiEvent::Unlocked });
             self.fails = 0; self.pass.clear(); self.phase = Phase::Run; self.show.set(0.0);
@@ -157,7 +180,7 @@ impl Lock {
         let n = self.pass.chars().count();
         let sub_btn = Rect::new(fr.right() - 34.0, fr.cy() - 14.0, 28.0, 28.0);
         if n == 0 {
-            let msg = if cx.sys.passphrase.is_empty() { "Press Return to unlock" } else { "Enter Passphrase" };
+            let msg = if cx.sys.passphrase.is_empty() { if self.setup_passphrase.is_some() { "Confirm new passphrase" } else { "Create passphrase (12+ characters)" } } else { "Enter Passphrase" };
             cx.text_in(fr, msg, 14.0, Weight::Regular, Color::rgba(255, 255, 255, 140), Align::Center);
         } else {
             let sp = 12.0; let tot = (n as f32 - 1.0) * sp;
@@ -177,7 +200,7 @@ impl Lock {
         let (msg, col) = if self.lockout > 0.0 { (format!("Too many attempts — try again in {} s", ceil(self.lockout) as i32), Color::rgb(255, 140, 130)) }
             else if failing { (String::from("Incorrect passphrase"), Color::rgb(255, 140, 130)) }
             else if self.fails > 0 && !cx.sys.lock_hint.is_empty() { (format!("Hint: {}", cx.sys.lock_hint), dim) }
-            else { (String::from(if cx.sys.passphrase.is_empty() { "No passphrase is set" } else { "Enter your passphrase to unlock" }), Color::rgba(255, 255, 255, 120)) };
+            else { (String::from(if cx.sys.passphrase.is_empty() { if self.setup_passphrase.is_some() { "Re-enter the new passphrase to confirm" } else { "Set a passphrase before unlocking" } } else { "Enter your passphrase to unlock" }), Color::rgba(255, 255, 255, 120)) };
         cx.text_in(Rect::new(cxm - 220.0, fr.bottom() + 8.0, 440.0, 20.0), &msg, 12.5, Weight::Regular, col, Align::Center);
 
         // ── gateway chip ──
@@ -227,14 +250,14 @@ impl Lock {
 const POST: [(f32, &str, &str); 11] = [
     (0.35, "CPU    x86-64 · 4 cores · NX · SMEP · SMAP", "OK"),
     (0.55, "Memory", "MEM"),
-    (1.55, "Measured boot (TPM 2.0)", "OK"),
-    (1.75, "IOMMU / DMA protection", "enabled"),
-    (1.95, "Phantom Kernel 0.2.0", "loaded"),
-    (2.15, "Capability core self-test", "7 / 7 passed"),
-    (2.35, "kvault · AEAD sealed storage", "ready"),
-    (2.55, "Anonymity Gateway", "armed · 3 hops"),
-    (2.75, "Packet filter", "default-deny"),
-    (2.8, "Drivers", "8 found · 1 unsigned blocked"),
+    (1.55, "Measured boot (TPM 2.0)", "not verified"),
+    (1.75, "IOMMU / DMA protection", "not available"),
+    (1.95, "KashOS Microkernel 0.2.0", "loaded"),
+    (2.15, "Capability core self-test", "see kernel log"),
+    (2.35, "kvault · AEAD sealed storage", "not mounted"),
+    (2.55, "Anonymity Gateway", "not implemented"),
+    (2.75, "Packet filter", "not implemented"),
+    (2.8, "Drivers", "no live inventory"),
     (3.0, "Starting kash-ui compositor", "OK"),
 ];
 
@@ -247,7 +270,7 @@ pub fn draw_bios(cv: &mut Canvas, fonts: &mut Fonts, t: f32) {
     let dest = Rect::new(x0, 42.0, 40.0, 40.0);
     fonts.icons.draw(cv, 900, dest, 1.0, &|c, rr| draw_kash_mark(c, rr, Color::WHITE, Some(Color::hex(0x7BE3FF))));
     fonts.draw(cv, x0 + 54.0, 60.0, "KashOS Firmware 1.0", 20.0, Weight::Semibold, Color::rgb(235, 240, 250));
-    fonts.draw(cv, x0 + 54.0, 80.0, "Phantom Boot ROM · Kash Labs", 12.5, Weight::Regular, Color::rgb(120, 130, 150));
+    fonts.draw(cv, x0 + 54.0, 80.0, "KashOS Boot ROM · Kash Labs", 12.5, Weight::Regular, Color::rgb(120, 130, 150));
     let size = 13.5;
     let cw = fonts.measure("M", size, mono);
     let cols = ((w - x0 * 2.0) / cw).min(74.0) as usize;

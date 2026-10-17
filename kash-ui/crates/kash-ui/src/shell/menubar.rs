@@ -83,7 +83,7 @@ impl MenuBar {
         if let Some(oi) = self.open {
             if oi < self.xs.len() {
                 let (tx, _) = self.xs[oi];
-                let items: Vec<MenuItem> = if oi == 0 { phantom_menu() } else { menus[oi - 1].1.clone() };
+                let items: Vec<MenuItem> = if oi == 0 { kash_menu() } else { menus[oi - 1].1.clone() };
                 let mut mw = 170.0f32;
                 for it in items.iter() { if it.is_sep() { continue; } let w = cx.measure(&it.label, 13.5, Weight::Regular) + if it.shortcut.is_empty() { 0.0 } else { cx.measure(it.shortcut, 12.5, Weight::Regular) + 34.0 }; mw = mw.max(w + 36.0); }
                 let mut mh = 12.0; for it in items.iter() { mh += if it.is_sep() { 11.0 } else { 26.0 }; }
@@ -161,7 +161,7 @@ impl MenuBar {
     }
 }
 
-pub fn phantom_menu() -> Vec<MenuItem> {
+pub fn kash_menu() -> Vec<MenuItem> {
     alloc::vec![
         MenuItem::new("About KashOS", "", Action::Cmd(Cmd::Open(AppKind::About))), MenuItem::sep(),
         MenuItem::new("System Settings…", "", Action::Cmd(Cmd::Open(AppKind::Settings))), MenuItem::new("Privacy & Security…", "", Action::Cmd(Cmd::OpenSettingsPane(14))), MenuItem::sep(),

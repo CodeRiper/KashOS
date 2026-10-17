@@ -44,18 +44,15 @@ impl ControlCenter {
         let x0 = r.x + 12.0; let w = r.w - 24.0;
         let c1 = Rect::new(x0, r.y + 12.0, w * 0.5 - 4.0, 138.0);
         cx.cv.fill_rrect(c1, 20.0, tile);
-        let rows = [("Wi-Fi", Icon::Wifi, 0usize), ("Bluetooth", Icon::Bluetooth, 1), ("AirDrop", Icon::Airdrop, 2)];
-        for (i, (n, ic, k)) in rows.iter().enumerate() {
+        let rows = [("Wi-Fi", Icon::Wifi), ("Bluetooth", Icon::Bluetooth), ("Kash Share", Icon::Airdrop)];
+        for (i, (n, ic)) in rows.iter().enumerate() {
             let rr = Rect::new(c1.x + 10.0, c1.y + 8.0 + i as f32 * 42.0, c1.w - 20.0, 38.0);
-            let on = match k { 0 => cx.sys.wifi, 1 => cx.sys.bluetooth, _ => cx.sys.airdrop };
-            let h = cx.hit(id_of(n) ^ 0xCC, rr);
-            if h.clicked { match k { 0 => cx.sys.wifi = !on, 1 => cx.sys.bluetooth = !on, _ => cx.sys.airdrop = !on } }
-            let t_on = cx.anim(id2(id_of(n), 0xCD), if on { 1.0 } else { 0.0 });
+            let t_on = 0.0;
             let circ = Color::rgba(120, 120, 128, 70).mix(th.accent(), t_on).fade(a);
             cx.cv.fill_circle(rr.x + 18.0, rr.cy(), 17.0, circ);
             draw_icon(cx.cv, *ic, Rect::new(rr.x + 8.0, rr.cy() - 10.0, 20.0, 20.0), Color::WHITE.mix(th.label(), 1.0 - t_on).fade(a));
             cx.text(rr.x + 44.0, rr.cy() - 1.0, n, 12.5, Weight::Semibold, lc);
-            cx.text(rr.x + 44.0, rr.cy() + 12.5, if on { if *k == 0 { "Lezdo-Corp" } else { "On" } } else { "Off" }, 11.0, Weight::Regular, l2);
+            cx.text(rr.x + 44.0, rr.cy() + 12.5, "Unavailable", 11.0, Weight::Regular, l2);
         }
         let c2 = Rect::new(c1.right() + 8.0, c1.y, w * 0.5 - 4.0, 64.0);
         cx.cv.fill_rrect(c2, 20.0, tile);
@@ -87,7 +84,7 @@ impl ControlCenter {
             let sr = Rect::new(rr.x + 8.0, rr.y + 26.0, rr.w - 16.0, 30.0);
             match k {
                 0 => { let mut v = cx.sys.brightness; cx.slider("cc_bright", sr, &mut v); cx.sys.brightness = v; }
-                1 => { let mut v = cx.sys.volume; cx.slider("cc_vol", sr, &mut v); cx.sys.volume = v; }
+                1 => { cx.text_in(sr, "No audio device", 11.0, Weight::Medium, l2, Align::Center); }
                 _ => { let mut v = 1.0 - cx.sys.clarity; if cx.slider("cc_glass", sr, &mut v) { cx.sys.clarity = 1.0 - v; } cx.text_in(Rect::new(rr.x + 14.0, rr.y + 6.0, rr.w - 28.0, 18.0), "Clear  ↔  Tinted", 10.5, Weight::Regular, l2, Align::Right); }
             }
             y += 70.0;
@@ -110,7 +107,7 @@ impl Spotlight {
             index.push(Hit { name: String::from(k.name()), sub: String::from("Application"), kind: HitKind::App(k) });
         }
         for (i, (n, _, _)) in PANES.iter().enumerate() { index.push(Hit { name: String::from(*n), sub: String::from("System Settings"), kind: HitKind::Pane(i) }); }
-        for (n, p) in [("Documents", "Documents"), ("Downloads", "Downloads"), ("Pictures", "Pictures"), ("Reports", "Documents/Reports"), ("Source", "Documents/Source"), ("Desktop", "Desktop"), ("phantom-kernel.iso", "Downloads"), ("VAPT-mediaxis.pdf", "Documents/Reports"), ("golden-gate.png", "Pictures")] {
+        for (n, p) in [("Documents", "Documents"), ("Downloads", "Downloads"), ("Pictures", "Pictures"), ("Reports", "Documents/Reports"), ("Source", "Documents/Source"), ("Desktop", "Desktop"), ("kash-os.iso", "Downloads"), ("VAPT-mediaxis.pdf", "Documents/Reports"), ("golden-gate.png", "Pictures")] {
             index.push(Hit { name: String::from(n), sub: alloc::format!("Files · {}", p), kind: HitKind::Path(String::from(p)) });
         }
         index.push(Hit { name: String::from("Shut Down"), sub: String::from("Command"), kind: HitKind::Command(Cmd::Shutdown) });

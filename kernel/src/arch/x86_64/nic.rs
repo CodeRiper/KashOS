@@ -334,11 +334,30 @@ pub fn init() {
         }
     }
 
-    // Fallback: If running inside bare QEMU or VirtualBox without explicit PCI e1000 discovery, instantiate e1000 driver
+    if let Some(ref card) = e1000 {
+        crate::status::update(|s| s.nic_e1000 = crate::status::ComponentStatus::Real);
+        crate::kprintln!(
+            "[nic] Intel e1000 NIC initialized: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            card.mac_address[0], card.mac_address[1], card.mac_address[2],
+            card.mac_address[3], card.mac_address[4], card.mac_address[5]
+        );
+    }
+
+    if let Some(ref vnet) = virtio {
+        crate::status::update(|s| s.nic_virtio = crate::status::ComponentStatus::Real);
+        crate::kprintln!(
+            "[nic] VirtIO-Net initialized: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            vnet.mac_address[0], vnet.mac_address[1], vnet.mac_address[2],
+            vnet.mac_address[3], vnet.mac_address[4], vnet.mac_address[5]
+        );
+    }
+
     if e1000.is_none() && virtio.is_none() {
-        let mut card = Box::new(E1000Device::new(0, 0));
-        let _ = card.init();
-        e1000 = Some(card);
+        crate::status::update(|s| {
+            s.nic_e1000 = crate::status::ComponentStatus::NotAvailable;
+            s.nic_virtio = crate::status::ComponentStatus::NotAvailable;
+        });
+        crate::kprintln!("[nic] No PCI network card detected (Intel e1000 / VirtIO-Net NOT AVAILABLE)");
     }
 
     unsafe {

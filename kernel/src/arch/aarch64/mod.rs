@@ -1,6 +1,7 @@
 //! AArch64 architecture module — QEMU virt / Raspberry Pi 4B / ARM64 boards.
 #![allow(unsafe_code)]
 
+pub mod apple_silicon;
 pub mod boot;
 pub mod gic;
 pub mod uart;
@@ -137,64 +138,40 @@ pub fn hw_entropy(buf: &mut [u8]) -> bool {
 
 // ── Device-tree platform discovery ───────────────────────────────────────────
 
-/// Carve naturally-aligned power-of-two chunks from [start, end).
-/// QEMU virt, default `-m` used by this project's Makefile (`make run-arm` /
-/// `make test-arm`). Used only by the fallback path below.
-const QEMU_VIRT_FALLBACK_RAM_BASE: u64 = 0x4000_0000;
-const QEMU_VIRT_FALLBACK_RAM_SIZE: u64 = 512 * 1024 * 1024;
-
-/// Known-limitation fallback: used when no DTB pointer was handed to us by
-/// the boot stub (see the note in arch/aarch64/boot.rs — confirmed against
-/// QEMU 8.2.2 that a plain ELF `-kernel` boot does not populate x0 with the
-/// DTB address). Hardware discovery still *works*, it just isn't driven by
-/// the device tree yet: this fallback assumes the documented QEMU virt
-/// machine + `-m` size this project's Makefile boots with, carving free RAM
-/// above the kernel image exactly as discover() would from real DTB data.
-/// TODO(milestone 3): replace with real DTB parsing once the boot stub is
-/// changed to a form QEMU's arm_load_kernel() treats as "is_linux".
-fn fallback_platform(kernel_end: u64) -> Platform {
-    kprintln!("[hw] WARNING: no DTB pointer from firmware (known boot-stub limitation,");
-    kprintln!("[hw]          see arch/aarch64/boot.rs) — using the documented QEMU virt");
-    kprintln!("[hw]          fallback: base={:#x} size={} MiB. Real hardware MUST NOT",
-              QEMU_VIRT_FALLBACK_RAM_BASE, QEMU_VIRT_FALLBACK_RAM_SIZE >> 20);
-    kprintln!("[hw]          rely on this path — milestone 3 fixes DTB delivery.");
-    let mut free = [MemRegion::EMPTY; MAX_MEM_REGIONS];
-    let mut free_count = 0usize;
-    khal::carve_free_regions(kernel_end.max(QEMU_VIRT_FALLBACK_RAM_BASE),
-          QEMU_VIRT_FALLBACK_RAM_BASE + QEMU_VIRT_FALLBACK_RAM_SIZE,
-          &mut free, &mut free_count);
-    let total: u64 = free[..free_count].iter().map(|r| r.size_bytes()).sum();
-    kprintln!("[mem] {} free region(s), {} MiB total → capability system",
-              free_count, total >> 20);
-    Platform {
-        arch: Arch::AArch64,
-        ram_base: QEMU_VIRT_FALLBACK_RAM_BASE,
-        ram_size: QEMU_VIRT_FALLBACK_RAM_SIZE,
-        cpu_count: 1,
-        free,
-        free_count,
-    }
-}
-
 pub fn discover(dtb: usize, kernel_end: u64) -> Option<Platform> {
+    let dtb = if dtb != 0 {
+        dtb
+    } else {
+        #[cfg(feature = "qemu-virt")]
+        {
+            // QEMU's ELF entry stub leaves x0 unset. With the image linked
+            // above the reserved start of virt RAM, QEMU places its DTB at
+            // this documented platform address. The normal DTB magic, size,
+            // and FDT parser checks below still gate all hardware use.
+            kprintln!("[hw] x0 has no DTB; using the QEMU virt handoff address (qemu-virt build)");
+            0x4000_0000usize
+        }
+        #[cfg(not(feature = "qemu-virt"))]
+        {
+            kprintln!("[hw] missing device tree; refusing to guess the RAM map or device addresses");
+            return None;
+        }
+    };
     kprintln!("[hw] dtb pointer = {:#018x}  kernel_end = {:#018x}", dtb, kernel_end);
-    if dtb == 0 {
-        return Some(fallback_platform(kernel_end));
-    }
 
     // SAFETY: QEMU/firmware guarantees a valid DTB at this address.
     let blob = unsafe {
         let magic = u32::from_be(core::ptr::read_volatile(dtb as *const u32));
         kprintln!("[hw] dtb magic = {:#010x} (want 0xd00dfeed)", magic);
         if magic != 0xD00DFEED {
-            kprintln!("[hw] bad DTB magic — falling back (see known-limitation note above)");
-            return Some(fallback_platform(kernel_end));
+            kprintln!("[hw] invalid DTB magic; refusing to guess the RAM map or device addresses");
+            return None;
         }
         let total = u32::from_be(core::ptr::read_volatile((dtb + 4) as *const u32)) as usize;
         kprintln!("[hw] dtb total_size = {} bytes", total);
         if total < 40 || total > 4 * 1024 * 1024 {
-            kprintln!("[hw] dtb total_size out of range — falling back");
-            return Some(fallback_platform(kernel_end));
+            kprintln!("[hw] DTB size out of range; refusing hardware discovery");
+            return None;
         }
         core::slice::from_raw_parts(dtb as *const u8, total)
     };
@@ -202,8 +179,8 @@ pub fn discover(dtb: usize, kernel_end: u64) -> Option<Platform> {
     let fdt = match fdt::Fdt::new(blob) {
         Ok(f) => f,
         Err(e) => {
-            kprintln!("[hw] fdt::Fdt::new failed: {:?} — falling back", e);
-            return Some(fallback_platform(kernel_end));
+            kprintln!("[hw] FDT parse failed: {:?}; refusing hardware discovery", e);
+            return None;
         }
     };
     kprintln!("[hw] machine: {}", fdt.root().model());
@@ -429,8 +406,10 @@ pub fn rdtsc() -> u64 {
 
 pub fn framebuffer() -> Option<kboot::FramebufferInfo> { None }
 pub fn fill_gradient_test(_fb: &kboot::FramebufferInfo) {}
+pub fn clear_framebuffer(_fb: &kboot::FramebufferInfo, _color: u32) {}
 pub fn calibrate_tsc() {}
 pub fn elapsed_seconds() -> f32 { 0.016 }
+pub fn tsc_frequency_hz() -> u64 { 1_000_000_000 }
 pub fn read_rtc_unix_seconds() -> u64 { 1776340000 }
 pub fn enable_sse() {}
 pub fn sse_selftest() {}

@@ -56,3 +56,27 @@ pub fn fbm(mut x: f32, mut y: f32, oct: u32, seed: u32) -> f32 {
     }
     sum / norm
 }
+
+// ── Deterministic Fixed-Point Layout & Graph Geometry Helpers ───────────────
+
+#[inline(always)]
+pub const fn clamp_u32(val: u32, min_val: u32, max_val: u32) -> u32 {
+    if val < min_val {
+        min_val
+    } else if val > max_val {
+        max_val
+    } else {
+        val
+    }
+}
+
+/// Calculates fill width in pixels for Untyped Memory watermark and ARINC 653 bars
+#[inline(always)]
+pub const fn percentage_bar_width(used: u32, total: u32, bar_max_px: u32) -> u32 {
+    if total == 0 {
+        return 0;
+    }
+    let scaled = (used as u64 * bar_max_px as u64) / (total as u64);
+    clamp_u32(scaled as u32, 0, bar_max_px)
+}
+

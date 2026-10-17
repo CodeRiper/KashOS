@@ -98,6 +98,16 @@ pub static mut GDT: Gdt = Gdt {
 struct DoubleFaultStack([u8; 8192]);
 static mut DOUBLE_FAULT_STACK: DoubleFaultStack = DoubleFaultStack([0; 8192]);
 
+#[repr(align(4096))]
+#[allow(dead_code)]
+struct NmiStack([u8; 8192]);
+static mut NMI_STACK: NmiStack = NmiStack([0; 8192]);
+
+#[repr(align(4096))]
+#[allow(dead_code)]
+struct MceStack([u8; 8192]);
+static mut MCE_STACK: MceStack = MceStack([0; 8192]);
+
 pub static mut TSS: TaskStateSegment = TaskStateSegment::new();
 
 /// GDTR descriptor format for `lgdt`.
@@ -114,6 +124,10 @@ pub fn init(kernel_stack_top: u64) {
         TSS.rsp0 = kernel_stack_top;
         // Dedicated stack for Double Fault (#DF) exception handler (IST 1)
         TSS.ist1 = core::ptr::addr_of!(DOUBLE_FAULT_STACK) as u64 + 8192;
+        // Dedicated stack for Non-Maskable Interrupt (#NMI) exception handler (IST 2)
+        TSS.ist2 = core::ptr::addr_of!(NMI_STACK) as u64 + 8192;
+        // Dedicated stack for Machine Check (#MC) exception handler (IST 3)
+        TSS.ist3 = core::ptr::addr_of!(MCE_STACK) as u64 + 8192;
 
         let tss_ptr = core::ptr::addr_of!(TSS) as u64;
         let tss_size = (size_of::<TaskStateSegment>() - 1) as u64;

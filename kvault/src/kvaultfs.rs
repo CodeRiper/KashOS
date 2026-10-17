@@ -4,8 +4,8 @@
 //! - Blinded superblocks at pseudorandom HKDF offsets.
 //! - Merkle node integrity verification: child digest checks on every block read.
 //! - Anti-Forensic Information Dispersal (AF-Split) across 4,000 stripe sectors.
-//! - Dual Post-Quantum Hybrid KEM (ML-KEM-1024 + Argon2id).
-//! - Dual acceleration profiles: Profile Alpha (AES-NI) + Profile Beta (Adiantum for vintage CPUs).
+//! - Key derivation: Argon2id (m=256MiB, t=12, p=1) with HKDF-SHA256 expansion.
+//! - Dual acceleration profiles: Profile Alpha (AES-NI accelerated XTS-AES-256) + Profile Beta (constant-time XChaCha20-Poly1305 for vintage CPUs).
 //! - Steganographic deniable hidden volumes and emergency cryptographic nuke wipe.
 use sha2::{Digest, Sha256};
 use crate::error::{VaultError, VaultResult};
@@ -106,9 +106,11 @@ impl KfsInode {
 pub struct AfSplit;
 
 impl AfSplit {
-    /// Disperses `master_key` across `sectors` using an entropy provider to generate real random stripes.
+    /// Disperses `master_key` across `sectors` using an entropy provider to generate real random stripes,
+    /// and encrypts all stripes under the password-derived key.
     pub fn split_with_rng<R: FnMut(&mut [u8]) -> bool>(
         master_key: &[u8; 64],
+        pwhash_key: &[u8; 32],
         out_stripes: &mut [u8],
         mut rng: R,
     ) -> VaultResult<()> {
@@ -142,35 +144,28 @@ impl AfSplit {
             *byte = 0xAA;
         }
 
+        // Encrypt stripes under the password-derived key
+        Self::apply_keystream(out_stripes, pwhash_key);
+
         Ok(())
     }
 
-    /// Disperses `master_key` across `sectors` (must have length AF_SPLIT_SECTORS * 512 bytes).
-    pub fn split(master_key: &[u8; 64], out_stripes: &mut [u8]) -> VaultResult<()> {
-        let mut seed = [0u8; 64];
-        seed.copy_from_slice(master_key);
-        Self::split_with_rng(master_key, out_stripes, |stripe| {
-            for chunk in stripe.chunks_mut(64) {
-                seed = hash64(&seed);
-                chunk.copy_from_slice(&seed[..chunk.len()]);
-            }
-            true
-        })
-    }
-
-    /// Reconstructs the 512-bit master key from all 4,000 stripes.
-    pub fn reconstruct(stripes: &[u8]) -> VaultResult<[u8; 64]> {
+    /// Reconstructs the 512-bit master key from all stripes using the password-derived key.
+    pub fn reconstruct(stripes: &[u8], pwhash_key: &[u8; 32]) -> VaultResult<[u8; 64]> {
         if stripes.len() < AF_SPLIT_SECTORS * SECTOR_SIZE {
             return Err(VaultError::Corrupt);
         }
 
+        let mut decrypted = alloc::vec::Vec::from(stripes);
+        Self::apply_keystream(&mut decrypted, pwhash_key);
+
         let mut accumulator = [0u8; 64];
         let final_offset = (AF_SPLIT_SECTORS - 1) * SECTOR_SIZE;
-        accumulator.copy_from_slice(&stripes[final_offset..final_offset + 64]);
+        accumulator.copy_from_slice(&decrypted[final_offset..final_offset + 64]);
 
         for i in 0..(AF_SPLIT_SECTORS - 1) {
             let offset = i * SECTOR_SIZE;
-            let stripe = &stripes[offset..offset + SECTOR_SIZE];
+            let stripe = &decrypted[offset..offset + SECTOR_SIZE];
 
             let digest = hash64(stripe);
 
@@ -181,6 +176,18 @@ impl AfSplit {
 
         Ok(accumulator)
     }
+
+    fn apply_keystream(buffer: &mut [u8], key: &[u8; 32]) {
+        for (i, chunk) in buffer.chunks_mut(64).enumerate() {
+            let mut hasher = Sha256::new();
+            hasher.update(key);
+            hasher.update(&(i as u64).to_le_bytes());
+            let stream = hasher.finalize();
+            for (b, k) in chunk.iter_mut().zip(stream.iter()) {
+                *b ^= *k;
+            }
+        }
+    }
 }
 
 // ── Sector-Level Cryptographic Profiles ──────────────────────────────────────
@@ -189,7 +196,7 @@ impl AfSplit {
 pub enum CryptoProfile {
     /// Profile Alpha: XTS-AES-256 (AES-NI accelerated for modern hardware).
     ProfileAlpha,
-    /// Profile Beta: Adiantum / Wide-Block Permutation for vintage 20-year-old CPUs.
+    /// Profile Beta: Constant-time XChaCha20-Poly1305 AEAD (optimized for vintage CPUs).
     ProfileBeta,
 }
 

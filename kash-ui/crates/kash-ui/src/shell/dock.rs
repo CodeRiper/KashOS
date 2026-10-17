@@ -163,10 +163,19 @@ impl Dock {
         for s in self.slots.iter_mut() { let live = items.iter().any(|it| it.id() == s.id); s.grow.set(if live { 1.0 } else { 0.0 }); }
         self.inited = true;
 
-        let base = 38.0 + cx.sys.dock_size * 46.0;
-        let pad = 10.0; let gap = 8.0; let sep = 22.0;
-        let maxs = if cx.sys.dock_magnify_on { 1.0 + 0.25 + 0.85 * cx.sys.dock_magnify } else { 1.0 };
+        let pad = 10.0;
+        let gap = if screen.w < 800.0 { 5.0 } else { 8.0 };
+        let sep = if screen.w < 800.0 { 12.0 } else { 22.0 };
         let ndiv = divs.len() as f32;
+        let maxs = if cx.sys.dock_magnify_on { 1.0 + 0.25 + 0.85 * cx.sys.dock_magnify } else { 1.0 };
+        // Keep every pinned item, Downloads and Trash visible on narrow or
+        // downscaled desktops. Reserve room for the full magnification range
+        // so hovering cannot push the first and last icons off screen.
+        let maxs = if screen.w < 800.0 { maxs.min(1.35) } else { maxs };
+        let available = (screen.w - 24.0).max(1.0);
+        let fit_base = (available - gap * (n.saturating_sub(1) as f32) - sep * ndiv)
+            / (n as f32 * maxs).max(1.0);
+        let base = (38.0 + cx.sys.dock_size * 46.0).min(fit_base.max(24.0));
         let total0 = n as f32 * base + (n as f32 - 1.0) * gap + sep * ndiv;
         let start0 = screen.cx() - total0 * 0.5;
         let base_cx = |i: usize| -> f32 { let nd = divs.iter().filter(|d| **d <= i).count() as f32; start0 + i as f32 * (base + gap) + base * 0.5 + nd * sep };

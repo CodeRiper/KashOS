@@ -44,11 +44,11 @@ pub fn build_fs() -> Node {
                 f("main.rs", FileKind::Code, 6_100, "Oct 8"), f("kvault.rs", FileKind::Code, 41_300, "Oct 6"), f("space.rs", FileKind::Code, 28_900, "Oct 6"),
                 f("Cargo.toml", FileKind::Text, 612, "Oct 3"),
             ]),
-            f("Phantom-Architecture.pdf", FileKind::Pdf, 5_240_000, "Sep 22"), f("Resume.docx", FileKind::Doc, 184_000, "Sep 30"),
+            f("KashOS-Architecture.pdf", FileKind::Pdf, 5_240_000, "Sep 22"), f("Resume.docx", FileKind::Doc, 184_000, "Sep 30"),
             f("CTF-notes.txt", FileKind::Text, 9_300, "Oct 1"),
         ]),
         d("Downloads", "Today", alloc::vec![
-            f("phantom-kernel.iso", FileKind::Iso, 11_300_000, "Today"), f("tools.zip", FileKind::Archive, 220_000_000, "Oct 9"),
+            f("kash-os.iso", FileKind::Iso, 11_300_000, "Today"), f("tools.zip", FileKind::Archive, 220_000_000, "Oct 9"),
             f("wordlists.zip", FileKind::Archive, 1_400_000_000, "Sep 28"), f("kali-nethunter.iso", FileKind::Iso, 3_800_000_000, "Sep 5"),
         ]),
         d("Pictures", "Oct 5", alloc::vec![
@@ -61,7 +61,7 @@ pub fn build_fs() -> Node {
             f("Nightcall.mp3", FileKind::Audio, 9_400_000, "Aug 30"),
         ]),
         d("System", "Today", alloc::vec![
-            f("phantom-kernel", FileKind::App, 2_400_000, "Today"), f("kcore.cap", FileKind::Doc, 80_000, "Today"), f("kvault.img", FileKind::Archive, 536_870_912, "Today"),
+            f("kash-kernel", FileKind::App, 2_400_000, "Today"), f("kcore.cap", FileKind::Doc, 80_000, "Today"), f("kvault.img", FileKind::Archive, 536_870_912, "Today"),
         ]),
         { let mut v = d("Vault", "Today", alloc::vec![]); v.kind = FileKind::Vault; v },
     ])
@@ -151,7 +151,7 @@ impl Files {
             FileKind::Folder => { let mut p = self.path.clone(); p.push(it.name.clone()); self.goto(p, true); }
             FileKind::Vault => cx.cmds.push(Cmd::Toast(String::from("Vault is sealed — unlock with your passphrase (kvault)"))),
             FileKind::App => {
-                let k = match it.name.as_str() { "Terminal" => Some(AppKind::Terminal), "System Settings" => Some(AppKind::Settings), "Notes" => Some(AppKind::Notes), "Browser" => Some(AppKind::Browser),
+                let k = match it.name.as_str() { "Terminal" => Some(AppKind::Terminal), "System Settings" => Some(AppKind::Settings), "Notes" => Some(AppKind::Notes), "Firefox" | "Browser" => Some(AppKind::Browser),
                     "Photos" => Some(AppKind::Photos), "Music" => Some(AppKind::Music), "Messages" => Some(AppKind::Messages), "Files" => Some(AppKind::Files),
                     "Activity Monitor" => Some(AppKind::ActivityMonitor), "Calculator" => Some(AppKind::Calculator), _ => None };
                 if let Some(k) = k { cx.cmds.push(Cmd::Open(k)); }

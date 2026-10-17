@@ -14,10 +14,8 @@ use crate::apps::settings::Settings;
 use crate::apps::privacy::ps_control;
 
 impl Settings {
-    pub(crate) fn opt(&mut self, cx: &mut Ctx, g: &mut Group, key: usize, label: &str, sub: &str) {
-        let mut v = self.opts[key];
-        cx.row_toggle(g, &format!("opt{}", key), label, sub, &mut v);
-        self.opts[key] = v;
+    pub(crate) fn opt(&mut self, cx: &mut Ctx, g: &mut Group, _key: usize, label: &str, _sub: &str) {
+        cx.row_value(g, label, "Not implemented");
     }
     pub(crate) fn seg_row(&mut self, cx: &mut Ctx, g: &mut Group, slot: usize, label: &str, labels: &[&str], w: f32) {
         let r = cx.group_row(g);
@@ -67,10 +65,10 @@ impl Settings {
 
     pub(crate) fn pane_control_center(&mut self, cx: &mut Ctx, f: &mut Form) {
         cx.heading(f, "Control Center Modules");
-        let mut g = cx.group_begin(f, 5, 52.0);
-        let mut w = cx.sys.wifi; cx.row_toggle(&mut g, "cc_wifi", "Wi-Fi", "Show in Control Center", &mut w); cx.sys.wifi = w;
-        let mut b = cx.sys.bluetooth; cx.row_toggle(&mut g, "cc_bt", "Bluetooth", "Show in Control Center", &mut b); cx.sys.bluetooth = b;
-        let mut a = cx.sys.airdrop; cx.row_toggle(&mut g, "cc_air", "Kash Share", "Nearby sharing", &mut a); cx.sys.airdrop = a;
+        let mut g = cx.group_begin(f, 5, 48.0);
+        cx.row_value(&mut g, "Wi-Fi", "No connection service");
+        cx.row_value(&mut g, "Bluetooth", "No controller service");
+        cx.row_value(&mut g, "Kash Share", "Not implemented");
         let mut fo = cx.sys.focus; cx.row_toggle(&mut g, "cc_focus", "Focus", "Do Not Disturb", &mut fo); cx.sys.focus = fo;
         let mut ns = cx.sys.night_shift; cx.row_toggle(&mut g, "cc_night", "Night Shift", "", &mut ns); cx.sys.night_shift = ns;
         cx.heading(f, "Menu Bar Only");
@@ -78,8 +76,8 @@ impl Settings {
         self.opt(cx, &mut g, 10, "Show battery percentage", "");
         self.opt(cx, &mut g, 11, "Show Sound in menu bar", "");
         self.opt(cx, &mut g, 12, "Show date next to the clock", "");
-        self.opt(cx, &mut g, 13, "Show Phantom gateway status", "Anonymity Gateway hop count");
-        cx.caption(f, "Changes take effect the next time Control Center opens.");
+        self.opt(cx, &mut g, 13, "Show KashOS gateway status", "Anonymity Gateway hop count");
+        cx.caption(f, "Only the local UI preferences above can be changed here; network modules are unavailable.");
     }
 
     pub(crate) fn pane_focus(&mut self, cx: &mut Ctx, f: &mut Form) {
@@ -87,25 +85,16 @@ impl Settings {
         let mut fo = cx.sys.focus;
         cx.row_toggle(&mut g, "focus_dnd", "Do Not Disturb", "Silence notifications and calls", &mut fo); cx.sys.focus = fo;
         cx.heading(f, "Focus modes");
-        let mut g = cx.group_begin(f, 3, 58.0);
+        let mut g = cx.group_begin(f, 3, 48.0);
         let modes = [("Work", Icon::Terminal, 0x0A84FF, "9:00 – 18:00 · weekdays"), ("Sleep", Icon::Moon, 0x5E5CE6, "23:00 – 07:00 · every day"), ("Personal", Icon::User, 0x30D158, "Off")];
-        for (i, (n, ic, col, sub)) in modes.iter().enumerate() {
-            let r = cx.group_row(&mut g);
-            let c = Color::hex(*col);
-            let t = Rect::new(r.x + 12.0, r.cy() - 15.0, 30.0, 30.0);
-            cx.cv.fill_rrect(t, 9.0, Paint::VGrad { y0: t.y, y1: t.bottom(), c0: c.lighten(0.16), c1: c });
-            draw_icon(cx.cv, *ic, t.inset(7.0), Color::WHITE);
-            let lc = cx.th.label(); let l2 = cx.th.label2();
-            cx.text(r.x + 54.0, r.cy() - 2.0, n, 13.5, Weight::Regular, lc);
-            cx.text(r.x + 54.0, r.cy() + 13.0, sub, 11.5, Weight::Regular, l2);
-            let mut v = self.opts[20 + i];
-            cx.toggle(&format!("fm{}", i), Rect::new(r.right() - 14.0 - 40.0, r.cy() - 11.0, 40.0, 22.0), &mut v);
-            self.opts[20 + i] = v;
+        for (name, _, _, schedule) in modes.iter() {
+            cx.row_value(&mut g, name, schedule);
         }
         cx.heading(f, "Options");
         let mut g = cx.group_begin(f, 2, 54.0);
         self.opt(cx, &mut g, 23, "Share Focus status", "Let apps know you’re silenced");
         self.opt(cx, &mut g, 24, "Allow repeated calls", "A second call within 3 minutes breaks through");
+        cx.caption(f, "Do Not Disturb is a local UI preference. Scheduling and per-app notification rules are not implemented.");
     }
 
     pub(crate) fn pane_keyboard(&mut self, cx: &mut Ctx, f: &mut Form) {
@@ -148,21 +137,16 @@ impl Settings {
     }
 
     pub(crate) fn pane_update(&mut self, cx: &mut Ctx, f: &mut Form) {
-        let r = self.card(cx, f, 96.0, Icon::Gear, 0x0A84FF, "KashOS 27 · Golden Gate", if self.checked { "Your software is up to date." } else { "Last checked: today" });
+        let r = self.card(cx, f, 96.0, Icon::Gear, 0x0A84FF, "KashOS prototype · 0.2.0", "Update service unavailable");
         let bw = 120.0;
-        if cx.button("upd_check", Rect::new(r.right() - 18.0 - bw, r.cy() - 14.0, bw, 28.0), "Check Now", true) { self.checked = true; cx.cmds.push(Cmd::Toast(String::from("KashOS is up to date"))); }
-        cx.heading(f, "Automatic updates");
-        let mut g = cx.group_begin(f, 4, 54.0);
-        self.opt(cx, &mut g, 50, "Check for updates", "");
-        self.opt(cx, &mut g, 51, "Download new updates when available", "");
-        self.opt(cx, &mut g, 52, "Install KashOS updates", "");
-        self.opt(cx, &mut g, 53, "Install security responses and system files", "Applied without a restart where possible");
+        if cx.button("upd_check", Rect::new(r.right() - 18.0 - bw, r.cy() - 14.0, bw, 28.0), "Check Now", false) { cx.cmds.push(Cmd::Toast(String::from("No update service is configured"))); }
+        cx.caption(f, "This build has no update repository, signature-update workflow, or installer. No update check has been performed.");
         cx.heading(f, "Installed");
         let mut g = cx.group_begin(f, 4, 42.0);
-        cx.row_value(&mut g, "KashOS", "27.0 (Golden Gate)");
-        cx.row_value(&mut g, "Phantom Kernel", "0.2.0");
+        cx.row_value(&mut g, "KashOS", "Prototype UI");
+        cx.row_value(&mut g, "KashOS Microkernel", "0.2.0");
         cx.row_value(&mut g, "kash-ui", "Software renderer 1.0");
-        cx.row_value(&mut g, "Driver set", "8 drivers · 1 unsigned");
+        cx.row_value(&mut g, "Driver set", "No live driver inventory");
     }
 
     pub(crate) fn pane_storage(&mut self, cx: &mut Ctx, f: &mut Form) {
@@ -171,6 +155,7 @@ impl Settings {
         let docs = 12_400_000u64; let media = 78_000_000u64; let sys = 536_870_912u64 + 2_400_000; let dls: u64 = cx.sys.reg.downloads.iter().map(|d| d.size).sum();
         let cats: [(&str, u64, u32, &str); 6] = [("Applications", apps, 0x0A84FF, "Applications"), ("CLI Applications", cli, 0x30D158, "CLI Applications"), ("Drivers", drv, 0xFF9F0A, "Drivers"),
             ("Documents", docs, 0x5E5CE6, "Documents"), ("Downloads", dls, 0xFF375F, "Downloads"), ("System", sys + media, 0x8E8E93, "System")];
+        // The breakdown below is sample UI data; no mounted filesystem reports capacity yet.
         let total: u64 = 256_000_000_000; let used: u64 = cats.iter().map(|c| c.1).sum::<u64>() + 98_000_000_000;
         let r = Rect::new(f.x, f.y, f.w, 124.0);
         cx.group_box(r);
@@ -211,6 +196,7 @@ impl Settings {
             if h.clicked { cx.cmds.push(Cmd::OpenPath(String::from(*folder))); }
         }
         cx.heading(f, "Recommendations");
+        cx.caption(f, "Sample data only. This chart is not read from a disk or mounted filesystem.");
         let mut g = cx.group_begin(f, 2, 54.0);
         self.opt(cx, &mut g, 60, "Empty Trash automatically", "Remove items after 30 days");
         self.opt(cx, &mut g, 61, "Optimise storage", "Keep only recent downloads on this disk");
@@ -230,7 +216,7 @@ impl Settings {
         cx.heading(f, "Details");
         let mut g = cx.group_begin(f, 3, 42.0);
         cx.row_value(&mut g, "Time zone", "Asia/Kolkata (UTC+05:30)");
-        cx.row_value(&mut g, "Time server", "time.kash.os · via gateway");
+        cx.row_value(&mut g, "Time server", "No network time service");
         cx.row_value(&mut g, "Calendar", "Gregorian");
     }
 }

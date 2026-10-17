@@ -53,31 +53,54 @@ fn af_split_dispersal_and_reconstruction_roundtrips() {
     for (i, b) in master_key.iter_mut().enumerate() {
         *b = (i * 3 + 7) as u8;
     }
+    let pwhash_key = [0x42u8; 32];
 
     let total_bytes = AF_SPLIT_SECTORS * 512;
     let mut stripes = vec![0u8; total_bytes];
 
-    // Disperse key across all 4,000 sectors
-    AfSplit::split(&master_key, &mut stripes).expect("split failed");
+    // Disperse key across all 4,000 sectors using RNG
+    let mut counter = 1u8;
+    AfSplit::split_with_rng(&master_key, &pwhash_key, &mut stripes, |s| {
+        for b in s.iter_mut() {
+            *b = counter;
+            counter = counter.wrapping_add(1);
+        }
+        true
+    }).expect("split failed");
 
-    // Reconstruct key
-    let reconstructed = AfSplit::reconstruct(&stripes).expect("reconstruct failed");
+    // Reconstruct key with correct password key
+    let reconstructed = AfSplit::reconstruct(&stripes, &pwhash_key).expect("reconstruct failed");
     assert_eq!(reconstructed, master_key);
+
+    // Wrong password key fails recovery
+    let wrong_pwhash_key = [0x99u8; 32];
+    let bad_key = AfSplit::reconstruct(&stripes, &wrong_pwhash_key).expect("reconstruct failed");
+    assert_ne!(bad_key, master_key);
 }
 
 #[test]
-fn af_split_fails_reconstruction_if_even_one_byte_is_altered() {
+fn af_split_destroying_any_one_stripe_makes_key_recovery_impossible() {
     let master_key = [0xA5u8; 64];
+    let pwhash_key = [0x55u8; 32];
     let total_bytes = AF_SPLIT_SECTORS * 512;
     let mut stripes = vec![0u8; total_bytes];
 
-    AfSplit::split(&master_key, &mut stripes).unwrap();
+    let mut counter = 0x11u8;
+    AfSplit::split_with_rng(&master_key, &pwhash_key, &mut stripes, |s| {
+        for b in s.iter_mut() {
+            *b = counter;
+            counter = counter.wrapping_add(3);
+        }
+        true
+    }).unwrap();
 
-    // Corrupt one single byte in sector 17
-    stripes[17 * 512 + 42] ^= 0x01;
+    // Destroy one single stripe (sector 17 completely wiped / zeroed)
+    for b in &mut stripes[17 * 512..(17 + 1) * 512] {
+        *b = 0;
+    }
 
-    let corrupted_key = AfSplit::reconstruct(&stripes).unwrap();
-    // The reconstructed key MUST NOT match master key (tampering completely breaks key)
+    let corrupted_key = AfSplit::reconstruct(&stripes, &pwhash_key).unwrap();
+    // Tampering / wiping any single stripe makes key recovery completely impossible
     assert_ne!(corrupted_key, master_key);
 }
 

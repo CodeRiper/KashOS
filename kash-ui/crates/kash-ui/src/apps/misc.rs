@@ -57,9 +57,9 @@ impl App for Notes {
     }
 }
 
-// ───────── Browser ─────────
+// ───────── Firefox Browser ─────────
 pub struct Browser { url: FieldState }
-impl Browser { pub fn new() -> Browser { Browser { url: FieldState { text: String::from("kash://start"), ..FieldState::default() } } } }
+impl Browser { pub fn new() -> Browser { Browser { url: FieldState { text: String::from("https://start.duckduckgo.com"), ..FieldState::default() } } } }
 impl App for Browser {
     fn animating(&self) -> bool { false }
     fn kind(&self) -> AppKind { AppKind::Browser }
@@ -68,26 +68,33 @@ impl App for Browser {
         let th = *cx.th;
         cx.cv.fill_rect(area, th.content_bg());
         cx.cv.fill_rect(Rect::new(0.0, 54.0, area.w, area.h - 54.0), Paint::VGrad { y0: 54.0, y1: area.h, c0: th.pick(Color::hex(0xEAF2FF), Color::hex(0x161B2E)), c1: th.content_bg() });
-        cx.text_in(Rect::new(0.0, 120.0, area.w, 40.0), "Kash Browser", 30.0, Weight::Bold, th.label(), Align::Center);
-        cx.text_in(Rect::new(0.0, 158.0, area.w, 20.0), "Every request leaves through the Anonymity Gateway", 13.0, Weight::Regular, th.label2(), Align::Center);
-        let favs = [("Docs", 0x0A84FF), ("Mail", 0xFF453A), ("Maps", 0x30D158), ("Code", 0xFF9F0A), ("News", 0xBF5AF2), ("Vault", 0x5E5CE6)];
-        let tw = 84.0; let gap = 22.0; let total = favs.len() as f32 * tw + (favs.len() as f32 - 1.0) * gap;
+        cx.text_in(Rect::new(0.0, 105.0, area.w, 36.0), "Firefox", 28.0, Weight::Bold, th.label(), Align::Center);
+        cx.text_in(Rect::new(0.0, 140.0, area.w, 20.0), "Quantum ESR · Default Web Browser · Enhanced Tracking Protection: Strict", 12.0, Weight::Medium, th.pick(Color::hex(0x0A84FF), Color::hex(0x5E5CE6)), Align::Center);
+
+        // Security Lockdown Status Card
+        let sec_card = Rect::new(area.cx() - 320.0, 168.0, 640.0, 36.0);
+        cx.cv.fill_rrect(sec_card, 10.0, th.pick(Color::rgba(255, 69, 58, 24), Color::rgba(255, 69, 58, 36)));
+        cx.cv.stroke_rrect(sec_card, 10.0, 1.0, Color::rgba(255, 69, 58, 90));
+        cx.text_in(sec_card, "🛡 All Permissions Denied by Default (Camera, Mic, Network, Files blocked until enabled in Settings)", 11.5, Weight::Regular, th.pick(Color::hex(0xC92A2A), Color::hex(0xFF6B6B)), Align::Center);
+
+        let favs = [("DuckDuckGo", 0xDE5833), ("Mozilla", 0x000000), ("Wikipedia", 0x3366CC), ("EFF", 0xED1C24), ("Tor Project", 0x7D4698), ("Vault", 0x30D158)];
+        let tw = 84.0; let gap = 20.0; let total = favs.len() as f32 * tw + (favs.len() as f32 - 1.0) * gap;
         for (i, (n, c)) in favs.iter().enumerate() {
-            let r = Rect::new(area.cx() - total * 0.5 + i as f32 * (tw + gap), 230.0, tw, tw);
+            let r = Rect::new(area.cx() - total * 0.5 + i as f32 * (tw + gap), 235.0, tw, tw);
             let h = cx.hit(id_of(n) ^ 0xB0, r);
             let hv = cx.anim(id2(id_of(n), 0xB1), if h.hovered { 1.0 } else { 0.0 });
             let rr = r.inset(-hv * 3.0);
             cx.cv.shadow_rrect(rr.offset(0.0, 4.0), 20.0, 8.0, th.shadow(0.12), false);
             cx.cv.fill_rrect(rr, 20.0, Paint::VGrad { y0: rr.y, y1: rr.bottom(), c0: Color::hex(*c).lighten(0.2), c1: Color::hex(*c) });
             cx.text_in(rr, &n[..1], 30.0, Weight::Bold, Color::WHITE, Align::Center);
-            cx.text_in(Rect::new(r.x, r.bottom() + 6.0, r.w, 18.0), n, 12.0, Weight::Regular, th.label2(), Align::Center);
+            cx.text_in(Rect::new(r.x - 10.0, r.bottom() + 6.0, r.w + 20.0, 18.0), n, 11.0, Weight::Regular, th.label2(), Align::Center);
         }
         title_bar(cx, area, "");
         cx.glass_icon_button("bback", Rect::new(84.0, 10.0, 34.0, 34.0), Icon::ChevL, true);
         cx.glass_icon_button("bfwd", Rect::new(124.0, 10.0, 34.0, 34.0), Icon::ChevR, false);
         let ur = Rect::new(172.0, 10.0, (area.w - 172.0 - 70.0 - CAPTION_RESERVE).max(120.0), 34.0);
         cx.glass(ur, GlassKind::Toolbar, 17.0);
-        cx.text_field("burl", ur.inset_xy(3.0, 4.0), &mut self.url, "Search or enter address", Some(Icon::Lock));
+        cx.text_field("burl", ur.inset_xy(3.0, 4.0), &mut self.url, "Search with DuckDuckGo or enter address", Some(Icon::Lock));
         cx.glass_icon_button("bshare", Rect::new(ur.right() + 12.0, 10.0, 34.0, 34.0), Icon::Share, true);
     }
 }

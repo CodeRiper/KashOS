@@ -1,6 +1,6 @@
 # KashOS v0.2.0 — Oracle VirtualBox Boot & Interactive Console Guide
 
-![KashOS Interactive Terminal on VGA Display](C:\Users\Akash.J\.gemini\antigravity-ide\brain\39d1b7ad-de2a-4049-8426-831f652e31f9\vbox_kashos_terminal.png)
+![KashOS Interactive Terminal on VGA Display](vbox_kashos_terminal.png)
 
 ---
 
@@ -23,10 +23,10 @@ Upon booting, KashOS clears the screen and displays the system banner and staged
 1. **[ 10%]** `Initializing hardware architecture & UART console...`
 2. **[ 25%]** `Enabling Ring 3 TSS stack isolation & GDT/IDT...`
 3. **[ 45%]** `Enabling W^X Paging & Physical Memory capabilities...`
-4. **[ 65%]** `Engaging TRESOR DR0-3 Cold-Boot Immunity & DMA IOMMU...`
-5. **[ 80%]** `Mounting kvault-fs 4000-stripe AF-split & sDDF drivers...`
-6. **[ 95%]** `seL4 CDT & OpenBSD Pledge/Unveil Sandboxes Active...`
-7. **[100%]** `All subsystems verified. Starting interactive shell.`
+4. **[ 65%]** `Engaging TRESOR DR0-3 Key Storage & Memory Scrubbing...`
+5. **[ 80%]** `Mounting kvault-fs authenticated storage & schemes...`
+6. **[ 95%]** `kcore CDT & OpenBSD Pledge/Unveil Sandboxes Active...`
+7. **[100%]** `Kernel initialization complete. Ready for userspace.`
 
 ### B. Dual-Input Interactive Root Terminal (`tty0`)
 - **VGA Text Renderer (`0xB8000`):** Full 80×25 text mode display with automatic scrolling, backspace character erasure (`0x08`), and color syntax highlighting (Cyan badges, Green headers, Bright White text).
@@ -38,11 +38,11 @@ Upon booting, KashOS clears the screen and displays the system banner and staged
 ## 3. How to Boot in Your VirtualBox Window (Step-by-Step)
 
 The bootable ISO has been generated at:
-`c:\Users\Akash.J\Documents\KashOS Kernal\kash-kernel\kash-os.iso`
+`./kash-os.iso`
 
 To reload it in your running VirtualBox window:
 1. In the VirtualBox window top menu bar, click **Devices** → **Optical Drives** → **Choose a disk file...**.
-2. Navigate to `c:\Users\Akash.J\Documents\KashOS Kernal\kash-kernel\kash-os.iso` and click **Open**.
+2. Navigate to `kash-os.iso` and click **Open**.
 3. In the top menu bar, click **Machine** → **Reset** (or press keyboard shortcut `Right Ctrl + R`).
 4. Click **Reset** on the confirmation dialog.
 5. VirtualBox will load GRUB2 and automatically start KashOS within 1 second.

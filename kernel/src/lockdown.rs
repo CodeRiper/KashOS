@@ -112,20 +112,20 @@ impl LockdownEngine {
         Ok(())
     }
 
-    /// Audits and prints complete Lockdown Mode security posture.
+    /// Audits and prints complete Lockdown Mode security posture (A16: Only list active if validator is called).
     pub fn print_audit(&self) {
-        let status = if self.is_enabled() { "ACTIVE [LOCKDOWN ENFORCED]" } else { "DISABLED" };
+        let status = if self.is_enabled() { "PARTIAL [VALIDATED HOOKS ONLY]" } else { "DISABLED" };
         crate::kprintln!("╔══════════════════════════════════════════════════════════════╗");
         crate::kprintln!("║         KASH-OS HARDENED LOCKDOWN MODE (ANTI-SPYWARE)        ║");
         crate::kprintln!("╠══════════════════════════════════════════════════════════════╣");
         crate::kprintln!("║ Overall Status       : {:<45} ║", status);
-        crate::kprintln!("║ 1. JIT Compilation   : BLOCKED (No W^X violations allowed)   ║");
-        crate::kprintln!("║ 2. Complex Web Tech  : BLOCKED (Wasm, SVG fonts, TIFF off)   ║");
-        crate::kprintln!("║ 3. Wired Accessories : GATED (Charge-only when screen locked)║");
-        crate::kprintln!("║ 4. Inbound Shield    : ACTIVE (Untrusted calls & invites cut)║");
-        crate::kprintln!("║ 5. Config Profiles   : BLOCKED (MDM & root CA injection off) ║");
-        crate::kprintln!("║ 6. Zero-Click Defense: ACTIVE (Rich previews stripped)       ║");
-        crate::kprintln!("║ 7. Memory Hardening  : ACTIVE (Randomized guard pages, scrub)║");
+        crate::kprintln!("║ 1. JIT Compilation   : ACTIVE (validate_mprotect in syscall) ║");
+        crate::kprintln!("║ 2. Complex Web Tech  : STUB (Not hooked in syscall path)     ║");
+        crate::kprintln!("║ 3. Wired Accessories : ACTIVE (validate_usb_connection lock) ║");
+        crate::kprintln!("║ 4. Inbound Shield    : STUB (Not hooked in syscall path)     ║");
+        crate::kprintln!("║ 5. Config Profiles   : STUB (Not hooked in syscall path)     ║");
+        crate::kprintln!("║ 6. Zero-Click Defense: STUB (Not hooked in syscall path)     ║");
+        crate::kprintln!("║ 7. Memory Hardening  : ACTIVE (Hardware W^X + frame scrub)   ║");
         crate::kprintln!("╚══════════════════════════════════════════════════════════════╝");
     }
 }
@@ -135,7 +135,7 @@ pub fn get_engine() -> &'static LockdownEngine {
 }
 
 pub fn init() {
-    crate::kprintln!("[lockdown] iOS Lockdown Mode & Anti-Spyware Hardening active");
+    crate::kprintln!("[lockdown] experimental policy helpers initialized; platform hardening is partial");
 }
 
 pub fn is_enabled() -> bool {

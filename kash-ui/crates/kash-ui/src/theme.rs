@@ -86,3 +86,83 @@ impl Theme {
         g
     }
 }
+
+// ── Unforgeable Security Theme & Color Tokens (PDF Specification) ────────────
+
+use crate::registry::SecurityColorTag;
+
+#[derive(Clone, Copy, Debug)]
+pub struct RgbaColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl RgbaColor {
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
+    pub const fn to_argb32(&self) -> u32 {
+        ((self.a as u32) << 24)
+            | ((self.r as u32) << 16)
+            | ((self.g as u32) << 8)
+            | (self.b as u32)
+    }
+}
+
+pub struct SecurityTheme {
+    pub primary_border: RgbaColor,
+    pub header_badge_bg: RgbaColor,
+    pub subtle_window_tint: RgbaColor,
+    pub label_text: &'static str,
+}
+
+pub const fn theme_for_tag(tag: SecurityColorTag) -> SecurityTheme {
+    match tag {
+        SecurityColorTag::ObsidianAdmin => SecurityTheme {
+            primary_border: RgbaColor::new(225, 230, 240, 255),
+            header_badge_bg: RgbaColor::new(28, 32, 38, 255),
+            subtle_window_tint: RgbaColor::new(18, 20, 24, 245),
+            label_text: "DOM0-VERIFIED-ADMIN",
+        },
+        SecurityColorTag::PurpleVault => SecurityTheme {
+            primary_border: RgbaColor::new(197, 138, 249, 255), // #C58AF9
+            header_badge_bg: RgbaColor::new(74, 35, 115, 255),
+            subtle_window_tint: RgbaColor::new(28, 18, 38, 242),
+            label_text: "AIRGAP-VAULT",
+        },
+        SecurityColorTag::MintPersonal => SecurityTheme {
+            primary_border: RgbaColor::new(129, 201, 149, 255), // #81C995
+            header_badge_bg: RgbaColor::new(24, 82, 45, 255),
+            subtle_window_tint: RgbaColor::new(16, 28, 20, 242),
+            label_text: "TRUSTED-PERSONAL",
+        },
+        SecurityColorTag::BlueWork => SecurityTheme {
+            primary_border: RgbaColor::new(26, 115, 232, 255), // #1A73E8
+            header_badge_bg: RgbaColor::new(18, 58, 120, 255),
+            subtle_window_tint: RgbaColor::new(15, 23, 36, 242),
+            label_text: "ISOLATED-WORK",
+        },
+        SecurityColorTag::AmberUsb => SecurityTheme {
+            primary_border: RgbaColor::new(250, 144, 62, 255), // #FA903E
+            header_badge_bg: RgbaColor::new(122, 56, 12, 255),
+            subtle_window_tint: RgbaColor::new(34, 22, 14, 242),
+            label_text: "HW-JAIL-USB",
+        },
+        SecurityColorTag::RedUntrustedNet => SecurityTheme {
+            primary_border: RgbaColor::new(217, 48, 37, 255), // #D93025
+            header_badge_bg: RgbaColor::new(115, 20, 16, 255),
+            subtle_window_tint: RgbaColor::new(36, 14, 14, 242),
+            label_text: "UNTRUSTED-NET",
+        },
+        SecurityColorTag::MagentaDisposable => SecurityTheme {
+            primary_border: RgbaColor::new(245, 56, 160, 255), // #F538A0
+            header_badge_bg: RgbaColor::new(112, 18, 70, 255),
+            subtle_window_tint: RgbaColor::new(34, 14, 26, 242),
+            label_text: "EPHEMERAL-DISP",
+        },
+    }
+}
+

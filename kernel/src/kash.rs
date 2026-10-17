@@ -10,19 +10,22 @@
 #![allow(dead_code)]
 
 use khal::{DeviceClass, DeviceInfo, Platform};
-use knet::{AnonProfile, AnonymityGateway, FilterTable, FilterRule, GatewayStatus};
+use knet::{FilterTable, FilterRule};
 
-/// Boot-time summary of every Phantom service, printed after hardware discovery.
+/// Boot-time summary of every KashOS service, printed after hardware discovery.
 pub fn print_service_map(platform: &Platform) {
+    let reg = crate::status::get();
     kprintln!("\n╔══════════════════════════════════════════════════════════════╗");
     kprintln!("║              KASH KERNEL — SERVICE MAP                    ║");
     kprintln!("╠══════════════════════════════════════════════════════════════╣");
-    kprintln!("║ T0 Silicon   TPM2.0 [CRTM ACTIVE]  IOMMU [VT-d/ACS ACTIVE]   ║");
-    kprintln!("║ T1 Kernel    Rust microkernel (seL4 capability model + CDT)  ║");
-    kprintln!("║ T2 Root task kcore (cap system) + kvault (encrypted store)   ║");
-    kprintln!("║ T3 Services  [ACTIVE] smoltcp TCP/IP · PacketFilter · TorGW   ║");
-    kprintln!("║ T4 Drivers   [ACTIVE] e1000 · VirtIO · xHCI · PS/2 · DDE · BGA║");
-    kprintln!("║ T5 Enclaves  [ACTIVE] Debian Sandbox · Offensive VM · Comms  ║");
+    kprintln!("║ T0 Silicon   TPM support not implemented  IOMMU [{:<13}]  ║", reg.vtd_iommu.label());
+    kprintln!("║ T1 Kernel    monolithic prototype; capability isolation incomplete ║");
+    kprintln!("║ T2 Storage   kcore/kvault libraries; OS integration [{:<13}]  ║", reg.kvault_fs.label());
+    kprintln!("║ T3 Services  smoltcp / Net: [{:<13}]                   ║", reg.nic_virtio.label());
+    kprintln!("║ T4 Drivers   e1000:[{:<6}] VirtIO:[{:<6}] PS/2:[{:<4}]   ║",
+              reg.nic_e1000.label(), reg.nic_virtio.label(), reg.ps2_input.label());
+    kprintln!("║ T5 Enclaves  Capsules: [{:<8}] Sandbox: [{:<8}]        ║",
+              reg.kapp_capsules.label(), reg.pledge_unveil.label());
     kprintln!("╠══════════════════════════════════════════════════════════════╣");
     let arch = match platform.arch {
         khal::Arch::X86_64  => "x86-64 (QEMU q35 / VirtualBox / real hardware)",
@@ -50,18 +53,18 @@ pub struct Tier3Status {
 impl Tier3Status {
     pub fn new() -> Self {
         Tier3Status {
-            anonymity_gw: true,
-            packet_filter: true,
-            telemetry: true,
-            key_manager: true,
-            process_monitor: true,
-            duress_handler: true,
+            anonymity_gw: false,
+            packet_filter: false,
+            telemetry: false,
+            key_manager: false,
+            process_monitor: false,
+            duress_handler: false,
         }
     }
 
     pub fn print(&self) {
         kprintln!("[tier3] services:");
-        let s = |b: bool| if b { "ACTIVE (Running)" } else { "STOPPED         " };
+        let s = |b: bool| if b { "ACTIVE (Running)" } else { "NOT IMPLEMENTED (Part B)" };
         kprintln!("  AnonymityGateway  {}", s(self.anonymity_gw));
         kprintln!("  PacketFilter      {}", s(self.packet_filter));
         kprintln!("  Telemetry         {}", s(self.telemetry));
@@ -104,14 +107,15 @@ impl DriverStatus {
 
 impl DriverMap {
     pub fn new() -> Self {
+        let reg = crate::status::get();
         DriverMap {
-            nvme_sata: DriverStatus::Native,
-            ethernet:  DriverStatus::Native,
-            wifi_vm:   DriverStatus::DriverVM,
-            usb_vm:    DriverStatus::Native,
-            gpu_vm:    DriverStatus::Native,
-            bt_vm:     DriverStatus::ActiveDde,
-            sdr_vm:    DriverStatus::DriverVM,
+            nvme_sata: DriverStatus::Absent,
+            ethernet:  if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() { DriverStatus::Native } else { DriverStatus::Absent },
+            wifi_vm:   DriverStatus::Absent,
+            usb_vm:    DriverStatus::Absent,
+            gpu_vm:    if reg.linear_framebuffer.is_real() { DriverStatus::Native } else { DriverStatus::Absent },
+            bt_vm:     DriverStatus::Absent,
+            sdr_vm:    DriverStatus::Absent,
         }
     }
 
@@ -119,14 +123,11 @@ impl DriverMap {
         kprintln!("[tier4] driver map:");
         kprintln!("  NVMe/SATA    {}", self.nvme_sata.label());
         kprintln!("  Ethernet     {}", self.ethernet.label());
-        kprintln!("  Wi-Fi 6/7    {} ← sandboxed; firmware bug can't reach host",
-                  self.wifi_vm.label());
-        kprintln!("  USB          {} ← new devices need explicit cap grant",
-                  self.usb_vm.label());
-        kprintln!("  GPU          {}", self.gpu_vm.label());
+        kprintln!("  Wi-Fi 6/7    {}", self.wifi_vm.label());
+        kprintln!("  USB / PS/2   {}", self.usb_vm.label());
+        kprintln!("  GPU / Framebuffer {}", self.gpu_vm.label());
         kprintln!("  Bluetooth    {}", self.bt_vm.label());
-        kprintln!("  SDR (HackRF) {} ← RF enclave, USB IOMMU domain",
-                  self.sdr_vm.label());
+        kprintln!("  SDR (HackRF) {}", self.sdr_vm.label());
     }
 }
 
@@ -146,57 +147,44 @@ pub struct EnclaveMap {
 impl EnclaveMap {
     pub fn new() -> Self {
         EnclaveMap {
-            debian_box: EnclaveState::Running,
-            offensive:  EnclaveState::Running,
-            comms:      EnclaveState::Running,
-            desktop:    EnclaveState::Running,
-            telemetry:  EnclaveState::Running,
+            debian_box: EnclaveState::Stopped,
+            offensive:  EnclaveState::Stopped,
+            comms:      EnclaveState::Stopped,
+            desktop:    EnclaveState::Stopped,
+            telemetry:  EnclaveState::Stopped,
         }
     }
 
     pub fn print(&self) {
         let s = |e: EnclaveState| match e {
             EnclaveState::Running => "ACTIVE (Running)",
-            EnclaveState::Stopped => "STOPPED         ",
+            EnclaveState::Stopped => "STOPPED (Not Launched)",
         };
         kprintln!("[tier5] execution enclaves:");
-        kprintln!("  DebianBox    {} (Hermetic Debian Package Sandbox & auxv ELF)",
-                  s(self.debian_box));
-        kprintln!("  OffensiveVM  {} (WebStrike/netvuln/memforge/Kali)",
-                  s(self.offensive));
-        kprintln!("  CommsVM      {} (P2P chat, Tor, I2P gateway)",
-                  s(self.comms));
+        kprintln!("  DebianBox    {} (Hermetic Debian Package Sandbox)", s(self.debian_box));
+        kprintln!("  OffensiveVM  {} (Isolated security testing domain, Part E)", s(self.offensive));
+        kprintln!("  CommsVM      {} (P2P chat, Tor gateway)", s(self.comms));
         kprintln!("  DesktopVM    {}", s(self.desktop));
-        kprintln!("  TelemetryVM  {} (zero-TX passive network analysis)",
-                  s(self.telemetry));
+        kprintln!("  TelemetryVM  {}", s(self.telemetry));
     }
 }
 
 // ── Network identity (boot default) ──────────────────────────────────────────
 
-/// Print the boot network identity configuration.
-pub fn print_network_config(seed: u64) {
-    let gw = AnonymityGateway::new(AnonProfile::TorStreamIsolated, seed);
-    let mac = gw.identity.current_mac;
-    kprintln!("[net] anonymity profile : Tor with per-app stream isolation");
-    kprintln!("[net] MAC at boot       : {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}  (locally-administered, rotates on reconnect)",
-              mac.0[0], mac.0[1], mac.0[2], mac.0[3], mac.0[4], mac.0[5]);
-    kprintln!("[net] fingerprint norm  : TTL={} TCP-window={} strip-timestamps={}",
-              gw.identity.norm.ttl,
-              gw.identity.norm.tcp_window,
-              gw.identity.norm.strip_tcp_timestamps);
-    kprintln!("[net] gateway status    : {:?}", gw.status);
-    kprintln!("[net] kill-switch       : ACTIVE — no gateway = no egress");
+/// Report network integration state without presenting generated identity data as live networking.
+pub fn print_network_config(_seed: u64) {
+    let reg = crate::status::get();
+    if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() {
+        kprintln!("[net] a NIC driver reported initialized; no anonymity gateway or packet filter is integrated");
+    } else {
+        kprintln!("[net] networking unavailable: no supported NIC driver initialized");
+    }
+    kprintln!("[net] Tor routing, per-app isolation, MAC rotation, and a network kill switch are not implemented");
 }
 
 /// Print the boot privacy configuration.
 pub fn print_privacy_config() {
-    kprintln!("[prv] encrypted storage : kvault (Argon2id + XChaCha20-Poly1305)");
-    kprintln!("[prv] hidden volume     : supported (two passwords, two regions)");
-    kprintln!("[prv] duress password   : supported (destroys all key slots)");
-    kprintln!("[prv] per-folder keys   : supported (folder password ≠ volume password)");
-    kprintln!("[prv] amnesic mode      : zero-on-revoke via kcore Untyped revocation");
-    kprintln!("[prv] anti-forensics    : volatile overwrite + seL4 formal memory proof");
-    kprintln!("[prv] cold-boot defence : Intel TME / AMD TSME / ARM MTE where available");
-    kprintln!("[prv] TPM PCR binding   : ACTIVE (Hardware CRTM / PCR measured boot)");
+    kprintln!("[prv] kvault contains an authenticated-encryption library with passing unit tests; it is not mounted as system storage");
+    kprintln!("[prv] hidden volumes, duress deletion, and folder keys are library features, not boot-integrated services");
+    kprintln!("[prv] memory zeroing helpers are present; no seL4 proof, cold-boot protection, or TPM measured boot is provided");
 }

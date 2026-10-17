@@ -1,13 +1,10 @@
 //! Activity Monitor and Calculator.
 use alloc::format;
 use alloc::string::String;
-use alloc::vec::Vec;
 use crate::app::*;
 use crate::color::*;
 use crate::geom::*;
 use crate::anim::*;
-use crate::icons::*;
-use crate::mathf::*;
 use crate::text::*;
 use crate::ui::*;
 
@@ -23,8 +20,8 @@ fn bar(cx: &mut Ctx, area: Rect, title: &str) {
 }
 
 // ───────── Activity Monitor ─────────
-pub struct ActivityMonitor { t: f32, hist: Vec<f32>, acc: f32, tab: usize, scroll: Scroll }
-impl ActivityMonitor { pub fn new() -> ActivityMonitor { let mut h = Vec::new(); for i in 0..60 { h.push(0.2 + 0.1 * sin(i as f32 * 0.4)); } ActivityMonitor { t: 0.0, hist: h, acc: 0.0, tab: 0, scroll: Scroll::default() } } }
+pub struct ActivityMonitor { scroll: Scroll }
+impl ActivityMonitor { pub fn new() -> ActivityMonitor { ActivityMonitor { scroll: Scroll::default() } } }
 
 impl App for ActivityMonitor {
     fn kind(&self) -> AppKind { AppKind::ActivityMonitor }
@@ -32,39 +29,23 @@ impl App for ActivityMonitor {
     fn min_size(&self) -> (f32, f32) { (600.0, 400.0) }
     fn draw(&mut self, cx: &mut Ctx, area: Rect) {
         let th = *cx.th;
-        let dt = cx.io.dt.min(0.1);
-        self.t += dt; self.acc += dt;
-        if self.acc > 0.5 { self.acc = 0.0; let v = 0.22 + 0.12 * sin(self.t * 0.9) + 0.06 * sin(self.t * 2.3); self.hist.remove(0); self.hist.push(v); }
         cx.sys.blink_req = true;
         cx.cv.fill_rect(area, th.content_bg());
-        let mut sel = self.tab;
-        cx.segmented("am_tab", Rect::new(area.w * 0.5 - 150.0, 12.0, 300.0, 30.0), &["CPU", "Memory", "Network", "Services"], &mut sel);
-        self.tab = sel;
-        // graph
+        // No telemetry service is connected, so present an explicit empty state instead of sample data.
         let g = Rect::new(20.0, 70.0, area.w - 40.0, 110.0);
         cx.group_box(g);
-        let acc = th.accent();
-        let n = self.hist.len();
-        let bw = (g.w - 24.0) / n as f32;
-        let scale = [1.0f32, 0.8, 0.5, 0.35][self.tab.min(3)];
-        for (i, v) in self.hist.iter().enumerate() {
-            let h = (v * scale * 2.2).clamp(0.02, 1.0) * (g.h - 24.0);
-            cx.cv.fill_rrect(Rect::new(g.x + 12.0 + i as f32 * bw, g.bottom() - 12.0 - h, bw - 1.5, h), 1.5, acc.fade(0.35 + 0.65 * (i as f32 / n as f32)));
-        }
-        let (a, k, d) = cx.sys.reg.totals();
         let l2 = th.label2(); let lc = th.label();
         let stat = |cx: &mut Ctx, x: f32, v: &str, l: &str| { cx.text(x, 214.0, v, 18.0, Weight::Bold, lc); cx.text(x, 232.0, l, 11.0, Weight::Regular, l2); };
-        let cpu = format!("{}%", (self.hist[n - 1] * scale * 100.0) as i32);
-        stat(cx, 24.0, &cpu, "System load");
-        stat(cx, 150.0, "0.9 / 512 MiB", "Memory used");
-        stat(cx, 300.0, &format!("{}", cx.sys.reg.apps.len()), "Registered binaries");
-        let _ = (a, k, d);
-        // process list from registry
+        cx.text_in(g, "Live system metrics are unavailable: no telemetry service is connected.", 13.0, Weight::Regular, l2, Align::Center);
+        stat(cx, 24.0, "Unavailable", "CPU metrics");
+        stat(cx, 220.0, "Unavailable", "Memory metrics");
+        stat(cx, 430.0, "Unavailable", "Network metrics");
+        // This is the registered application catalog, not a list of running processes.
         let head = Rect::new(20.0, 250.0, area.w - 40.0, 24.0);
-        cx.text(head.x + 8.0, head.y + 16.0, "Name", 11.5, Weight::Semibold, l2);
-        cx.text(head.x + head.w * 0.46, head.y + 16.0, "Type", 11.5, Weight::Semibold, l2);
-        cx.text(head.x + head.w * 0.64, head.y + 16.0, "% CPU", 11.5, Weight::Semibold, l2);
-        cx.text(head.x + head.w * 0.80, head.y + 16.0, "Privileges", 11.5, Weight::Semibold, l2);
+        cx.text(head.x + 8.0, head.y + 16.0, "Registered app", 11.5, Weight::Semibold, l2);
+        cx.text(head.x + head.w * 0.46, head.y + 16.0, "Category", 11.5, Weight::Semibold, l2);
+        cx.text(head.x + head.w * 0.64, head.y + 16.0, "Runtime", 11.5, Weight::Semibold, l2);
+        cx.text(head.x + head.w * 0.80, head.y + 16.0, "Declared class", 11.5, Weight::Semibold, l2);
         cx.separator_h(head.x, head.right(), head.bottom());
         let list = Rect::new(20.0, 276.0, area.w - 40.0, area.h - 290.0);
         let rows = cx.sys.reg.apps.len();
@@ -79,16 +60,11 @@ impl App for ActivityMonitor {
             cx.file_icon(cls.file_kind(), Rect::new(list.x + 8.0, y + 4.0, 22.0, 22.0));
             cx.text(list.x + 38.0, y + 20.0, &nm, 12.5, Weight::Regular, lc);
             cx.text(list.x + list.w * 0.46, y + 20.0, cls.singular(), 12.0, Weight::Regular, l2);
-            let load = ((sin(self.t * 0.7 + i as f32 * 1.7) * 0.5 + 0.5) * 6.0) as i32;
-            cx.text(list.x + list.w * 0.64, y + 20.0, &format!("{}.{}", load, (i * 7) % 10), 12.0, Weight::Regular, lc);
+            cx.text(list.x + list.w * 0.64, y + 20.0, "Not running", 12.0, Weight::Regular, l2);
             cx.text(list.x + list.w * 0.80, y + 20.0, if sys_ { "System" } else { "User" }, 12.0, Weight::Regular, l2);
         }
         cx.cv.pop_clip();
         bar(cx, area, "Activity Monitor");
-        // re-draw segmented above bar
-        let mut s2 = self.tab;
-        cx.segmented("am_tab", Rect::new(area.w * 0.5 - 150.0, 12.0, 300.0, 30.0), &["CPU", "Memory", "Network", "Services"], &mut s2);
-        self.tab = s2;
     }
 }
 

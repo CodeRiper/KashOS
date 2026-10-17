@@ -87,11 +87,29 @@ impl KappInstance {
         }
     }
 
-    /// Verifies Ed25519 detached signature and SHA-256 binary digests.
-    pub fn verify_signature(&mut self) -> Result<(), &'static str> {
-        // High-assurance signature check simulation
+    /// Verifies Ed25519 detached signature with explicit key, message, and signature bytes (Part A3 / Rule R1 & R2).
+    pub fn verify_signature_with_key(
+        &mut self,
+        pubkey_bytes: &[u8; 32],
+        message: &[u8],
+        sig_bytes: &[u8; 64],
+    ) -> Result<(), &'static str> {
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+        let verifying_key = VerifyingKey::from_bytes(pubkey_bytes)
+            .map_err(|_| "Invalid Ed25519 public key format")?;
+        let signature = Signature::from_bytes(sig_bytes);
+        verifying_key
+            .verify(message, &signature)
+            .map_err(|_| "Ed25519 signature verification failed")?;
         self.is_signature_verified = true;
         Ok(())
+    }
+
+    /// Verifies Ed25519 detached signature. Fails closed if unsigned (Part A3 / Rule R1 & R2).
+    pub fn verify_signature(&mut self) -> Result<(), &'static str> {
+        // Without an attached valid signature and trust-root public key, fail closed.
+        self.is_signature_verified = false;
+        Err("Unsigned bundle: manifest.sig missing or invalid")
     }
 
     /// Launches the capsule within its isolated CSpace, VSpace, and FLASK domain.

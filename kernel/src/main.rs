@@ -35,6 +35,8 @@ pub mod arch;
 #[allow(unsafe_code)]
 pub mod blockdev;
 #[allow(unsafe_code)]
+pub mod cap;
+#[allow(unsafe_code)]
 pub mod dde;
 pub mod display;
 pub mod elf;
@@ -45,6 +47,7 @@ pub mod gui;
 mod heap;
 pub mod kapp;
 mod kash;
+pub mod kash_kernel;
 #[allow(unsafe_code)]
 pub mod linux;
 pub mod lockdown;
@@ -56,6 +59,8 @@ pub mod scheme;
 mod security;
 pub mod sectools;
 mod selftest;
+#[allow(unsafe_code)]
+pub mod status;
 mod shell;
 #[allow(unsafe_code)]
 mod vfs;
@@ -69,8 +74,7 @@ fn show_loading_screen() {
     kprintln!(" | . \\ (_| \\__ \\| | | | | |__| |____) |");
     kprintln!(" |_|\\_\\__,_|___/|_| |_|  \\____/|_____/ ");
     kprintln!(" ==================================================");
-    kprintln!("   KashOS Hardened Microkernel  -  Release v0.2.0  ");
-    kprintln!("   Hardware Profile: 1-Core SMP | 100MB RAM | 10GB ");
+    kprintln!("   KashOS experimental kernel build 0.1.0  ");
     kprintln!(" ==================================================");
     kprintln!();
 }
@@ -106,7 +110,7 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     let stack_top = arch::boot_stack_top();
     arch::init(stack_top);
     arch::sse_selftest();
-    print_progress_bar(25, "Enabling Ring 3 TSS stack isolation & GDT/IDT...");
+    print_progress_bar(25, "Installing architecture tables, exception vectors & timer...");
 
     #[cfg(target_arch = "x86_64")]
     kprintln!("[boot] x86-64 (QEMU q35 / VirtualBox) on CPU {}", hartid);
@@ -138,10 +142,9 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     //    comment for exactly why this ordering is what makes the switch
     //    itself safe to reason about. boot.S's provisional identity map
     //    (every byte PRESENT|WRITABLE, no NX anywhere, no AArch64 MMU on
-    //    at all) stays in place — and the kernel stays usable with no
-    //    paging milestone at all — if there isn't a free region left for
-    //    the page-table frames themselves; that's reported, not silently
-    //    skipped.
+    //    at all) must never remain active after this point. If we cannot
+    //    reserve page-table memory, stop booting rather than claim a secure
+    //    boot with the permissive provisional map still installed.
     match pt_region {
         Some(pt) => {
             let mut extra_rw: [(u64, u64); 2] = [(cap_region.base, cap_region.size_bytes()), (0, 0)];
@@ -152,10 +155,7 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
             }
             arch::enable_wx_paging(pt, &extra_rw[..n]);
         }
-        None => {
-            kprintln!("[mmu] WARNING: no free region left for page-table frames — staying on the");
-            kprintln!("[mmu]          provisional boot-time identity map (no W^X enforcement this boot).");
-        }
+        None => panic!("mmu: no disjoint free RAM region for mandatory W^X page tables; refusing insecure boot"),
     }
 
     print_progress_bar(45, "Enabling W^X Paging & Physical Memory capabilities...");
@@ -180,21 +180,25 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     #[cfg(target_arch = "x86_64")]
     arch::x86_64::tresor::selftest();
 
-    print_progress_bar(65, "Engaging TRESOR DR0-3 Key Storage & Memory Scrubbing...");
+    print_progress_bar(65, "Applying available kernel memory and key handling...");
 
     // ── Step 5: Network and privacy configuration banner ─────────────────────
-    let entropy_seed = {
-        let mut buf = [0u8; 8];
-        if arch::hw_entropy(&mut buf) {
-            u64::from_le_bytes(buf)
-        } else {
-            kprintln!("[entropy] WARNING: Hardware RDRAND/RDSEED unavailable (VirtualBox/QEMU default CPU).");
-            kprintln!("[entropy]          Falling back to CPU TSC timer jitter for CSPRNG seed.");
-            arch::rdtsc() ^ 0x9e37_79b9_7f4a_7c15
-        }
-    };
+    let mut entropy_seed = 0u64;
+    let mut buf = [0u8; 8];
+    if arch::hw_entropy(&mut buf) {
+        entropy_seed = u64::from_le_bytes(buf);
+        status::update(|s| s.hw_entropy = crate::status::ComponentStatus::Real);
+    } else {
+        kprintln!("[entropy] ERROR: Hardware RDRAND/RDSEED/virtio-rng unavailable (Rule R2: Fail-Closed).");
+        kprintln!("[entropy] Refusing to seed cryptographic keys from insecure TSC timer.");
+        status::update(|s| s.hw_entropy = crate::status::ComponentStatus::NotAvailable);
+    }
     kash::print_network_config(entropy_seed);
     kash::print_privacy_config();
+
+    // ── Step 5b: Speculative execution mitigations (A12) ──────────────────────
+    security::SpeculativeMitigations::apply();
+    status::update(|s| s.spec_mitigations = crate::status::ComponentStatus::Partial);
 
     // ── Step 6: Driver and enclave map ───────────────────────────────────────
     let drivers = kash::DriverMap::new();
@@ -222,109 +226,39 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     if let Some(fb) = arch::framebuffer() {
         kprintln!("[gfx] linear framebuffer: {}x{} @ {:#x} (pitch {} bytes)",
                   fb.width, fb.height, fb.base_paddr, fb.pitch);
-        kprintln!("[gfx] rendering Phase 1 verification test pattern (RGB color gradient)...");
-        arch::fill_gradient_test(&fb);
-        kprintln!("[gfx] ✓ gradient rendered successfully");
+        arch::clear_framebuffer(&fb, 0xFF0A0F1D);
+        kprintln!("[gfx] linear framebuffer initialized & cleared to dark slate");
+        status::update(|s| s.linear_framebuffer = crate::status::ComponentStatus::Real);
     } else {
         kprintln!("[gfx] no graphical framebuffer available (running in VGA text mode)");
+        status::update(|s| s.linear_framebuffer = crate::status::ComponentStatus::NotAvailable);
     }
 
     // ── Step 8: Anti-Forensics & Hardware Port Gating ────────────────────────
     kprintln!("\n[security] initializing anti-forensic memory & port defenses...");
     let mut test_buffer = [0x5Au8; 128];
     security::scrub_slice(&mut test_buffer);
-    kprintln!("[security] ✓ volatile memory scrubber (clflush + SeqCst zeroize) verified");
+    kprintln!("[security] temporary buffer zeroing helper checked");
 
     let mut port_gate = security::UsbPortGate::new();
     port_gate.on_screen_lock();
-    kprintln!("[security] ✓ USB dynamic port gating: charge-only mode engaged on lock");
+    kprintln!("[security] USB port-gating policy helper checked; no USB controller gating is integrated");
 
-    print_progress_bar(95, "kcore CDT & OpenBSD Pledge/Unveil Sandboxes Active...");
+    print_progress_bar(95, "Finalizing kernel services...");
 
-    // ── Step 9: Virtual File System & Interactive Shell ──────────────────────
+    // ── Step 9: Virtual File System & Interactive Shell / UI ─────────────────
     let mut shell = shell::KashShell::new();
-    kprintln!("\n[shell] launching kash-init root task (PID 1)...");
-    shell.execute_command("status");
-    shell.execute_command("lockdown status");
-    shell.execute_command("powerbox");
-    shell.execute_command("dde");
-    shell.execute_command("safety");
-    shell.execute_command("deb");
-    shell.execute_command("opsec");
-    shell.execute_command("graphene");
-    shell.execute_command("bfu-test");
-    shell.execute_command("uname -a");
-    shell.execute_command("ps");
-    shell.execute_command("schemes");
-    shell.execute_command("drivers");
-    shell.execute_command("fault-test");
-    shell.execute_command("storage");
-    shell.execute_command("block");
-    shell.execute_command("lspci");
-    shell.execute_command("vbox");
-    shell.execute_command("elf");
-    shell.execute_command("amnesic-wipe");
-    shell.execute_command("df");
-    shell.execute_command("free");
-    shell.execute_command("kctl list");
-    shell.execute_command("kctl run org.system.editor");
-    shell.execute_command("kctl disp org.tor.browser");
-    shell.execute_command("kctl audit");
-    shell.execute_command("kctl display");
-    shell.execute_command("kctl paste 1");
-    shell.execute_command("kctl synth");
-    shell.execute_command("multilang");
-    shell.execute_command("ifconfig");
-    shell.execute_command("iommu");
-    shell.execute_command("usb");
-    shell.execute_command("input");
-    shell.execute_command("nmap 192.168.1.105");
-    shell.execute_command("aircrack wlan0");
-    shell.execute_command("hydra 192.168.1.100 ssh");
-    shell.execute_command("sqlmap https://target-node.local/api?id=1");
-    shell.execute_command("metasploit");
-    shell.execute_command("macchanger eth0");
-    shell.execute_command("wol 02:4B:41:53:48:01");
-    shell.execute_command("netstat");
-    shell.execute_command("sha256sum");
-    shell.execute_command("shred secret_key.pem");
-    shell.execute_command("install-os");
+    print_progress_bar(100, "Kernel initialization complete. Starting kernel shell or desktop.");
 
-    print_progress_bar(100, "All subsystems verified. Starting interactive shell.");
+    // Rule R1: Print the single source-of-truth status registry banner
+    status::print_boot_banner();
 
-    kprintln!();
-    kprintln!("[boot] [OK] all Kash OS microkernel self-tests passed");
-    kprintln!("[boot] [OK] dual-target architecture: x86-64 + AArch64");
-    kprintln!("[boot] [OK] Dual Bootloader: UEFI (BOOTX64.EFI) + BIOS/PVH (kboot)");
-    kprintln!("[boot] [OK] GDT + TSS hardware stack isolation active (Ring 0 microkernel)");
-    kprintln!("[boot] [OK] Native Relibc / Musl libc syscall ABI + pledge/unveil sandbox");
-    kprintln!("[boot] [OK] Anti-DMA IOMMU containment: Intel VT-d & PCIe ACS verified");
-    kprintln!("[boot] [OK] USB xHCI & PS/2 keyboard/mouse input drivers active");
-    kprintln!("[boot] [OK] Hardware Network Drivers: Intel e1000 & VirtIO-Net active");
-    kprintln!("[boot] [OK] smoltcp TCP/IP Stack & Lock-Free kipc Rings ready");
-    kprintln!("[boot] [OK] RedoxOS-style URL Scheme Architecture active");
-    kprintln!("[boot] [OK] kvault-fs authenticated block storage engine ready");
-    kprintln!("[boot] [OK] C-LOOK adaptive elevator storage scheduler ready");
-    kprintln!("[boot] [OK] TRESOR CPU debug register key staging (DR0-DR3) active");
-    kprintln!("[boot] [OK] Out-of-the-Box Security Testing Suite (Nmap, Aircrack, Hydra, Sqlmap, Metasploit) ready");
-    kprintln!("[boot] [OK] iOS Lockdown Mode active (Strict W^X, JIT blocked, USB gated)");
-    kprintln!("[boot] [OK] Zero-Trust Powerbox Sandbox (POLA) active (empty namespaces, out-of-process picker)");
-    kprintln!("[boot] [OK] Linux Application & Debian Package Sandbox active (auxv stack, /proc /sys VFS, futex, io_uring)");
-    kprintln!("[boot] [OK] Linux DDE & Apple Transducer Safety Engine active (speakersafetyd + TAS2764 V/ISENSE telemetry)");
-    kprintln!("[boot] [OK] FLASK Mandatory Access Control & Type Enforcement active");
-    kprintln!("[boot] [OK] Capability Application Capsules (.kapp) verified");
-    kprintln!("[boot] [OK] Multi-Language Userspace Runtime (C/C++/Python/Java) ELF64 ready");
-    kprintln!("[boot] [OK] Wayland Compositor (Smithay-style isolated surfaces) ready");
-    kprintln!("[boot] [OK] Hardware envelope: 1-core CPU, memory paging & amnesic wipe ready");
-
-    kprintln!();
-    kprintln!("[boot] [OK] KashOS Hardened Microkernel Initialized Successfully.");
     if let Some(fb) = arch::framebuffer() {
-        kprintln!("[boot] [OK] Linear Framebuffer active ({}x{} @ {:#x}). Launching Kash UI desktop shell...",
+        kprintln!("[boot] Linear Framebuffer active ({}x{} @ {:#x}). Launching Kash UI desktop shell...",
                   fb.width, fb.height, fb.base_paddr);
         gui::run(fb);
     } else {
-        kprintln!("[boot] [OK] Launching interactive root shell on tty0 (VGA + PS/2 + Serial)...");
+        kprintln!("[boot] Launching the kernel shell on the available console...");
         shell.run_interactive_terminal()
     }
 }

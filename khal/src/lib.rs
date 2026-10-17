@@ -267,6 +267,7 @@ pub enum KeyCode {
     CapsLock, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
     LeftShift, RightShift, LeftCtrl, RightCtrl, LeftAlt, RightAlt,
     Up, Down, Left, Right,
+    Delete, Insert, Home, End, PageUp, PageDown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -22,6 +22,7 @@ pub const PS2_COMMAND_PORT: u16 = 0x64;
 pub const PS2_STATUS_OUTPUT_FULL: u8 = 1 << 0;
 pub const PS2_STATUS_INPUT_FULL: u8  = 1 << 1;
 pub const PS2_STATUS_MOUSE_DATA: u8  = 1 << 5;
+const PENDING_INPUT_CAPACITY: usize = 128;
 
 pub struct Ps2Controller {
     is_mouse_enabled: bool,
@@ -30,6 +31,11 @@ pub struct Ps2Controller {
     shift_pressed: bool,
     ctrl_pressed: bool,
     alt_pressed: bool,
+    extended: bool,
+    prev_buttons: u8,
+    pending_events: [Option<InputEvent>; PENDING_INPUT_CAPACITY],
+    pending_head: usize,
+    pending_len: usize,
 }
 
 impl Ps2Controller {
@@ -41,7 +47,31 @@ impl Ps2Controller {
             shift_pressed: false,
             ctrl_pressed: false,
             alt_pressed: false,
+            extended: false,
+            prev_buttons: 0,
+            pending_events: [None; PENDING_INPUT_CAPACITY],
+            pending_head: 0,
+            pending_len: 0,
         }
+    }
+
+    fn queue_pending_event(&mut self, event: InputEvent) {
+        if self.pending_len == PENDING_INPUT_CAPACITY {
+            return;
+        }
+        let tail = (self.pending_head + self.pending_len) % PENDING_INPUT_CAPACITY;
+        self.pending_events[tail] = Some(event);
+        self.pending_len += 1;
+    }
+
+    fn take_pending_event(&mut self) -> Option<InputEvent> {
+        if self.pending_len == 0 {
+            return None;
+        }
+        let head = self.pending_head;
+        self.pending_head = (self.pending_head + 1) % PENDING_INPUT_CAPACITY;
+        self.pending_len -= 1;
+        self.pending_events[head].take()
     }
 
     #[inline(always)]
@@ -61,20 +91,32 @@ impl Ps2Controller {
     }
 
     fn wait_input_clear() {
-        for _ in 0..10_000 {
+        for _ in 0..1_000_000 {
             if unsafe { Self::inb(PS2_STATUS_PORT) & PS2_STATUS_INPUT_FULL } == 0 {
                 break;
             }
+            core::hint::spin_loop();
         }
     }
 
     fn wait_output_ready() -> bool {
-        for _ in 0..10_000 {
+        for _ in 0..1_000_000 {
             if unsafe { Self::inb(PS2_STATUS_PORT) & PS2_STATUS_OUTPUT_FULL } != 0 {
                 return true;
             }
+            core::hint::spin_loop();
         }
         false
+    }
+
+    fn flush_output() {
+        for _ in 0..256 {
+            if unsafe { Self::inb(PS2_STATUS_PORT) & PS2_STATUS_OUTPUT_FULL } != 0 {
+                let _ = unsafe { Self::inb(PS2_DATA_PORT) };
+            } else {
+                break;
+            }
+        }
     }
 
     pub fn init(&mut self) {
@@ -85,9 +127,7 @@ impl Ps2Controller {
         unsafe { Self::outb(PS2_COMMAND_PORT, 0xA7); } // Disable mouse
 
         // Flush stale data from output buffer
-        while unsafe { Self::inb(PS2_STATUS_PORT) & PS2_STATUS_OUTPUT_FULL } != 0 {
-            let _ = unsafe { Self::inb(PS2_DATA_PORT) };
-        }
+        Self::flush_output();
 
         // Enable translation & interrupts in controller configuration byte
         Self::wait_input_clear();
@@ -95,6 +135,7 @@ impl Ps2Controller {
         if Self::wait_output_ready() {
             let mut cfg = unsafe { Self::inb(PS2_DATA_PORT) };
             cfg |= (1 << 0) | (1 << 1) | (1 << 6); // Keyboard IRQ, Mouse IRQ, Scan Code translation
+            cfg &= !((1 << 4) | (1 << 5));          // Clear clock disable bits to ENABLE clocks on VirtualBox & hardware!
             Self::wait_input_clear();
             unsafe { Self::outb(PS2_COMMAND_PORT, 0x60); } // Write command byte
             Self::wait_input_clear();
@@ -107,7 +148,16 @@ impl Ps2Controller {
         Self::wait_input_clear();
         unsafe { Self::outb(PS2_COMMAND_PORT, 0xA8); } // Enable mouse
 
-        // Enable mouse streaming mode
+        // Reset mouse to defaults (0xF6)
+        Self::wait_input_clear();
+        unsafe { Self::outb(PS2_COMMAND_PORT, 0xD4); }
+        Self::wait_input_clear();
+        unsafe { Self::outb(PS2_DATA_PORT, 0xF6); }
+        if Self::wait_output_ready() {
+            let _ = unsafe { Self::inb(PS2_DATA_PORT) }; // Read ACK
+        }
+
+        // Enable mouse streaming mode (0xF4)
         Self::wait_input_clear();
         unsafe { Self::outb(PS2_COMMAND_PORT, 0xD4); } // Route next byte to auxiliary device (mouse)
         Self::wait_input_clear();
@@ -117,13 +167,41 @@ impl Ps2Controller {
             self.is_mouse_enabled = true;
         }
 
+        // Flush any trailing ACK or self-test response bytes from mouse/keyboard
+        Self::flush_output();
+
+        self.mouse_cycle = 0;
+        self.mouse_packet = [0; 3];
+        self.prev_buttons = 0;
+
         crate::kprintln!("[input] PS/2 keyboard & auxiliary mouse controller initialized");
     }
 
     /// Translates standard PS/2 Scan Code Set 1 into KashOS KeyCode.
-    fn translate_scancode(&mut self, sc: u8) -> (Option<KeyCode>, bool) {
+    fn translate_scancode(&mut self, sc: u8, is_ext: bool) -> (Option<KeyCode>, bool) {
         let is_release = (sc & 0x80) != 0;
         let code = sc & 0x7F;
+
+        if is_ext {
+            let key = match code {
+                0x48 => KeyCode::Up,
+                0x50 => KeyCode::Down,
+                0x4B => KeyCode::Left,
+                0x4D => KeyCode::Right,
+                0x53 => KeyCode::Delete,
+                0x52 => KeyCode::Insert,
+                0x47 => KeyCode::Home,
+                0x4F => KeyCode::End,
+                0x49 => KeyCode::PageUp,
+                0x51 => KeyCode::PageDown,
+                0x1C => KeyCode::Enter,
+                0x35 => KeyCode::Slash,
+                0x1D => { self.ctrl_pressed = !is_release; KeyCode::RightCtrl },
+                0x38 => { self.alt_pressed = !is_release; KeyCode::RightAlt },
+                _ => KeyCode::Unknown,
+            };
+            return (Some(key), is_release);
+        }
 
         let key = match code {
             0x01 => KeyCode::Escape,
@@ -202,50 +280,132 @@ impl Ps2Controller {
     }
 
     pub fn poll(&mut self) -> Option<InputEvent> {
-        let status = unsafe { Self::inb(PS2_STATUS_PORT) };
-        if (status & PS2_STATUS_OUTPUT_FULL) == 0 {
-            return None;
+        // Return queued key/button edges before reading more controller bytes.
+        if let Some(ev) = self.take_pending_event() {
+            return Some(ev);
         }
 
-        let is_mouse = (status & PS2_STATUS_MOUSE_DATA) != 0;
-        let data = unsafe { Self::inb(PS2_DATA_PORT) };
+        // Drain available controller bytes without waiting for the rest of a packet.
+        // Partial packets remain in mouse_cycle for the next poll, keeping input
+        // responsive instead of blocking the compositor on a slow emulator.
+        let mut accum_dx: i32 = 0;
+        let mut accum_dy: i32 = 0;
 
-        if is_mouse {
-            self.mouse_packet[self.mouse_cycle as usize] = data;
-            self.mouse_cycle = (self.mouse_cycle + 1) % 3;
-
-            if self.mouse_cycle == 0 {
-                let flags = self.mouse_packet[0];
-                let mut dx = self.mouse_packet[1] as i32;
-                let mut dy = self.mouse_packet[2] as i32;
-
-                if (flags & (1 << 4)) != 0 { dx |= !0xFF; } // Sign extend X
-                if (flags & (1 << 5)) != 0 { dy |= !0xFF; } // Sign extend Y
-
-                let left_btn = (flags & (1 << 0)) != 0;
-                let right_btn = (flags & (1 << 1)) != 0;
-                let mid_btn = (flags & (1 << 2)) != 0;
-
-                if dx != 0 || dy != 0 {
-                    return Some(InputEvent::MouseMove { dx, dy: -dy });
-                }
-                if left_btn || right_btn || mid_btn {
-                    return Some(InputEvent::MouseButtonDown { left: left_btn, right: right_btn, middle: mid_btn });
-                }
+        for _ in 0..128 {
+            let status = unsafe { Self::inb(PS2_STATUS_PORT) };
+            if (status & PS2_STATUS_OUTPUT_FULL) == 0 {
+                break;
             }
-            None
-        } else {
-            let (key_opt, is_release) = self.translate_scancode(data);
-            if let Some(key) = key_opt {
-                if is_release {
-                    Some(InputEvent::KeyUp(key))
-                } else {
-                    Some(InputEvent::KeyDown(key))
+
+            let is_mouse = (status & PS2_STATUS_MOUSE_DATA) != 0;
+            let data = unsafe { Self::inb(PS2_DATA_PORT) };
+
+            if is_mouse {
+                // Byte 0 of a standard PS/2 mouse packet MUST have bit 3 (0x08) set to 1.
+                // If mouse_cycle == 0 and bit 3 is 0, this byte is out-of-sync noise or ACK. Drop it!
+                if self.mouse_cycle == 0 && (data & 0x08) == 0 {
+                    continue;
+                }
+
+                self.mouse_packet[self.mouse_cycle as usize] = data;
+                self.mouse_cycle = (self.mouse_cycle + 1) % 3;
+
+                // Decode only complete packets; partial packets resume next poll.
+                // If packet completed, decode movement and buttons
+                if self.mouse_cycle == 0 {
+                    let flags = self.mouse_packet[0];
+
+                    // Drop corrupt packet if overflow bit 6 (X) or bit 7 (Y) is set
+                    if (flags & 0xC0) != 0 {
+                        continue;
+                    }
+
+                    // 9-bit sign extension from flags bits 4 and 5
+                    let raw_dx = if (flags & (1 << 4)) != 0 {
+                        (self.mouse_packet[1] as i8) as i32
+                    } else {
+                        self.mouse_packet[1] as i32
+                    };
+
+                    let raw_dy = if (flags & (1 << 5)) != 0 {
+                        (self.mouse_packet[2] as i8) as i32
+                    } else {
+                        self.mouse_packet[2] as i32
+                    };
+
+                    let cur_buttons = flags & 0x07;
+                    let prev_buttons = self.prev_buttons;
+                    self.prev_buttons = cur_buttons;
+
+                    let left_down = (cur_buttons & 1) != 0 && (prev_buttons & 1) == 0;
+                    let left_up = (cur_buttons & 1) == 0 && (prev_buttons & 1) != 0;
+                    let right_down = (cur_buttons & 2) != 0 && (prev_buttons & 2) == 0;
+                    let right_up = (cur_buttons & 2) == 0 && (prev_buttons & 2) != 0;
+                    let mid_down = (cur_buttons & 4) != 0 && (prev_buttons & 4) == 0;
+                    let mid_up = (cur_buttons & 4) == 0 && (prev_buttons & 4) != 0;
+
+                    if left_down || right_down || mid_down {
+                        self.queue_pending_event(InputEvent::MouseButtonDown {
+                            left: left_down,
+                            right: right_down,
+                            middle: mid_down,
+                        });
+                    } else if left_up || right_up || mid_up {
+                        self.queue_pending_event(InputEvent::MouseButtonUp {
+                            left: left_up,
+                            right: right_up,
+                            middle: mid_up,
+                        });
+                    }
+
+                    accum_dx += raw_dx;
+                    accum_dy += raw_dy;
                 }
             } else {
-                None
+                // Keyboard data received
+                if data == 0xE0 {
+                    self.extended = true;
+                    continue;
+                }
+                let is_ext = self.extended;
+                self.extended = false;
+                let (key_opt, is_release) = self.translate_scancode(data, is_ext);
+                if let Some(key) = key_opt {
+                    let kev = if is_release {
+                        InputEvent::KeyUp(key)
+                    } else {
+                        InputEvent::KeyDown(key)
+                    };
+                    self.queue_pending_event(kev);
+                }
             }
         }
+
+        // Apply natural ballistic acceleration to coalesced movement
+        let moved = accum_dx != 0 || accum_dy != 0;
+        let move_event = if moved {
+            let speed = (accum_dx.abs() + accum_dy.abs()) as f32;
+            let gain = if speed <= 3.0 {
+                1.0f32
+            } else if speed <= 10.0 {
+                1.25f32
+            } else {
+                (1.35f32 + (speed - 10.0) * 0.02).min(2.1f32)
+            };
+            let dx = ((accum_dx as f32) * gain) as i32;
+            let dy = ((accum_dy as f32) * gain) as i32;
+            Some(InputEvent::MouseMove { dx, dy: -dy })
+        } else {
+            None
+        };
+
+        // Coalesce high-frequency movement, but preserve every queued key and
+        // button edge so short clicks cannot disappear within one poll batch.
+        if let Some(mev) = move_event {
+            return Some(mev);
+        }
+
+        self.take_pending_event()
     }
 }
 

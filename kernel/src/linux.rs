@@ -252,6 +252,24 @@ pub struct ProcessSandbox {
     pub heap_brk: usize,
 }
 
+/// Canonicalizes and normalizes filesystem paths, resolving `.` and `..` components
+/// to prevent directory traversal sandbox escapes.
+pub fn normalize_path(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        if seg.is_empty() || seg == "." {
+            continue;
+        } else if seg == ".." {
+            parts.pop();
+        } else {
+            parts.push(seg);
+        }
+    }
+    let mut out = String::from("/");
+    out.push_str(&parts.join("/"));
+    out
+}
+
 impl ProcessSandbox {
     pub fn new(pid: u64) -> Self {
         Self {
@@ -274,14 +292,15 @@ impl ProcessSandbox {
         if self.unveiled_paths.is_empty() {
             return Ok(());
         }
+        let norm_path = normalize_path(path);
         for allowed in &self.unveiled_paths {
-            let allowed_str = allowed.as_str();
-            if path == allowed_str {
+            let allowed_norm = normalize_path(allowed);
+            if norm_path == allowed_norm {
                 return Ok(());
             }
-            if path.starts_with(allowed_str) {
-                let remainder = &path[allowed_str.len()..];
-                if allowed_str.ends_with('/') || remainder.starts_with('/') {
+            if norm_path.starts_with(&allowed_norm) {
+                let remainder = &norm_path[allowed_norm.len()..];
+                if allowed_norm.ends_with('/') || remainder.starts_with('/') {
                     return Ok(());
                 }
             }
@@ -350,34 +369,6 @@ pub fn handle_linux_syscall(
             if fd == 0 {
                 // Stdin: EOF or no input pending in non-blocking mode
                 0
-            } else if fd == 100 {
-                // /proc/self/maps with strict W^X enforcement
-                let maps = b"00400000-00420000 r-xp 00000000 08:01 100 /bin/app\n00620000-00621000 r--p 00020000 08:01 100 /bin/app\n00621000-00622000 rw-p 00021000 08:01 100 /bin/app\n7ffffffde000-7ffffffff000 rw-p 00000000 00:00 0 [stack]\n";
-                let len = count.min(maps.len());
-                let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len) };
-                slice.copy_from_slice(&maps[..len]);
-                len as i64
-            } else if fd == 101 {
-                // /proc/cpuinfo
-                let info = b"processor: 0\nvendor_id: HardenedCPU\nmodel name: KashOS vCPU Core\nflags: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx lm smep smap\n";
-                let len = count.min(info.len());
-                let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len) };
-                slice.copy_from_slice(&info[..len]);
-                len as i64
-            } else if fd == 102 {
-                // /proc/meminfo
-                let mem = b"MemTotal: 260096 kB\nMemFree: 258048 kB\nMemAvailable: 258048 kB\nBuffers: 1024 kB\nCached: 4096 kB\n";
-                let len = count.min(mem.len());
-                let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len) };
-                slice.copy_from_slice(&mem[..len]);
-                len as i64
-            } else if fd == 103 {
-                // /proc/version
-                let ver = b"Linux version 6.6.0-kash-secure (kash-root@kash-node-01) #1 SMP PREEMPT 2026\n";
-                let len = count.min(ver.len());
-                let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len) };
-                slice.copy_from_slice(&ver[..len]);
-                len as i64
             } else if fd >= 3 && fd < 100 {
                 // Active file handle from VFS or Powerbox
                 let len = count.min(64);
@@ -385,7 +376,7 @@ pub fn handle_linux_syscall(
                 slice.fill(0x20); // space padding
                 len as i64
             } else {
-                EIO
+                EBADF
             }
         }
         nr::SYS_WRITE => {
@@ -409,20 +400,17 @@ pub fn handle_linux_syscall(
         nr::SYS_OPEN => {
             if sandbox.check_pledge(PLEDGE_RPATH).is_err() { return EPERM; }
             let path_ptr = arg1;
-            let path = match copy_user_string(path_ptr, 256) {
+            let raw_path = match copy_user_string(path_ptr, 256) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            if path == "/proc/self/maps" { return 100; }
-            if path == "/proc/cpuinfo" { return 101; }
-            if path == "/proc/meminfo" { return 102; }
-            if path == "/proc/version" { return 103; }
-            if path == "/sys/devices" { return 104; }
+            let path = normalize_path(&raw_path);
 
-            // If not in unveiled set, request user mediation via Zero-Trust Powerbox
+            // Fail closed: deny with ENOENT when a path is not unveiled (Restored per A5 / Rule R2)
             if sandbox.check_unveil(&path).is_err() {
-                let _ = crate::powerbox::get_broker().request_file_access(sandbox.pid, "POSIX open", "*", false);
+                return ENOENT;
             }
+
             3 // Active VFS file descriptor handle
         }
         nr::SYS_CLOSE => {
@@ -431,14 +419,16 @@ pub fn handle_linux_syscall(
         nr::SYS_STAT | nr::SYS_LSTAT => {
             if sandbox.check_pledge(PLEDGE_RPATH).is_err() { return EPERM; }
             let path_ptr = arg1;
-            let path = match copy_user_string(path_ptr, 256) {
+            let raw_path = match copy_user_string(path_ptr, 256) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
+            let path = normalize_path(&raw_path);
             if sandbox.check_unveil(&path).is_err() { return ENOENT; }
 
             let stat_ptr = arg2;
             if validate_user_ptr(stat_ptr, core::mem::size_of::<LinuxStat>()).is_err() { return EFAULT; }
+            let cur_time = crate::arch::read_rtc_unix_seconds() as i64;
             let stat = LinuxStat {
                 st_dev: 1,
                 st_ino: 100,
@@ -451,11 +441,11 @@ pub fn handle_linux_syscall(
                 st_size: 4096,
                 st_blksize: 4096,
                 st_blocks: 8,
-                st_atime: 1700000000,
+                st_atime: cur_time,
                 st_atime_nsec: 0,
-                st_mtime: 1700000000,
+                st_mtime: cur_time,
                 st_mtime_nsec: 0,
-                st_ctime: 1700000000,
+                st_ctime: cur_time,
                 st_ctime_nsec: 0,
                 __unused: [0; 3],
             };
@@ -507,7 +497,8 @@ pub fn handle_linux_syscall(
             if validate_user_ptr(tp_ptr, core::mem::size_of::<LinuxTimeSpec>()).is_err() {
                 return EFAULT;
             }
-            let ts = LinuxTimeSpec { tv_sec: 1700000000, tv_nsec: 0 };
+            let cur_time = crate::arch::read_rtc_unix_seconds() as i64;
+            let ts = LinuxTimeSpec { tv_sec: cur_time, tv_nsec: 0 };
             unsafe {
                 core::ptr::write_unaligned(tp_ptr as *mut LinuxTimeSpec, ts);
             }
@@ -519,7 +510,8 @@ pub fn handle_linux_syscall(
                 if validate_user_ptr(tv_ptr, core::mem::size_of::<LinuxTimeVal>()).is_err() {
                     return EFAULT;
                 }
-                let tv = LinuxTimeVal { tv_sec: 1700000000, tv_usec: 0 };
+                let cur_time = crate::arch::read_rtc_unix_seconds() as i64;
+                let tv = LinuxTimeVal { tv_sec: cur_time, tv_usec: 0 };
                 unsafe {
                     core::ptr::write_unaligned(tv_ptr as *mut LinuxTimeVal, tv);
                 }

@@ -7,18 +7,11 @@ global_asm!(r#"
     .section .text.entry, "ax"
     .global _start
 _start:
-    // x0 = DTB physical address per the Linux/ARM64 boot convention.
-    // NOTE (tested empirically against QEMU 8.2.2): for a plain ELF -kernel
-    // image like this one (not wrapped in the Linux "Image" header format),
-    // QEMU's arm_load_kernel() does not treat the load as "is_linux" and
-    // does not populate x0 with the DTB address — confirmed with both the
-    // auto-generated DTB and an explicit `-dtb` flag; x0 reads as 0 either
-    // way. rust_entry/kmain handles dtb==0 with a documented fallback
-    // (see arch::aarch64::discover) rather than silently trusting a
-    // register QEMU does not actually set on this boot path. Fixing this
-    // properly (so real device-tree parsing is live) means either emitting
-    // a Linux Image-format header or loading via a stub QEMU recognises as
-    // Linux-style; tracked for milestone 3.
+    // x0 = DTB physical address supplied by the boot protocol. On QEMU virt,
+    // the ELF is linked above the reserved start-of-RAM area so QEMU can place
+    // its DTB there and pass its address through the generated entry stub.
+    // A missing pointer is rejected by hardware discovery; the kernel must
+    // never invent RAM size or device locations.
     mov  x20, x0
 
     // ── Determine current exception level ────────────────────────────────

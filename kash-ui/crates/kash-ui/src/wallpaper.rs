@@ -54,38 +54,111 @@ fn golden_hour(cv: &mut Canvas) {
     let (w, h) = (cv.w, cv.h);
     let wf = w as f32; let hf = h as f32;
     let hor = hf * 0.60;
+    let hor_i = (hor as usize).min(h as usize);
     let sky = [
         (0.00, Color::hex(0x141C4F)), (0.30, Color::hex(0x4B3A8F)), (0.52, Color::hex(0xC25A8E)),
         (0.78, Color::hex(0xFF8A6B)), (1.00, Color::hex(0xFFC77D)),
     ];
     let sun = Pt::new(wf * 0.70, hor - hf * 0.045);
+
+    // 1. Precalculate 1D sky gradient column LUT
+    let mut sky_lut = [Color::BLACK; 768];
+    for y in 0..hor_i.min(768) {
+        let t = (y as f32) / hor;
+        sky_lut[y] = grad(&sky, powf(t, 1.15));
+    }
+
+    // 2. Precalculate 1D water gradient column LUT
+    let mut water_lut = [Color::BLACK; 768];
+    for y in hor_i..h.min(768) as usize {
+        let t = (y as f32 - hor) / (hf - hor);
+        water_lut[y] = grad(&[(0.0, Color::hex(0x7A4F8F)), (0.25, Color::hex(0x3B3A78)), (1.0, Color::hex(0x0B1236))], t);
+    }
+
+    // 3. Precalculate coarse 2D noise grids (drastically reduces fbm calls from ~1,200,000 to ~2,000)
+    const CW: usize = 32;
+    const CH: usize = 24;
+    let mut cloud_grid = [0.0f32; CW * CH];
+    for cy in 0..CH {
+        let fy = cy as f32 / ((CH - 1) as f32);
+        for cx in 0..CW {
+            let fx = cx as f32 / ((CW - 1) as f32);
+            cloud_grid[cy * CW + cx] = fbm(fx * 5.0, fy * 14.0, 3, 5);
+        }
+    }
+
+    const RW: usize = 64;
+    const RH: usize = 16;
+    let mut rip_grid = [0.0f32; RW * RH];
+    for ry in 0..RH {
+        let v = ry as f32 / ((RH - 1) as f32);
+        for rx in 0..RW {
+            let u = rx as f32 / ((RW - 1) as f32);
+            rip_grid[ry * RW + rx] = fbm(u * 40.0, v * 140.0 * (0.4 + v), 2, 9);
+        }
+    }
+
     for y in 0..h {
         let fy = y as f32;
-        for x in 0..w {
-            let fx = x as f32;
-            let col = if fy < hor {
-                let t = fy / hor;
-                let mut c = grad(&sky, powf(t, 1.15));
+        let y_idx = (y as usize).min(767);
+        if fy < hor {
+            let t = fy / hor;
+            let c_base = sky_lut[y_idx];
+            let v_cloud = (fy / hor) * ((CH - 1) as f32);
+            let cv0 = (v_cloud as usize).min(CH - 2);
+            let fv_cloud = v_cloud - cv0 as f32;
+
+            for x in 0..w {
+                let fx = x as f32;
+                let mut c = c_base;
                 let d = sqrt((fx - sun.x) * (fx - sun.x) + (fy - sun.y) * (fy - sun.y) * 1.6);
                 let g = exp(-d / (wf * 0.16));
                 c = c.mix(Color::hex(0xFFE3A8), g * 0.75);
                 let core = smoothstep(wf * 0.030, wf * 0.022, d);
                 c = c.mix(Color::hex(0xFFF6DA), core);
-                let n = fbm(fx / wf * 5.0, fy / hf * 14.0, 3, 5);
+
+                // Bilinear cloud sample
+                let u_cloud = (fx / wf) * ((CW - 1) as f32);
+                let cu0 = (u_cloud as usize).min(CW - 2);
+                let fu_cloud = u_cloud - cu0 as f32;
+                let n00 = cloud_grid[cv0 * CW + cu0];
+                let n10 = cloud_grid[cv0 * CW + cu0 + 1];
+                let n01 = cloud_grid[(cv0 + 1) * CW + cu0];
+                let n11 = cloud_grid[(cv0 + 1) * CW + cu0 + 1];
+                let n = lerp(lerp(n00, n10, fu_cloud), lerp(n01, n11, fu_cloud), fv_cloud);
+
                 c = c.mix(Color::hex(0xFFB3A0), smoothstep(0.55, 0.85, n) * (1.0 - t) * 0.35);
-                c
-            } else {
-                let t = (fy - hor) / (hf - hor);
-                let mut c = grad(&[(0.0, Color::hex(0x7A4F8F)), (0.25, Color::hex(0x3B3A78)), (1.0, Color::hex(0x0B1236))], t);
-                let ripple = fbm(fx / wf * 40.0, (fy - hor) / hf * 140.0 * (0.4 + t), 2, 9);
+                cv.px[(y * w + x) as usize] = c.pix();
+            }
+        } else {
+            let t = (fy - hor) / (hf - hor);
+            let c_base = water_lut[y_idx];
+            let v_rip = t * ((RH - 1) as f32);
+            let rv0 = (v_rip as usize).min(RH - 2);
+            let fv_rip = v_rip - rv0 as f32;
+
+            for x in 0..w {
+                let fx = x as f32;
+                let mut c = c_base;
+
+                // Bilinear ripple sample
+                let u_rip = (fx / wf) * ((RW - 1) as f32);
+                let ru0 = (u_rip as usize).min(RW - 2);
+                let fu_rip = u_rip - ru0 as f32;
+                let r00 = rip_grid[rv0 * RW + ru0];
+                let r10 = rip_grid[rv0 * RW + ru0 + 1];
+                let r01 = rip_grid[(rv0 + 1) * RW + ru0];
+                let r11 = rip_grid[(rv0 + 1) * RW + ru0 + 1];
+                let ripple = lerp(lerp(r00, r10, fu_rip), lerp(r01, r11, fu_rip), fv_rip);
+
                 let colx = exp(-fabs(fx - sun.x) / (wf * (0.02 + 0.10 * t)));
                 c = c.mix(Color::hex(0xFFC27A), colx * (0.25 + 0.5 * ripple) * (1.0 - t * 0.6));
                 c = c.darken(ripple * 0.12 * t);
-                c
-            };
-            cv.px[(y * w + x) as usize] = col.pix();
+                cv.px[(y * w + x) as usize] = c.pix();
+            }
         }
     }
+
     let ridge = |cv: &mut Canvas, base: f32, amp: f32, freq: f32, seed: u32, c: Color, x_from: f32, x_to: f32| {
         for x in (x_from as i32).max(0)..(x_to as i32).min(w) {
             let fx = x as f32 / wf;
@@ -101,6 +174,7 @@ fn golden_hour(cv: &mut Canvas) {
     ridge(cv, hor - hf * 0.02, hf * 0.10, 3.2, 3, Color::rgb(0x5A, 0x3F, 0x86), 0.0, wf * 0.55);
     ridge(cv, hor - hf * 0.005, hf * 0.07, 4.5, 8, Color::rgb(0x2B, 0x22, 0x59), 0.0, wf * 0.38);
     ridge(cv, hor - hf * 0.01, hf * 0.05, 5.0, 15, Color::rgb(0x4A, 0x37, 0x78), wf * 0.80, wf);
+
     // suspension bridge (original vector drawing)
     let vermil = Color::hex(0xD9472B);
     let vermil_d = Color::hex(0x8F2A1A);
@@ -134,12 +208,41 @@ fn golden_hour(cv: &mut Canvas) {
     cable(cv, t1x + tw * 0.3, ct, t2x + tw * 0.3, ct, th * 0.80, true);
     cable(cv, -20.0, deck_y - hf * 0.04, t1x + tw * 0.3, ct, hf * 0.10, true);
     cable(cv, t2x + tw * 0.3, ct, wf + 20.0, deck_y - hf * 0.03, hf * 0.10, true);
-    for y in (hor as i32 - (hf * 0.10) as i32)..(hor as i32 + (hf * 0.05) as i32) {
-        if y < 0 || y >= h { continue; }
+
+    const FW: usize = 32;
+    const FH: usize = 12;
+    let mut fog_grid = [0.0f32; FW * FH];
+    for fy in 0..FH {
+        let fyy = fy as f32 / ((FH - 1) as f32);
+        for fx in 0..FW {
+            let fxx = fx as f32 / ((FW - 1) as f32);
+            fog_grid[fy * FW + fx] = fbm(fxx * 5.0, fyy * 2.0, 3, 77);
+        }
+    }
+
+    let fog_top = (hor as i32 - (hf * 0.10) as i32).max(0);
+    let fog_bottom = (hor as i32 + (hf * 0.05) as i32).min(h);
+    let fog_h = (fog_bottom - fog_top) as f32;
+
+    for y in fog_top..fog_bottom {
+        let fyy = (y as f32 - fog_top as f32) / fog_h;
+        let v_fog = fyy * ((FH - 1) as f32);
+        let fv0 = (v_fog as usize).min(FH - 2);
+        let fv_fog = v_fog - fv0 as f32;
+
+        let band = smoothstep(0.0, 0.5, fyy) * smoothstep(1.0, 0.45, fyy);
         for x in 0..w {
-            let fx = x as f32 / wf; let fyy = (y as f32 - (hor - hf * 0.10)) / (hf * 0.15);
-            let n = fbm(fx * 5.0, fyy * 2.0, 4, 77);
-            let band = smoothstep(0.0, 0.5, fyy) * smoothstep(1.0, 0.45, fyy);
+            let fx = x as f32 / wf;
+            let u_fog = fx * ((FW - 1) as f32);
+            let fu0 = (u_fog as usize).min(FW - 2);
+            let fu_fog = u_fog - fu0 as f32;
+
+            let g00 = fog_grid[fv0 * FW + fu0];
+            let g10 = fog_grid[fv0 * FW + fu0 + 1];
+            let g01 = fog_grid[(fv0 + 1) * FW + fu0];
+            let g11 = fog_grid[(fv0 + 1) * FW + fu0 + 1];
+            let n = lerp(lerp(g00, g10, fu_fog), lerp(g01, g11, fu_fog), fv_fog);
+
             let a = saturate(band * (n * 1.5 - 0.35) * 0.55);
             let i = (y * w + x) as usize;
             cv.px[i] = mix_pix(cv.px[i], 0xFFD5C0, (a * 256.0) as u32);

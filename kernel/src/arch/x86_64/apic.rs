@@ -33,6 +33,11 @@ unsafe fn write32(off: usize, val: u32) {
 /// Enable the Local APIC and set up a periodic timer at ~100 Hz.
 pub fn init() {
     unsafe {
+        // SAFETY: Mask all IRQs on legacy 8259 dual-PICs (master port 0x21, slave port 0xA1)
+        // so legacy PIC interrupts cannot collide with CPU exceptions 0x00..0x1F (e.g. vector 8 #DF).
+        core::arch::asm!("out 0x21, al", in("al") 0xFFu8, options(nomem, nostack));
+        core::arch::asm!("out 0xA1, al", in("al") 0xFFu8, options(nomem, nostack));
+
         // Enable APIC via SVR: set bit 8 and spurious vector (0xFF).
         write32(APIC_SVR, APIC_ENABLE | 0xFF);
 

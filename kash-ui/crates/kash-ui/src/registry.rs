@@ -144,8 +144,8 @@ impl Registry {
         let apps = alloc::vec![
             e("Files", Gui, Some(AppKind::Files), "27.0", 18_400_000, ks, true, true, "Oct 9", "Browse and organise files", &[(Files, Allow), (FullDisk, Ask), (AppMgmt, Ask), (Usb, Allow)]),
             e("System Settings", Gui, Some(AppKind::Settings), "27.0", 42_100_000, ks, true, true, "Oct 9", "Configure KashOS", &[(AppMgmt, Allow), (Accessibility, Allow), (Location, Allow), (Bluetooth, Allow), (Network, Allow), (Usb, Allow), (FullDisk, Allow)]),
-            e("Terminal", Gui, Some(AppKind::Terminal), "27.0", 9_800_000, ks, true, true, "Oct 9", "Command line for the Phantom kernel", &[(FullDisk, Ask), (Files, Allow), (Network, Allow), (Automation, Ask), (Accessibility, Ask), (AppMgmt, Deny), (Spawn, Allow)]),
-            e("Browser", Gui, Some(AppKind::Browser), "27.0", 128_000_000, ks, true, true, "Oct 9", "Anonymity-gateway web browser", &[(Camera, Ask), (Microphone, Ask), (Location, Ask), (Network, Allow), (LocalNet, Ask), (Notifications, Ask), (Files, Allow), (Screen, Deny), (Keys, Ask)]),
+            e("Terminal", Gui, Some(AppKind::Terminal), "27.0", 9_800_000, ks, true, true, "Oct 9", "Command line for the KashOS kernel", &[(FullDisk, Ask), (Files, Allow), (Network, Allow), (Automation, Ask), (Accessibility, Ask), (AppMgmt, Deny), (Spawn, Allow)]),
+            e("Firefox", Gui, Some(AppKind::Browser), "128.0 ESR", 128_000_000, "Mozilla / KashOS", true, true, "Oct 17", "Firefox Quantum ESR (Default Browser) - Strict Isolation", &[(Camera, Deny), (Microphone, Deny), (Location, Deny), (Network, Deny), (LocalNet, Deny), (Notifications, Deny), (Files, Deny), (Screen, Deny), (Keys, Deny)]),
             e("Notes", Gui, Some(AppKind::Notes), "27.0", 14_200_000, ks, true, true, "Oct 9", "Quick notes", &[(Files, Allow), (Photos, Ask), (Notifications, Allow)]),
             e("Photos", Gui, Some(AppKind::Photos), "27.0", 61_000_000, ks, true, true, "Oct 9", "Your photo library", &[(Photos, Allow), (Camera, Ask), (Location, Ask), (Files, Allow), (Network, Allow)]),
             e("Music", Gui, Some(AppKind::Music), "27.0", 54_000_000, ks, true, true, "Oct 9", "Play your music", &[(Microphone, Ask), (Network, Allow), (Bluetooth, Allow), (Notifications, Allow), (Files, Allow)]),
@@ -160,7 +160,7 @@ impl Registry {
             e("kvault", Cli, None, "0.2", 2_900_000, ks, true, true, "Oct 8", "Encrypted vault client", &[(FullDisk, Allow), (Files, Allow), (Keys, Allow), (Admin, Ask)]),
             e("git", Cli, None, "2.46", 4_800_000, "Git Project", true, false, "Sep 20", "Distributed version control", &[(Network, Allow), (Files, Allow), (Spawn, Allow)]),
             e("cargo", Cli, None, "1.90", 38_000_000, "Rust Foundation", true, false, "Sep 20", "Rust package manager and build tool", &[(Files, Allow), (Network, Ask), (Spawn, Allow)]),
-            e("phantom-ctl", Cli, None, "0.2", 3_200_000, ks, true, true, "Oct 8", "Control the Phantom kernel services", &[(Admin, Allow), (Spawn, Allow), (KernelMem, Deny), (Network, Ask)]),
+            e("kash-ctl", Cli, None, "0.2", 3_200_000, ks, true, true, "Oct 8", "Control the KashOS kernel services", &[(Admin, Allow), (Spawn, Allow), (KernelMem, Deny), (Network, Ask)]),
             // ── drivers ──
             e("kash-nic.kdrv", Driver, None, "0.2", 410_000, ks, true, true, "Oct 8", "Network interface controller", &[(Dma, Allow), (IoPorts, Allow), (Network, Allow)]),
             e("kash-fb.kdrv", Driver, None, "0.2", 220_000, ks, true, true, "Oct 8", "Linear framebuffer", &[(Framebuffer, Allow), (Dma, Allow), (IoPorts, Allow)]),
@@ -172,7 +172,7 @@ impl Registry {
             e("rtl8821-wifi.kdrv", Driver, None, "5.2", 1_200_000, "Community (unsigned)", false, false, "Oct 11", "Third-party Wi-Fi adapter", &[(Dma, Ask), (Network, Ask), (KernelMem, Ask), (IoPorts, Ask)]),
         ];
         let downloads = alloc::vec![
-            Download { name: String::from("phantom-kernel.iso"), kind: FileKind::Iso, size: 11_300_000, date: String::from("Today") },
+            Download { name: String::from("kash-os.iso"), kind: FileKind::Iso, size: 11_300_000, date: String::from("Today") },
             Download { name: String::from("tools.zip"), kind: FileKind::Archive, size: 220_000_000, date: String::from("Oct 9") },
             Download { name: String::from("wordlists.zip"), kind: FileKind::Archive, size: 1_400_000_000, date: String::from("Sep 28") },
             Download { name: String::from("kali-nethunter.iso"), kind: FileKind::Iso, size: 3_800_000_000, date: String::from("Sep 5") },
@@ -210,9 +210,9 @@ impl Registry {
         if self.lockdown && s == PS::Ask { return PS::Deny; }
         s
     }
-    /// For CLI enforcement by tool name. Unknown tools are allowed.
+    /// For UI policy checks by tool name. Unknown tools fail closed.
     pub fn check(&self, name: &str, p: Perm) -> PS {
-        match self.find_name(name) { Some(i) => { let s = self.effective(i, p); if s == PS::NA { PS::Deny } else { s } } None => PS::Allow }
+        match self.find_name(name) { Some(i) => { let s = self.effective(i, p); if s == PS::NA { PS::Deny } else { s } } None => PS::Deny }
     }
 
     fn push_log(&mut self, t: i64, text: String, state: PS) { self.log.insert(0, LogEntry { t, text, state }); self.log.truncate(40); }
@@ -274,4 +274,333 @@ impl Registry {
     }
     pub fn clear_downloads(&mut self) { self.downloads.clear(); self.rev += 1; }
     pub fn perm_phrase(&self, p: Perm) -> &'static str { p.prompt() }
+}
+
+// ── UI-only compartment preview model (not connected to the running kernel) ─
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DomainKind {
+    AdminDom0,
+    TemplateVm,
+    AppVm,
+    ServiceVm,
+    DisposableVm,
+    VaultVm,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SecurityColorTag {
+    ObsidianAdmin,
+    PurpleVault,
+    MintPersonal,
+    BlueWork,
+    AmberUsb,
+    RedUntrustedNet,
+    MagentaDisposable,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct DomainDescriptor {
+    pub id: u16,
+    pub name: &'static str,
+    pub kind: DomainKind,
+    pub color_tag: SecurityColorTag,
+    pub running: bool,
+    // seL4-style Untyped Memory Capability Quotas (in MiB)
+    pub untyped_quota_mib: u32,
+    pub untyped_watermark_mib: u32,
+    // ARINC 653 Static Partition Scheduling Parameters
+    pub cpu_core: u8,
+    pub arinc_slice_ms: u16,
+    pub arinc_period_ms: u16,
+    pub deadline_misses: u32,
+    pub queue_watermark_pct: u8,
+    // Qubes-style Network & Peripheral Routing
+    pub net_provider_id: Option<u16>,
+    pub iommu_pcie_bdf: Option<&'static str>,
+    pub vtd_second_stage_locked: bool,
+    pub read_only_root_template: &'static str,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PolicyVerdict {
+    Allow,
+    Ask,
+    Deny,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RpcPolicyEntry {
+    pub service_name: &'static str,
+    pub src_domain_id: u16,
+    pub dst_domain_id: u16,
+    pub verdict: PolicyVerdict,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SettingsTab {
+    CompartmentDeckAndManager,
+    UntypedMemoryAndVerusAssurance,
+    Arinc653SchedulerAndHealth,
+    IommuAndPeripheralJails,
+    KashRpcAndGuiSecurity,
+}
+
+#[derive(Clone, Debug)]
+pub struct KashSystemRegistry {
+    /// This registry is local demo state. It does not create kernel compartments,
+    /// schedule partitions, configure an IOMMU, or invoke Verus proofs.
+    pub preview_only: bool,
+    pub active_tab: SettingsTab,
+    pub selected_domain_idx: usize,
+    pub dom0_gui_locked: bool,
+    pub nitpicker_xray_active: bool,
+    pub tint_window_backgrounds: bool,
+    pub strict_utf8_title_sanitization: bool,
+    pub dpi_scale_percent: u16,
+    pub verus_proofs_verified: u32,
+    pub pbit_hardware_verified: bool,
+    pub cbit_ecc_status_clean: bool,
+    pub domains: [DomainDescriptor; 6],
+    pub rpc_policies: [RpcPolicyEntry; 6],
+}
+
+impl KashSystemRegistry {
+    pub const fn new_default() -> Self {
+        Self {
+            preview_only: true,
+            active_tab: SettingsTab::CompartmentDeckAndManager,
+            selected_domain_idx: 1,
+            dom0_gui_locked: false,
+            nitpicker_xray_active: false,
+            tint_window_backgrounds: true,
+            strict_utf8_title_sanitization: true,
+            dpi_scale_percent: 125,
+            verus_proofs_verified: 0,
+            pbit_hardware_verified: false,
+            cbit_ecc_status_clean: false,
+            domains: [
+                DomainDescriptor {
+                    id: 0,
+                    name: "kash-dom0",
+                    kind: DomainKind::AdminDom0,
+                    color_tag: SecurityColorTag::ObsidianAdmin,
+                    running: false,
+                    untyped_quota_mib: 512,
+                    untyped_watermark_mib: 148,
+                    cpu_core: 0,
+                    arinc_slice_ms: 5,
+                    arinc_period_ms: 25,
+                    deadline_misses: 0,
+                    queue_watermark_pct: 4,
+                    net_provider_id: None,
+                    iommu_pcie_bdf: None,
+                    vtd_second_stage_locked: false,
+                    read_only_root_template: "kash-verified-root",
+                },
+                DomainDescriptor {
+                    id: 1,
+                    name: "sys-net",
+                    kind: DomainKind::ServiceVm,
+                    color_tag: SecurityColorTag::RedUntrustedNet,
+                    running: false,
+                    untyped_quota_mib: 256,
+                    untyped_watermark_mib: 192,
+                    cpu_core: 1,
+                    arinc_slice_ms: 4,
+                    arinc_period_ms: 25,
+                    deadline_misses: 0,
+                    queue_watermark_pct: 22,
+                    net_provider_id: None,
+                    iommu_pcie_bdf: Some("03:00.0 Intel Wi-Fi 6E AX210"),
+                    vtd_second_stage_locked: false,
+                    read_only_root_template: "kash-minimal-net-tpl",
+                },
+                DomainDescriptor {
+                    id: 2,
+                    name: "sys-usb",
+                    kind: DomainKind::ServiceVm,
+                    color_tag: SecurityColorTag::AmberUsb,
+                    running: false,
+                    untyped_quota_mib: 256,
+                    untyped_watermark_mib: 110,
+                    cpu_core: 1,
+                    arinc_slice_ms: 3,
+                    arinc_period_ms: 25,
+                    deadline_misses: 0,
+                    queue_watermark_pct: 12,
+                    net_provider_id: None,
+                    iommu_pcie_bdf: Some("00:14.0 xHCI USB Controller"),
+                    vtd_second_stage_locked: false,
+                    read_only_root_template: "kash-minimal-usb-tpl",
+                },
+                DomainDescriptor {
+                    id: 3,
+                    name: "work-app",
+                    kind: DomainKind::AppVm,
+                    color_tag: SecurityColorTag::BlueWork,
+                    running: false,
+                    untyped_quota_mib: 4096,
+                    untyped_watermark_mib: 1840,
+                    cpu_core: 2,
+                    arinc_slice_ms: 8,
+                    arinc_period_ms: 25,
+                    deadline_misses: 0,
+                    queue_watermark_pct: 15,
+                    net_provider_id: Some(1), // Routed through sys-net
+                    iommu_pcie_bdf: None,
+                    vtd_second_stage_locked: false,
+                    read_only_root_template: "kash-workstation-tpl",
+                },
+                DomainDescriptor {
+                    id: 4,
+                    name: "disp-pdf-884",
+                    kind: DomainKind::DisposableVm,
+                    color_tag: SecurityColorTag::MagentaDisposable,
+                    running: false,
+                    untyped_quota_mib: 512,
+                    untyped_watermark_mib: 164,
+                    cpu_core: 3,
+                    arinc_slice_ms: 3,
+                    arinc_period_ms: 25,
+                    deadline_misses: 0,
+                    queue_watermark_pct: 8,
+                    net_provider_id: None, // Offline disposable viewer
+                    iommu_pcie_bdf: None,
+                    vtd_second_stage_locked: false,
+                    read_only_root_template: "kash-dvm-viewer-tpl",
+                },
+                DomainDescriptor {
+                    id: 5,
+                    name: "vault-keys",
+                    kind: DomainKind::VaultVm,
+                    color_tag: SecurityColorTag::PurpleVault,
+                    running: false,
+                    untyped_quota_mib: 256,
+                    untyped_watermark_mib: 64,
+                    cpu_core: 0,
+                    arinc_slice_ms: 2,
+                    arinc_period_ms: 25,
+                    deadline_misses: 0,
+                    queue_watermark_pct: 2,
+                    net_provider_id: None, // Hardware air-gapped
+                    iommu_pcie_bdf: None,
+                    vtd_second_stage_locked: false,
+                    read_only_root_template: "kash-vault-crypto-tpl",
+                },
+            ],
+            rpc_policies: [
+                RpcPolicyEntry {
+                    service_name: "kash.OpenInDisposableVm",
+                    src_domain_id: 3,
+                    dst_domain_id: 4,
+                    verdict: PolicyVerdict::Allow,
+                },
+                RpcPolicyEntry {
+                    service_name: "kash.GpgSplitSign",
+                    src_domain_id: 3,
+                    dst_domain_id: 5,
+                    verdict: PolicyVerdict::Ask,
+                },
+                RpcPolicyEntry {
+                    service_name: "kash.ClipboardCopyPaste",
+                    src_domain_id: 3,
+                    dst_domain_id: 5,
+                    verdict: PolicyVerdict::Deny,
+                },
+                RpcPolicyEntry {
+                    service_name: "kash.UsbBlockAttach",
+                    src_domain_id: 2,
+                    dst_domain_id: 3,
+                    verdict: PolicyVerdict::Ask,
+                },
+                RpcPolicyEntry {
+                    service_name: "kash.FileTransfer",
+                    src_domain_id: 5,
+                    dst_domain_id: 1,
+                    verdict: PolicyVerdict::Deny, // Hardware invariant: Vault -> Net forbidden
+                },
+                RpcPolicyEntry {
+                    service_name: "kash.AdminPolicyUpdate",
+                    src_domain_id: 1,
+                    dst_domain_id: 0,
+                    verdict: PolicyVerdict::Deny, // Hardware invariant: sys-net -> dom0 forbidden
+                },
+            ],
+        }
+    }
+
+    /// GUI action: Adjusts Untyped Memory quota for a compartment while preserving watermark bounds
+    pub fn adjust_untyped_quota(&mut self, domain_idx: usize, delta_mib: i32) {
+        if self.dom0_gui_locked || domain_idx >= self.domains.len() {
+            return;
+        }
+        let dom = &mut self.domains[domain_idx];
+        let proposed = (dom.untyped_quota_mib as i32) + delta_mib;
+        // Quota cannot drop below active watermark allocation or below 64 MiB
+        let min_allowed = (dom.untyped_watermark_mib.max(64)) as i32;
+        if proposed >= min_allowed && proposed <= 16384 {
+            dom.untyped_quota_mib = proposed as u32;
+        }
+    }
+
+    /// GUI action: Adjusts ARINC 653 deterministic time slice (in milliseconds)
+    pub fn adjust_arinc_timeslice(&mut self, domain_idx: usize, delta_ms: i16) {
+        if self.dom0_gui_locked || domain_idx >= self.domains.len() {
+            return;
+        }
+        let dom = &mut self.domains[domain_idx];
+        let proposed = (dom.arinc_slice_ms as i16) + delta_ms;
+        if proposed >= 1 && proposed <= 20 {
+            dom.arinc_slice_ms = proposed as u16;
+        }
+    }
+
+    /// GUI action: Emergency network kill-switch disconnecting a compartment from sys-net
+    pub fn toggle_domain_network(&mut self, domain_idx: usize) {
+        if self.dom0_gui_locked || domain_idx >= self.domains.len() {
+            return;
+        }
+        let dom = &mut self.domains[domain_idx];
+        // Vault and Disposable viewers are prohibited by kernel invariant from attaching to sys-net
+        if matches!(dom.kind, DomainKind::VaultVm | DomainKind::DisposableVm | DomainKind::AdminDom0) {
+            dom.net_provider_id = None;
+            return;
+        }
+        dom.net_provider_id = match dom.net_provider_id {
+            Some(_) => None,
+            None => Some(1),
+        };
+    }
+
+    /// GUI action: Instantaneous Untyped Capability revocation and restart for Disposable VMs
+    pub fn purge_and_reset_compartment(&mut self, domain_idx: usize) {
+        if self.dom0_gui_locked || domain_idx >= self.domains.len() {
+            return;
+        }
+        let dom = &mut self.domains[domain_idx];
+        dom.untyped_watermark_mib = 32; // Reclaimed to base rootfs image footprint
+        dom.deadline_misses = 0;
+        dom.queue_watermark_pct = 0;
+    }
+
+    /// GUI action: Cycles kash-rpc policy verdict while enforcing non-interference invariants
+    pub fn cycle_rpc_policy(&mut self, rule_idx: usize) {
+        if self.dom0_gui_locked || rule_idx >= self.rpc_policies.len() {
+            return;
+        }
+        let rule = &mut self.rpc_policies[rule_idx];
+        // Prevent weakening of mandatory Vault/Admin isolation rules
+        if (rule.src_domain_id == 5 && rule.dst_domain_id == 1)
+            || (rule.src_domain_id == 1 && rule.dst_domain_id == 0)
+        {
+            rule.verdict = PolicyVerdict::Deny;
+            return;
+        }
+        rule.verdict = match rule.verdict {
+            PolicyVerdict::Allow => PolicyVerdict::Ask,
+            PolicyVerdict::Ask => PolicyVerdict::Deny,
+            PolicyVerdict::Deny => PolicyVerdict::Allow,
+        };
+    }
 }

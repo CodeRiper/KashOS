@@ -48,7 +48,7 @@ pub enum AppKind { Files, Settings, Terminal, About, Notes, Browser, Photos, Mus
 impl AppKind {
     pub fn name(&self) -> &'static str {
         match self { AppKind::Files => "Files", AppKind::Settings => "System Settings", AppKind::Terminal => "Terminal", AppKind::About => "About KashOS",
-            AppKind::Notes => "Notes", AppKind::Browser => "Browser", AppKind::Photos => "Photos", AppKind::Music => "Music", AppKind::Messages => "Messages", AppKind::ActivityMonitor => "Activity Monitor", AppKind::Calculator => "Calculator" }
+            AppKind::Notes => "Notes", AppKind::Browser => "Firefox", AppKind::Photos => "Photos", AppKind::Music => "Music", AppKind::Messages => "Messages", AppKind::ActivityMonitor => "Activity Monitor", AppKind::Calculator => "Calculator" }
     }
 }
 
@@ -92,12 +92,12 @@ pub struct SysState {
     pub airdrop: bool,
     pub focus: bool,
     pub brightness: f32,
-    pub volume: f32,
     pub cursor_size: f32,
-    pub tracking: f32,
+    /// Relative pointer multiplier layered over the PS/2 driver's acceleration.
+    pub pointer_speed: f32,
     pub notifications: bool,
     pub night_shift: bool,
-    // Phantom kernel services (mirrors kernel/src/phantom.rs Tier3Status)
+    // KashOS kernel services (mirrors kernel/src/kash.rs Tier3Status)
     pub anon_gateway: bool,
     pub packet_filter: bool,
     pub kill_switch: bool,
@@ -106,6 +106,10 @@ pub struct SysState {
     pub duress: bool,
     pub unix_secs: i64,
     pub screen: Rect,
+    /// Physical framebuffer size reported by the boot handoff (read-only).
+    pub display_output: Rect,
+    /// 0 = automatic fit, 1 = 640x480, 2 = 800x600, 3 = output-sized renderer (capped).
+    pub display_scale: usize,
     pub settings_pane_request: Option<usize>,
     pub reg: crate::registry::Registry,
     pub privacy_request: Option<String>,
@@ -146,11 +150,11 @@ impl SysState {
             blink_req: false,
             appearance: Appearance::Light, accent: 0, clarity: 0.55, reduce_transparency: false,
             dock_size: 0.45, dock_magnify: 0.6, dock_magnify_on: true, dock_autohide: false, wallpaper: 0,
-            wifi: true, bluetooth: true, airdrop: false, focus: false, brightness: 1.0, volume: 0.55, cursor_size: 0.0, tracking: 0.5,
+            wifi: false, bluetooth: false, airdrop: false, focus: false, brightness: 1.0, cursor_size: 0.0, pointer_speed: 1.25,
             notifications: true, night_shift: false,
-            anon_gateway: true, packet_filter: true, kill_switch: true, telemetry: false, key_manager: true, duress: false,
-            unix_secs: 1_791_786_840, screen: Rect::new(0.0, 0.0, 1440.0, 900.0), settings_pane_request: None,
-            passphrase: String::from("kash"), duress_pass: String::new(), duress_active: false, lock_idle: 0, lock_buttons: true, lock_clock: true, lock_user: true, lock_gateway: true, lock_hint: String::new(), bios_on_boot: true,
+            anon_gateway: false, packet_filter: false, kill_switch: false, telemetry: false, key_manager: false, duress: false,
+            unix_secs: 1_791_786_840, screen: Rect::new(0.0, 0.0, 1440.0, 900.0), display_output: Rect::new(0.0, 0.0, 1440.0, 900.0), display_scale: 0, settings_pane_request: None,
+            passphrase: String::new(), duress_pass: String::new(), duress_active: false, lock_idle: 0, lock_buttons: true, lock_clock: true, lock_user: true, lock_gateway: true, lock_hint: String::new(), bios_on_boot: true,
             notif_preview: 1, notif_locked: true, notif_sleeping: false, notif_mirror: false, notif_group: 0, notif_apps: alloc::vec![AppNotif::new(); 32],
             reg: crate::registry::Registry::new(), privacy_request: None, dock_recents: true, dock_downloads: true, dock_indicators: true, dock_bounce: true, stack_view: 0,
         }
@@ -455,5 +459,149 @@ impl<'a> Ctx<'a> {
         self.text_in(Rect::new(r.x + 14.0, r.y, r.w * 0.5, r.h), label, 13.5, Weight::Regular, lc, Align::Left);
         self.text_in(Rect::new(r.x + r.w * 0.4, r.y, r.w * 0.6 - 14.0, r.h), value, 13.0, Weight::Regular, c2, Align::Right);
         r
+    }
+}
+
+// ── Interactive Settings Page & Compartment Control Center (PDF Spec) ───────
+
+use crate::glass::GlassSurface;
+use crate::mathf::percentage_bar_width;
+use crate::registry::{KashSystemRegistry, SettingsTab};
+
+#[derive(Clone, Copy, Debug)]
+pub enum GuiControlEvent {
+    SelectTab(SettingsTab),
+    SelectDomain(usize),
+    IncreaseUntypedQuota(usize),
+    DecreaseUntypedQuota(usize),
+    PurgeAndRevokeUntyped(usize),
+    IncreaseArincSlice(usize),
+    DecreaseArincSlice(usize),
+    ToggleNetworkIsolation(usize),
+    CycleRpcPolicyRule(usize),
+    ToggleNitpickerXrayMode,
+    ToggleWindowBackgroundTint,
+    ToggleDom0GuiLock,
+    AdjustDpiScale(i16),
+}
+
+pub struct KashSettingsGui {
+    pub registry: KashSystemRegistry,
+}
+
+impl KashSettingsGui {
+    pub const fn new() -> Self {
+        Self {
+            registry: KashSystemRegistry::new_default(),
+        }
+    }
+
+    /// Processes interactive operator clicks/hotkeys from the Settings GUI page
+    /// and dispatches capability invocations to `kash-kernel`.
+    pub fn dispatch_event(&mut self, event: GuiControlEvent) {
+        match event {
+            GuiControlEvent::SelectTab(tab) => {
+                self.registry.active_tab = tab;
+            }
+            GuiControlEvent::SelectDomain(idx) => {
+                if idx < self.registry.domains.len() {
+                    self.registry.selected_domain_idx = idx;
+                }
+            }
+            GuiControlEvent::IncreaseUntypedQuota(idx) => {
+                self.registry.adjust_untyped_quota(idx, 128);
+            }
+            GuiControlEvent::DecreaseUntypedQuota(idx) => {
+                self.registry.adjust_untyped_quota(idx, -128);
+            }
+            GuiControlEvent::PurgeAndRevokeUntyped(idx) => {
+                self.registry.purge_and_reset_compartment(idx);
+            }
+            GuiControlEvent::IncreaseArincSlice(idx) => {
+                self.registry.adjust_arinc_timeslice(idx, 1);
+            }
+            GuiControlEvent::DecreaseArincSlice(idx) => {
+                self.registry.adjust_arinc_timeslice(idx, -1);
+            }
+            GuiControlEvent::ToggleNetworkIsolation(idx) => {
+                self.registry.toggle_domain_network(idx);
+            }
+            GuiControlEvent::CycleRpcPolicyRule(rule_idx) => {
+                self.registry.cycle_rpc_policy(rule_idx);
+            }
+            GuiControlEvent::ToggleNitpickerXrayMode => {
+                self.registry.nitpicker_xray_active = !self.registry.nitpicker_xray_active;
+            }
+            GuiControlEvent::ToggleWindowBackgroundTint => {
+                if !self.registry.dom0_gui_locked {
+                    self.registry.tint_window_backgrounds = !self.registry.tint_window_backgrounds;
+                }
+            }
+            GuiControlEvent::ToggleDom0GuiLock => {
+                self.registry.dom0_gui_locked = !self.registry.dom0_gui_locked;
+            }
+            GuiControlEvent::AdjustDpiScale(delta) => {
+                if !self.registry.dom0_gui_locked {
+                    let next = (self.registry.dpi_scale_percent as i16 + delta).clamp(100, 250);
+                    self.registry.dpi_scale_percent = next as u16;
+                }
+            }
+        }
+    }
+
+    /// Renders the KashKernel Settings & Compartment Manager Window into the framebuffer
+    pub fn render_settings_page(&self, framebuffer: &mut [u32], width: u32, height: u32) {
+        let panel = GlassSurface {
+            x: 40,
+            y: 40,
+            width: width.saturating_sub(80),
+            height: height.saturating_sub(80),
+            border_thickness: 4,
+        };
+        panel.composite_secure_frame(
+            framebuffer,
+            width,
+            crate::registry::SecurityColorTag::ObsidianAdmin,
+            self.registry.tint_window_backgrounds,
+            self.registry.nitpicker_xray_active,
+        );
+
+        // Render each compartment card with its unforgeable security border and Untyped Watermark gauge
+        for (i, dom) in self.registry.domains.iter().enumerate() {
+            let card_y = 110 + (i as u32 * 78);
+            if card_y + 68 >= height.saturating_sub(40) {
+                break;
+            }
+            let card = GlassSurface {
+                x: 64,
+                y: card_y,
+                width: width.saturating_sub(128),
+                height: 64,
+                border_thickness: 4,
+            };
+            card.composite_secure_frame(
+                framebuffer,
+                width,
+                dom.color_tag,
+                self.registry.tint_window_backgrounds,
+                self.registry.nitpicker_xray_active,
+            );
+
+            // Draw Untyped Memory Watermark utilization bar inside the card
+            let bar_w = percentage_bar_width(
+                dom.untyped_watermark_mib,
+                dom.untyped_quota_mib,
+                240,
+            );
+            let bar_y = card_y + 38;
+            for r in 0..10 {
+                for c in 0..bar_w {
+                    let idx = ((bar_y + r) * width + (88 + c)) as usize;
+                    if idx < framebuffer.len() {
+                        framebuffer[idx] = 0xFF1A_73E8;
+                    }
+                }
+            }
+        }
     }
 }

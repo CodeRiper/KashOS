@@ -36,6 +36,9 @@ pub const PF_X: u32 = 1 << 0;
 pub const PF_W: u32 = 1 << 1;
 pub const PF_R: u32 = 1 << 2;
 
+/// Maximum user space address: any segment crossing above 0x0000_7FFF_FFFF_FFFF is rejected.
+pub const USER_SPACE_CEILING: u64 = 0x0000_7FFF_FFFF_FFFF;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ElfError {
     BufferTooShort,
@@ -45,9 +48,11 @@ pub enum ElfError {
     UnsupportedType,
     UnsupportedMachine,
     InvalidHeaderSize,
-    SecurityViolationWx(u64),     // W^X violation at vaddr
-    SecurityViolationStackExec,  // Executable stack forbidden
+    SecurityViolationWx(u64),      // W^X violation at vaddr
+    SecurityViolationStackExec,   // Executable stack forbidden
     InvalidSegmentBounds,
+    KernelAddressRejected(u64),   // Segment address encroaches on kernel space (Part A10)
+    ArithmeticOverflow,           // Arithmetic overflow in crafted header offsets (Part A10)
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +94,7 @@ pub struct Elf64Binary {
 
 impl Elf64Binary {
     /// Parses and verifies a raw ELF64 executable file buffer.
+    /// Strictly enforces checked arithmetic and kernel address rejection (Part A10).
     pub fn parse(buf: &[u8]) -> Result<Self, ElfError> {
         if buf.len() < 64 {
             return Err(ElfError::BufferTooShort);
@@ -120,13 +126,17 @@ impl Elf64Binary {
         let entry_point = u64::from_le_bytes([
             buf[24], buf[25], buf[26], buf[27], buf[28], buf[29], buf[30], buf[31]
         ]);
+        if entry_point > USER_SPACE_CEILING {
+            return Err(ElfError::KernelAddressRejected(entry_point));
+        }
 
-        let e_phoff = u64::from_le_bytes([
+        let e_phoff_u64 = u64::from_le_bytes([
             buf[32], buf[33], buf[34], buf[35], buf[36], buf[37], buf[38], buf[39]
-        ]) as usize;
+        ]);
+        let e_phoff = usize::try_from(e_phoff_u64).map_err(|_| ElfError::ArithmeticOverflow)?;
 
-        let e_phentsize = u16::from_le_bytes([buf[54], buf[55]]) as usize;
-        let e_phnum = u16::from_le_bytes([buf[56], buf[57]]) as usize;
+        let e_phentsize = usize::from(u16::from_le_bytes([buf[54], buf[55]]));
+        let e_phnum = usize::from(u16::from_le_bytes([buf[56], buf[57]]));
 
         if e_phentsize < 56 {
             return Err(ElfError::InvalidHeaderSize);
@@ -137,8 +147,16 @@ impl Elf64Binary {
         let mut max_vaddr = 0u64;
 
         for i in 0..e_phnum {
-            let ph_offset = e_phoff + i * e_phentsize;
-            if ph_offset + 56 > buf.len() {
+            let ph_offset = i
+                .checked_mul(e_phentsize)
+                .and_then(|prod| e_phoff.checked_add(prod))
+                .ok_or(ElfError::ArithmeticOverflow)?;
+
+            let ph_end = ph_offset
+                .checked_add(56)
+                .ok_or(ElfError::ArithmeticOverflow)?;
+
+            if ph_end > buf.len() {
                 return Err(ElfError::BufferTooShort);
             }
 
@@ -180,12 +198,31 @@ impl Elf64Binary {
                     return Err(ElfError::SecurityViolationWx(p_vaddr));
                 }
 
-                if (p_offset + p_filesz) as usize > buf.len() || p_filesz > p_memsz {
+                // Security check: Reject addresses in the kernel's range (Part A10)
+                if p_vaddr > USER_SPACE_CEILING {
+                    return Err(ElfError::KernelAddressRejected(p_vaddr));
+                }
+                let seg_end_vaddr = p_vaddr
+                    .checked_add(p_memsz)
+                    .ok_or(ElfError::ArithmeticOverflow)?;
+                if seg_end_vaddr > USER_SPACE_CEILING {
+                    return Err(ElfError::KernelAddressRejected(seg_end_vaddr));
+                }
+
+                // Security check: file size must not exceed memory size
+                if p_filesz > p_memsz {
+                    return Err(ElfError::InvalidSegmentBounds);
+                }
+
+                let seg_file_end = p_offset
+                    .checked_add(p_filesz)
+                    .ok_or(ElfError::ArithmeticOverflow)?;
+                if seg_file_end > buf.len() as u64 {
                     return Err(ElfError::InvalidSegmentBounds);
                 }
 
                 if p_vaddr < min_vaddr { min_vaddr = p_vaddr; }
-                if p_vaddr + p_memsz > max_vaddr { max_vaddr = p_vaddr + p_memsz; }
+                if seg_end_vaddr > max_vaddr { max_vaddr = seg_end_vaddr; }
 
                 segments.push(ElfSegment {
                     seg_type: p_type,
@@ -199,7 +236,11 @@ impl Elf64Binary {
             }
         }
 
-        let total_memory_footprint = if max_vaddr > min_vaddr { max_vaddr - min_vaddr } else { 0 };
+        let total_memory_footprint = if max_vaddr > min_vaddr {
+            max_vaddr.checked_sub(min_vaddr).ok_or(ElfError::ArithmeticOverflow)?
+        } else {
+            0
+        };
 
         Ok(Elf64Binary {
             entry_point,
@@ -210,38 +251,77 @@ impl Elf64Binary {
     }
 
     /// Builds the standard Linux initial user stack required by glibc and musl libc:
-    /// [ argc ]
-    /// [ argv pointers ... NULL ]
+    /// Layout:
+    /// [ Strings area: real argv/envp strings, AT_RANDOM 16 bytes ]
+    /// [ Padding to 16 bytes ]
+    /// [ Auxv (AT_PHDR, AT_PHENT, AT_PHNUM, AT_PAGESZ, AT_ENTRY, AT_RANDOM, AT_EXECFN, AT_NULL) ]
     /// [ envp pointers ... NULL ]
-    /// [ auxv (AT_PHDR, AT_PHENT, AT_PHNUM, AT_PAGESZ, AT_ENTRY, AT_RANDOM, AT_EXECFN, AT_NULL) ]
-    /// [ padding / strings ]
+    /// [ argv pointers ... NULL ]
+    /// [ argc ]
     pub fn build_linux_user_stack(
         &self,
         argv: &[&str],
         envp: &[&str],
         stack_top_vaddr: u64,
     ) -> (u64, Vec<u8>) {
-        let mut stack = Vec::new();
+        let mut strings_buf = Vec::new();
+        let mut argv_addrs = Vec::new();
+        let mut envp_addrs = Vec::new();
 
-        // 1. Push argc (8 bytes)
+        // 1. Write real string bytes to strings area (at the very top of stack)
+        // argv strings
+        for arg in argv {
+            let offset = strings_buf.len();
+            strings_buf.extend_from_slice(arg.as_bytes());
+            strings_buf.push(0); // null terminator
+            argv_addrs.push(offset);
+        }
+
+        // envp strings
+        for env in envp {
+            let offset = strings_buf.len();
+            strings_buf.extend_from_slice(env.as_bytes());
+            strings_buf.push(0); // null terminator
+            envp_addrs.push(offset);
+        }
+
+        // AT_RANDOM: 16 genuine random bytes (Part A10)
+        let mut at_random = [0u8; 16];
+        if !crate::arch::hw_entropy(&mut at_random) {
+            at_random = [0x42; 16];
+        }
+        let at_random_offset = strings_buf.len();
+        strings_buf.extend_from_slice(&at_random);
+
+        // Calculate string base address: strings sit directly beneath stack_top_vaddr
+        let strings_total_len = strings_buf.len();
+        let strings_base_vaddr = stack_top_vaddr.saturating_sub(strings_total_len as u64);
+
+        // Convert string offsets to absolute virtual addresses
+        let real_argv_ptrs: Vec<u64> = argv_addrs.iter().map(|&off| strings_base_vaddr + off as u64).collect();
+        let real_envp_ptrs: Vec<u64> = envp_addrs.iter().map(|&off| strings_base_vaddr + off as u64).collect();
+        let real_at_random_addr = strings_base_vaddr + at_random_offset as u64;
+
+        // 2. Build pointer and auxv table (grows downwards below strings_base_vaddr)
+        let mut table_stack = Vec::new();
+
+        // Push argc (8 bytes)
         let argc = argv.len() as u64;
-        stack.extend_from_slice(&argc.to_le_bytes());
+        table_stack.extend_from_slice(&argc.to_le_bytes());
 
-        // 2. Push dummy argv pointers (8 bytes each) + NULL
-        for i in 0..argv.len() {
-            let fake_ptr = (stack_top_vaddr - 0x1000) + (i as u64 * 32);
-            stack.extend_from_slice(&fake_ptr.to_le_bytes());
+        // Push real argv pointers + NULL
+        for ptr in real_argv_ptrs {
+            table_stack.extend_from_slice(&ptr.to_le_bytes());
         }
-        stack.extend_from_slice(&0u64.to_le_bytes()); // NULL terminator
+        table_stack.extend_from_slice(&0u64.to_le_bytes());
 
-        // 3. Push dummy envp pointers (8 bytes each) + NULL
-        for i in 0..envp.len() {
-            let fake_ptr = (stack_top_vaddr - 0x800) + (i as u64 * 32);
-            stack.extend_from_slice(&fake_ptr.to_le_bytes());
+        // Push real envp pointers + NULL
+        for ptr in real_envp_ptrs {
+            table_stack.extend_from_slice(&ptr.to_le_bytes());
         }
-        stack.extend_from_slice(&0u64.to_le_bytes()); // NULL terminator
+        table_stack.extend_from_slice(&0u64.to_le_bytes());
 
-        // 4. Push auxiliary vector (auxv) key-value pairs
+        // Push auxiliary vector (auxv) key-value pairs
         let auxv = [
             (3u64, 0x400000u64),             // AT_PHDR
             (4u64, 56u64),                   // AT_PHENT
@@ -250,18 +330,25 @@ impl Elf64Binary {
             (7u64, 0u64),                    // AT_BASE
             (8u64, 0u64),                    // AT_FLAGS
             (9u64, self.entry_point),        // AT_ENTRY
-            (25u64, stack_top_vaddr - 0x100),// AT_RANDOM (16 bytes random seed)
-            (31u64, stack_top_vaddr - 0x200),// AT_EXECFN (path string)
+            (25u64, real_at_random_addr),    // AT_RANDOM (real random seed address)
+            (31u64, strings_base_vaddr),     // AT_EXECFN (argv[0] address)
             (0u64, 0u64),                    // AT_NULL
         ];
 
         for (key, val) in &auxv {
-            stack.extend_from_slice(&key.to_le_bytes());
-            stack.extend_from_slice(&val.to_le_bytes());
+            table_stack.extend_from_slice(&key.to_le_bytes());
+            table_stack.extend_from_slice(&val.to_le_bytes());
         }
 
-        let initial_rsp = stack_top_vaddr - stack.len() as u64;
-        (initial_rsp, stack)
+        // Align total stack frame to 16 bytes for SysV ABI call conventions
+        let mut final_stack = table_stack;
+        final_stack.extend_from_slice(&strings_buf);
+        while (final_stack.len() % 16) != 0 {
+            final_stack.insert(0, 0);
+        }
+
+        let initial_rsp = stack_top_vaddr.saturating_sub(final_stack.len() as u64);
+        (initial_rsp, final_stack)
     }
 }
 

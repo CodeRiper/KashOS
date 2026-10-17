@@ -25,6 +25,7 @@ mod crypto;
 mod error;
 mod vault;
 pub mod kvaultfs;
+pub mod pool;
 
 pub use blockdev::{BlockDevice, MemDevice, BLOCK_SIZE};
 pub use crypto::{combine_password_keyfile, KdfParams};
@@ -33,5 +34,10 @@ pub use vault::{FileInfo, FolderInfo, FormatOptions, OpenFail, OpenOutcome, Vaul
 pub use kvaultfs::{
     AfSplit, CryptoProfile, KfsInode, MerkleBlockHeader, MerkleBlockPointer,
     StealthVolumeManager, AF_SPLIT_SECTORS, KFS_MAGIC,
+};
+pub use pool::{
+    ExtentDescriptor, PoolError, PoolSuperblock, StoragePoolEngine, VaultPool,
+    POOL_BLOCK_SIZE, SUBVOL_APPS, SUBVOL_BROWSER, SUBVOL_EXTERNAL, SUBVOL_PERSONAL,
+    SUBVOL_SYSTEM,
 };
 

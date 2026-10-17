@@ -45,6 +45,14 @@ struct FreeNode {
     next: Option<NonNull<FreeNode>>,
 }
 
+/// Stored immediately before each returned pointer so deallocation can return
+/// alignment padding to the original block and coalesce the exact allocation.
+#[repr(C)]
+struct AllocationHeader {
+    block_start: usize,
+    block_size: usize,
+}
+
 /// A minimal spinlock — no OS to block on yet, and `GlobalAlloc` requires
 /// `Sync`. Single-threaded today (no SMP bring-up), but the lock is real
 /// rather than assumed-unnecessary, so turning on a second CPU later
@@ -164,15 +172,13 @@ impl FreeListAllocator {
         (inner.free_bytes, count, max_sz)
     }
 
-    #[inline(always)]
-    fn quantize(layout: Layout) -> (usize, usize) {
-        let align = layout.align().max(core::mem::align_of::<FreeNode>()).max(MIN_BLOCK);
-        let size = (layout.size().max(MIN_BLOCK) + MIN_BLOCK - 1) & !(MIN_BLOCK - 1);
-        (align, size)
-    }
-
     fn do_alloc(&self, layout: Layout) -> *mut u8 {
-        let (align, size) = Self::quantize(layout);
+        let align = layout.align().max(core::mem::align_of::<FreeNode>()).max(MIN_BLOCK);
+        let raw_size = layout.size().max(MIN_BLOCK);
+        let Some(size) = raw_size.checked_add(MIN_BLOCK - 1).map(|s| s & !(MIN_BLOCK - 1)) else {
+            return core::ptr::null_mut();
+        };
+        let header_size = size_of::<AllocationHeader>();
 
         let mut inner = self.inner.lock();
         let mut prev: Option<NonNull<FreeNode>> = None;
@@ -184,37 +190,29 @@ impl FreeListAllocator {
             // link in live, correctly-sized `FreeNode`s.
             let node = unsafe { node_ptr.as_ref() };
             let block_start = node_ptr.as_ptr() as usize;
-            let aligned_start = (block_start + align - 1) & !(align - 1);
-            let padding = aligned_start - block_start;
+            let Some(after_header) = block_start.checked_add(header_size) else { return core::ptr::null_mut(); };
+            let Some(alignment_sum) = after_header.checked_add(align - 1) else { return core::ptr::null_mut(); };
+            let aligned_payload = alignment_sum & !(align - 1);
+            let needed_end = aligned_payload.checked_add(size);
 
-            if node.size >= padding + size {
+            if let Some(needed_end) = needed_end.filter(|end| *end >= block_start && *end - block_start <= node.size) {
                 let block_size = node.size;
                 let next = node.next;
 
-                let used_from_here = block_size - padding;
-                let remainder = used_from_here - size;
-
-                // Build replacement chain in-place to preserve strict address ordering:
-                // ... -> prev -> [pad_node] -> [rem_node] -> next -> ...
+                // Include alignment padding in this allocation. The header
+                // records the full consumed range so deallocation can return it.
+                let allocation_start = block_start;
+                let block_end = block_start + block_size;
+                let remainder = block_end - needed_end;
+                let rem_is_kept = remainder >= MIN_BLOCK;
+                let allocation_end = if rem_is_kept { needed_end } else { block_end };
                 let mut first_replacement: Option<NonNull<FreeNode>> = next;
 
-                let rem_kept = if remainder >= MIN_BLOCK {
-                    let rem_ptr = (aligned_start + size) as *mut FreeNode;
+                if rem_is_kept {
+                    let rem_ptr = allocation_end as *mut FreeNode;
                     unsafe { rem_ptr.write(FreeNode { size: remainder, next: first_replacement }) };
                     first_replacement = NonNull::new(rem_ptr);
-                    remainder
-                } else {
-                    0
-                };
-
-                let pad_kept = if padding >= MIN_BLOCK {
-                    let pad_ptr = block_start as *mut FreeNode;
-                    unsafe { pad_ptr.write(FreeNode { size: padding, next: first_replacement }) };
-                    first_replacement = NonNull::new(pad_ptr);
-                    padding
-                } else {
-                    0
-                };
+                }
 
                 // Link the in-place replacement into the list exactly where `cur` was
                 match prev {
@@ -222,9 +220,19 @@ impl FreeListAllocator {
                     None => inner.head = first_replacement,
                 }
 
-                inner.free_bytes -= block_size - rem_kept - pad_kept;
-
-                return aligned_start as *mut u8;
+                let allocated_size = allocation_end - allocation_start;
+                inner.free_bytes -= allocated_size;
+                let ptr = aligned_payload as *mut u8;
+                // SAFETY: the header lies in the allocation's owned prefix and
+                // is naturally aligned because both the node and payload are
+                // aligned to at least MIN_BLOCK.
+                unsafe {
+                    ptr.sub(header_size).cast::<AllocationHeader>().write(AllocationHeader {
+                        block_start: allocation_start,
+                        block_size: allocated_size,
+                    });
+                }
+                return ptr;
             }
 
             prev = cur;
@@ -234,16 +242,18 @@ impl FreeListAllocator {
         core::ptr::null_mut() // no block big enough — caller (alloc_error_handler) decides what to do
     }
 
-    fn do_dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let (_, size) = Self::quantize(layout);
+    fn do_dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        if ptr.is_null() { return; }
+        let header_size = size_of::<AllocationHeader>();
+        // SAFETY: GlobalAlloc's contract requires this pointer to have been
+        // returned by `do_alloc` with the matching layout. Its header is thus
+        // live immediately before the pointer.
+        let header = unsafe { ptr.sub(header_size).cast::<AllocationHeader>().read() };
 
-        // GrapheneOS hardened_malloc principle: zero-on-free.
-        // Scrub the user payload region immediately upon deallocation to eliminate
-        // use-after-free data leakage.
-        if !ptr.is_null() && size > size_of::<FreeNode>() {
-            unsafe {
-                core::ptr::write_bytes(ptr.add(size_of::<FreeNode>()), 0x00, size - size_of::<FreeNode>());
-            }
+        // GrapheneOS hardened_malloc principle: zero-on-free. Scrub the full
+        // consumed block, including alignment padding and allocator metadata.
+        unsafe {
+            core::ptr::write_bytes(header.block_start as *mut u8, 0x00, header.block_size);
         }
 
         let mut inner = self.inner.lock();
@@ -252,7 +262,8 @@ impl FreeListAllocator {
         // address range is exactly adjacent. Address-ordering the list is
         // what makes "is my left/right neighbour adjacent" a cheap,
         // single-pass check instead of a search.
-        let addr = ptr as usize;
+        let addr = header.block_start;
+        let size = header.block_size;
         let mut prev: Option<NonNull<FreeNode>> = None;
         let mut cur = inner.head;
         while let Some(node_ptr) = cur {
@@ -297,8 +308,8 @@ impl FreeListAllocator {
                 // SAFETY: `next_node` is a live node from the list walk above.
                 let next_size = unsafe { next_node.as_ref().size };
                 let next_next = unsafe { next_node.as_ref().next };
-                let new_node_ptr = ptr as *mut FreeNode;
-                // SAFETY: `ptr` is the block the caller is freeing (their
+                let new_node_ptr = addr as *mut FreeNode;
+                // SAFETY: `addr` is the block the caller is freeing (their
                 // contract via `GlobalAlloc::dealloc`), now unreferenced by
                 // anything live; `next_node` is being absorbed into it and
                 // is not read again after this write.
@@ -315,7 +326,7 @@ impl FreeListAllocator {
         }
 
         // No adjacent neighbour: link in as a standalone free block.
-        let new_node_ptr = ptr as *mut FreeNode;
+        let new_node_ptr = addr as *mut FreeNode;
         // SAFETY: same as above — this is the caller's just-freed block.
         unsafe { new_node_ptr.write(FreeNode { size, next: cur }) };
         let new_node = NonNull::new(new_node_ptr);

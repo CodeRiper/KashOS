@@ -8,7 +8,7 @@ use crate::color::*;
 use crate::geom::*;
 use crate::gfx::*;
 use crate::icons::*;
-use crate::mathf::*;
+use crate::mathf::saturate;
 use crate::text::*;
 use crate::theme::*;
 use crate::ui::*;
@@ -31,13 +31,9 @@ pub struct Settings {
     sb_scroll: Scroll,
     sb_total: f32,
     pane_t: Spring,
-    wifi_sel: usize,
     thumbs: Vec<Option<Canvas>>,
-    bt_connected: [bool; 3],
-    pub(crate) opts: [bool; 96],
     pub(crate) segs: [usize; 8],
     pub(crate) kb: [f32; 2],
-    pub(crate) checked: bool,
     privacy: crate::apps::privacy::Privacy,
     pub(crate) pw_f: [FieldState; 4],
     pub(crate) dz_f: [FieldState; 3],
@@ -48,12 +44,11 @@ pub struct Settings {
 
 impl Settings {
     pub fn new() -> Settings {
-        let mut s = Settings { sel: 5, search: FieldState::default(), scroll: Scroll::default(), sb_scroll: Scroll::default(), sb_total: 0.0, pane_t: Spring::new(1.0, 0.3, 1.0), wifi_sel: 0, thumbs: Vec::new(), bt_connected: [true, false, false], opts: Settings::default_opts(), segs: [0, 1, 1, 2, 0, 0, 0, 0], kb: [0.6, 0.4], checked: false, privacy: crate::apps::privacy::Privacy::new(), pw_f: [FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState::default()], dz_f: [FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }], pw_msg: (String::new(), true), dz_msg: (String::new(), true), notif_open: None };
+        let mut s = Settings { sel: 5, search: FieldState::default(), scroll: Scroll::default(), sb_scroll: Scroll::default(), sb_total: 0.0, pane_t: Spring::new(1.0, 0.3, 1.0), thumbs: Vec::new(), segs: [0, 1, 1, 2, 0, 0, 0, 0], kb: [0.6, 0.4], privacy: crate::apps::privacy::Privacy::new(), pw_f: [FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState::default()], dz_f: [FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }], pw_msg: (String::new(), true), dz_msg: (String::new(), true), notif_open: None };
         s.pane_t.snap(1.0);
         for _ in 0..5 { s.thumbs.push(None); }
         s
     }
-    fn default_opts() -> [bool; 96] { let mut o = [false; 96]; for i in 0..96 { o[i] = i % 3 != 1; } o }
     pub fn open_pane(&mut self, i: usize) { if i < PANES.len() && i != self.sel { self.sel = i; self.scroll = Scroll::default(); self.pane_t.snap(0.0); self.pane_t.set(1.0); } }
 }
 
@@ -177,87 +172,33 @@ impl App for Settings {
 
 impl Settings {
     fn pane_wifi(&mut self, cx: &mut Ctx, f: &mut Form) {
-        let mut g = cx.group_begin(f, 1, 48.0);
-        let mut on = cx.sys.wifi;
-        cx.row_toggle(&mut g, "wifi_on", "Wi-Fi", "", &mut on);
-        cx.sys.wifi = on;
-        if !on { return; }
-        cx.heading(f, "Known Networks");
-        let nets = [("Lezdo-Corp", true, 3), ("PHANTOM-LAB-5G", true, 3), ("Guest-WiFi", false, 2), ("AndroidAP_91", true, 1)];
-        let mut g = cx.group_begin(f, nets.len(), 44.0);
-        for (i, (n, lock, sig)) in nets.iter().enumerate() {
-            let r = cx.group_row(&mut g);
-            let h = cx.hit(id_of(n) ^ 0x33, r);
-            if h.hovered { let hf = cx.th.hover_fill(); cx.cv.fill_rrect(r.inset(1.0), 10.0, hf); }
-            if h.clicked { self.wifi_sel = i; }
-            let c = cx.th.label();
-            cx.text_in(Rect::new(r.x + 14.0, r.y, r.w * 0.6, r.h), n, 13.5, Weight::Regular, c, Align::Left);
-            if i == self.wifi_sel { let a = cx.th.accent(); draw_icon(cx.cv, Icon::Check, Rect::new(r.right() - 108.0, r.cy() - 8.0, 16.0, 16.0), a); }
-            if *lock { let l3 = cx.th.label2(); draw_icon(cx.cv, Icon::Lock, Rect::new(r.right() - 76.0, r.cy() - 7.0, 14.0, 14.0), l3); }
-            for b in 0..3 { let hh = 4.0 + b as f32 * 3.5; let cc = if b < *sig { cx.th.label() } else { cx.th.label4() }; cx.cv.fill_rrect(Rect::new(r.right() - 50.0 + b as f32 * 7.0, r.cy() + 7.0 - hh, 4.5, hh), 1.5, cc); }
-        }
-        let name = nets[self.wifi_sel].0;
-        cx.caption(f, &format!("Connected to “{}”. Traffic is routed through the Phantom Anonymity Gateway.", name));
+        let mut g = cx.group_begin(f, 2, 48.0);
+        cx.row_value(&mut g, "Wi-Fi adapter", "No Wi-Fi driver connected");
+        cx.row_value(&mut g, "Known networks", "Unavailable");
+        cx.caption(f, "This build has no Wi-Fi connection manager. The control center does not connect to a network.");
     }
 
     fn pane_bluetooth(&mut self, cx: &mut Ctx, f: &mut Form) {
-        let mut g = cx.group_begin(f, 1, 48.0);
-        let mut on = cx.sys.bluetooth;
-        cx.row_toggle(&mut g, "bt_on", "Bluetooth", "", &mut on);
-        cx.sys.bluetooth = on;
-        if !on { return; }
-        cx.heading(f, "My Devices");
-        let devs = [("Sony IER-M7", Icon::Music), ("Keychron K3", Icon::Keyboard), ("iQOO 15", Icon::Display)];
-        let mut g = cx.group_begin(f, devs.len(), 48.0);
-        for (i, (n, ic)) in devs.iter().enumerate() {
-            let r = cx.group_row(&mut g);
-            let lc = cx.th.label();
-            let tile = Rect::new(r.x + 12.0, r.cy() - 14.0, 28.0, 28.0);
-            cx.cv.fill_circle(tile.cx(), tile.cy(), 14.0, Color::hex(0x0A84FF));
-            draw_icon(cx.cv, *ic, tile.inset(6.0), Color::WHITE);
-            cx.text(r.x + 52.0, r.cy() - 1.0, n, 13.5, Weight::Regular, lc);
-            let c2 = cx.th.label2();
-            cx.text(r.x + 52.0, r.cy() + 14.0, if self.bt_connected[i] { "Connected" } else { "Not Connected" }, 11.5, Weight::Regular, c2);
-            let b = Rect::new(r.right() - 100.0, r.cy() - 13.0, 86.0, 26.0);
-            if cx.button(&format!("btc{}", i), b, if self.bt_connected[i] { "Disconnect" } else { "Connect" }, false) { self.bt_connected[i] = !self.bt_connected[i]; }
-        }
+        let mut g = cx.group_begin(f, 2, 48.0);
+        cx.row_value(&mut g, "Bluetooth controller", "No controller service connected");
+        cx.row_value(&mut g, "Paired devices", "Unavailable");
+        cx.caption(f, "Pairing controls will appear when a Bluetooth driver and service are connected.");
     }
 
     fn pane_network(&mut self, cx: &mut Ctx, f: &mut Form) {
-        let mut g = cx.group_begin(f, 3, 48.0);
-        let wifi = cx.sys.wifi;
-        cx.row_value(&mut g, "Wi-Fi", if wifi { "Connected" } else { "Off" });
-        let anon = cx.sys.anon_gateway;
-        cx.row_value(&mut g, "Anonymity Gateway", if anon { "Active · 3 hops" } else { "Disabled" });
-        let ks = cx.sys.kill_switch;
-        cx.row_value(&mut g, "Kill-switch", if ks { "Armed" } else { "Off" });
-        cx.heading(f, "Details");
         let mut g = cx.group_begin(f, 4, 44.0);
-        cx.row_value(&mut g, "IP Address", "10.44.7.12");
-        cx.row_value(&mut g, "MAC Address (rotating)", "02:91:c4:5e:0a:b7");
-        cx.row_value(&mut g, "DNS", "Gateway-resolved (DoH)");
-        let pf = cx.sys.packet_filter;
-        cx.row_value(&mut g, "Packet Filter", if pf { "Default-deny" } else { "Off" });
+        cx.row_value(&mut g, "Network interface", "No live interface data");
+        cx.row_value(&mut g, "Anonymity Gateway", "Not implemented");
+        cx.row_value(&mut g, "Network kill-switch", "Not implemented");
+        cx.row_value(&mut g, "Packet Filter", "Not implemented");
+        cx.caption(f, "This page has no live network backend. It does not show an IP, MAC address, DNS configuration, or enforce a traffic policy.");
     }
 
     fn pane_battery(&mut self, cx: &mut Ctx, f: &mut Form) {
-        let r = Rect::new(f.x, f.y, f.w, 150.0);
-        cx.group_box(r);
-        let lc = cx.th.label(); let l2 = cx.th.label2();
-        cx.text(r.x + 20.0, r.y + 42.0, "84%", 34.0, Weight::Bold, lc);
-        cx.text(r.x + 20.0, r.y + 64.0, "5 h 12 min remaining", 12.5, Weight::Regular, l2);
-        let acc = cx.th.accent();
-        for i in 0..24 {
-            let h = 12.0 + 56.0 * (0.5 + 0.5 * sin(i as f32 * 0.6 + 1.0)) * (1.0 - i as f32 / 40.0);
-            let br = Rect::new(r.x + 20.0 + i as f32 * ((r.w - 40.0) / 24.0), r.bottom() - 18.0 - h, (r.w - 40.0) / 24.0 - 3.0, h);
-            cx.cv.fill_rrect(br, 2.5, if i == 23 { acc } else { acc.fade(0.35) });
-        }
-        f.y += 168.0;
-        cx.heading(f, "Power");
         let mut g = cx.group_begin(f, 2, 48.0);
-        let mut a = true; let mut b = false;
-        cx.row_toggle(&mut g, "bat_opt", "Optimized charging", "Learns your routine to reduce battery aging", &mut a);
-        cx.row_toggle(&mut g, "bat_low", "Low power mode", "", &mut b);
+        cx.row_value(&mut g, "Battery", "No battery telemetry available");
+        cx.row_value(&mut g, "Power controls", "Unavailable");
+        cx.caption(f, "Battery percentage, estimated runtime, and charging controls require a battery driver.");
     }
 
     fn pane_general(&mut self, cx: &mut Ctx, f: &mut Form) {
@@ -266,13 +207,16 @@ impl Settings {
         cx.app_icon(AppKind::About, Rect::new(r.cx() - 44.0, r.y + 18.0, 88.0, 88.0));
         let lc = cx.th.label(); let l2 = cx.th.label2();
         cx.text_in(Rect::new(r.x, r.y + 112.0, r.w, 22.0), "KashOS", 18.0, Weight::Bold, lc, Align::Center);
-        cx.text_in(Rect::new(r.x, r.y + 136.0, r.w, 18.0), "Version 27 · “Golden Gate” UI · Kernel 0.2.0", 12.0, Weight::Regular, l2, Align::Center);
+        cx.text_in(Rect::new(r.x, r.y + 136.0, r.w, 18.0), "KashOS development build · 0.1.0", 12.0, Weight::Regular, l2, Align::Center);
         f.y += 188.0;
         cx.heading(f, "About");
         let mut g = cx.group_begin(f, 6, 40.0);
-        cx.row_value(&mut g, "Kernel", "Phantom Kernel v0.2.0 (capability core)");
-        cx.row_value(&mut g, "Architecture", "x86-64 · AArch64");
-        cx.row_value(&mut g, "Memory", "512 MiB");
+        cx.row_value(&mut g, "Kernel", "KashOS kernel 0.1.0");
+        #[cfg(target_arch = "x86_64")]
+        cx.row_value(&mut g, "Build target", "x86-64");
+        #[cfg(target_arch = "aarch64")]
+        cx.row_value(&mut g, "Build target", "AArch64");
+        cx.row_value(&mut g, "Memory", "Runtime total unavailable");
         cx.row_value(&mut g, "Capability self-tests", "7 / 7 passed");
         cx.row_value(&mut g, "Encrypted vault", "kvault · AEAD sealed");
         cx.row_value(&mut g, "Display server", "kash-ui · software renderer");
@@ -360,17 +304,44 @@ impl Settings {
     }
 
     fn pane_displays(&mut self, cx: &mut Ctx, f: &mut Form) {
+        cx.heading(f, "Resolution & scaling");
+        let mut g = cx.group_begin(f, 2, 52.0);
+        let mut fit = cx.sys.display_scale == 0;
+        if cx.row_toggle(&mut g, "display_fit", "Automatic fit", "Detects the framebuffer and chooses a low-memory size that fills it", &mut fit) && fit {
+            cx.sys.display_scale = 0;
+        }
+        let mut compact = cx.sys.display_scale == 1;
+        if cx.row_toggle(&mut g, "display_640", "640 × 480", "Low-memory desktop rendering", &mut compact) && compact {
+            cx.sys.display_scale = 1;
+        }
+        let mut detail = cx.sys.display_scale == 2;
+        if cx.row_toggle(&mut g, "display_800", "800 × 600", "Sharper rendering; requires additional free memory", &mut detail) && detail {
+            cx.sys.display_scale = 2;
+        }
+        let mut output_size = cx.sys.display_scale == 3;
+        if cx.row_toggle(&mut g, "display_native", "Output-sized", "Uses detected output dimensions, capped for memory safety", &mut output_size) && output_size {
+            cx.sys.display_scale = 3;
+        }
+        let mode = match cx.sys.display_scale {
+            0 => "Automatic fit",
+            1 => "640 × 480 renderer",
+            2 => "800 × 600 renderer",
+            _ => "Output-sized renderer",
+        };
+        let output = format!("{} × {} output; {} × {} render; {}", cx.sys.display_output.w as i32, cx.sys.display_output.h as i32, cx.sys.screen.w as i32, cx.sys.screen.h as i32, mode);
+        let mut g = cx.group_begin(f, 2, 44.0);
+        cx.row_value(&mut g, "Active display mode", &output);
+        cx.caption(f, "The framebuffer size is detected at boot. These options change the compositor resolution and scale it to fit; changing the physical monitor mode requires a video driver for the device.");
+
         let mut g = cx.group_begin(f, 3, 52.0);
         let mut b = cx.sys.brightness;
         cx.row_slider(&mut g, "brightness", "Brightness", &mut b, "", ""); cx.sys.brightness = b;
         let mut ns = cx.sys.night_shift;
         cx.row_toggle(&mut g, "night", "Night Shift", "Warmer colours after sunset", &mut ns); cx.sys.night_shift = ns;
-        let mut tt = true;
-        cx.row_toggle(&mut g, "truetone", "True Tone", "", &mut tt);
-        cx.heading(f, "Resolution");
+        cx.heading(f, "Display capabilities");
         let mut g = cx.group_begin(f, 2, 44.0);
-        cx.row_value(&mut g, "Resolution", "1440 × 900 (Default)");
-        cx.row_value(&mut g, "Refresh rate", "60 Hz");
+        cx.row_value(&mut g, "Framebuffer mode", "Reported by boot handoff");
+        cx.row_value(&mut g, "Color temperature", "Not supported by framebuffer backend");
     }
 
     fn pane_wallpaper(&mut self, cx: &mut Ctx, f: &mut Form) {
@@ -399,34 +370,26 @@ impl Settings {
     }
 
     fn pane_sound(&mut self, cx: &mut Ctx, f: &mut Form) {
-        let mut g = cx.group_begin(f, 2, 52.0);
-        let mut v = cx.sys.volume;
-        cx.row_slider(&mut g, "volume", "Output volume", &mut v, "", ""); cx.sys.volume = v;
-        let mut m = v < 0.01;
-        if cx.row_toggle(&mut g, "mute", "Mute", "", &mut m) && m { cx.sys.volume = 0.0; }
-        cx.heading(f, "Output");
-        let mut g = cx.group_begin(f, 2, 44.0);
-        cx.row_value(&mut g, "Sony IER-M7", "Bluetooth");
-        cx.row_value(&mut g, "Internal Speakers", "Built-in");
+        let mut g = cx.group_begin(f, 2, 48.0);
+        cx.row_value(&mut g, "Audio device", "No audio driver connected");
+        cx.row_value(&mut g, "Volume control", "Unavailable");
+        cx.caption(f, "Volume and output selection are not connected to an audio backend.");
     }
 
     fn pane_mouse(&mut self, cx: &mut Ctx, f: &mut Form) {
-        let mut g = cx.group_begin(f, 3, 52.0);
-        let mut t = cx.sys.tracking;
-        cx.row_slider(&mut g, "tracking", "Tracking speed", &mut t, "Slow", "Fast"); cx.sys.tracking = t;
+        let mut g = cx.group_begin(f, 2, 52.0);
+        let mut speed = ((cx.sys.pointer_speed.clamp(0.5, 2.0) - 0.5) / 1.5).clamp(0.0, 1.0);
+        cx.row_slider(&mut g, "pointer_speed", "Tracking speed", &mut speed, "Slow", "Fast");
+        cx.sys.pointer_speed = 0.5 + speed * 1.5;
         let mut c = cx.sys.cursor_size;
         cx.row_slider(&mut g, "cursor_size", "Pointer size", &mut c, "Normal", "Large"); cx.sys.cursor_size = c;
-        let mut s = true;
-        cx.row_toggle(&mut g, "shake", "Shake mouse pointer to locate", "", &mut s);
+        cx.caption(f, "Tracking speed applies immediately to pointer movement. Device-specific acceleration remains fixed by the input driver.");
     }
 
     fn pane_generic(&mut self, cx: &mut Ctx, f: &mut Form) {
         let name = PANES[self.sel].0;
-        let mut g = cx.group_begin(f, 3, 48.0);
-        let mut a = true; let mut b = false; let mut c = true;
-        cx.row_toggle(&mut g, &format!("{}1", name), "Enable", "", &mut a);
-        cx.row_toggle(&mut g, &format!("{}2", name), "Show in menu bar", "", &mut b);
-        cx.row_toggle(&mut g, &format!("{}3", name), "Allow Phantom services", "", &mut c);
-        cx.caption(f, "More options for this pane are coming as the kernel services land.");
+        let mut g = cx.group_begin(f, 1, 48.0);
+        cx.row_value(&mut g, name, "Not implemented in this build");
+        cx.caption(f, "This pane is a placeholder. It has no controls connected to an operating-system service.");
     }
 }

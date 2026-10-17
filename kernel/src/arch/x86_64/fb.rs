@@ -77,3 +77,22 @@ pub fn fill_gradient_test(fb: &FramebufferInfo) {
         }
     }
 }
+
+/// Clears the linear framebuffer to a solid 32-bit color.
+pub fn clear_framebuffer(fb: &FramebufferInfo, color: u32) {
+    if fb.base_paddr == 0 || fb.width == 0 || fb.height == 0 {
+        return;
+    }
+
+    let ptr = fb.base_paddr as *mut u32;
+    let pitch_u32 = (fb.pitch / 4) as usize;
+
+    for y in 0..fb.height {
+        let row_offset = (y as usize) * pitch_u32;
+        for x in 0..fb.width {
+            unsafe {
+                core::ptr::write_volatile(ptr.add(row_offset + (x as usize)), color);
+            }
+        }
+    }
+}

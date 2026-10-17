@@ -1,31 +1,190 @@
-//! kblock — Adaptive Block Storage Subsystem
+//! kblock — Adaptive Block Storage Subsystem & Hardware Driver Engine
 //!
-//! Provides an asynchronous block layer decoupling filesystem operations
-//! from physical storage devices, with adaptive optimization:
-//! - Vintage rotational HDDs (PATA/IDE, legacy SATA): C-LOOK elevator scheduler
-//!   and adjacent request coalescer to minimize head seeks.
-//! - Modern SSDs/NVMe: Direct multi-queue bypass for maximum throughput.
-//! - Sector geometry normalization: 512n, 512e, and 4Kn translation with flush barriers.
+//! Grounded in the seL4 Device Driver Framework (sDDF) and the KashOS Architectural Blueprint:
+//! - Hardware drivers: Legacy PATA/IDE (0x1F0/0x3F6 PIO & DMA), VirtIO-Block (OASIS spec),
+//!   SATA AHCI (FIS DMA), and NVMe PCIe queues.
+//! - I/O Elevator Scheduler (C-LOOK / SCAN algorithm) with 64-entry static request ring
+//!   and adjacent 4 KiB block write coalescing up to 64 KiB.
+//! - Deterministic Hardware-Level Block Zeroing: Immediate synchronous write of 0x00
+//!   or fresh ChaCha20 stream noise followed by hardware cache flush (ATA 0xEA/0xE7).
 #![no_std]
 
 extern crate alloc;
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
+
+pub mod ahci;
+pub mod ata_ide;
+pub mod nvme;
+pub mod usb_msc;
+pub mod virtio_blk;
+
+pub use ahci::AhciController;
+pub use ata_ide::IdeChannel;
+pub use nvme::NvmeController;
+pub use usb_msc::{CommandBlockWrapper, CommandStatusWrapper, UsbMassStorageDevice};
+pub use virtio_blk::VirtioBlockDevice;
+
+pub const SECTOR_SIZE: usize = 512;
+pub const BLOCK_SIZE: usize = 4096; // 8 physical 512B sectors per KashOS Vault block
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockError {
+    DeviceNotFound,
+    DeviceError,
+    Timeout,
+    InvalidSector,
+    MediaWriteProtected,
+    DmaFault,
+    CryptoAuthFailed,
+    OutOfBounds,
+    Unsupported,
+    AlignmentError,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoOperation {
+    Read,
+    Write,
+    Flush,
+    DeterministicZero, // Anti-forensic immediate hardware overwrite
+}
+
+/// Core hardware abstraction for all #![no_std] persistent disk drivers
+pub trait PersistentBlockDriver: Send + Sync {
+    fn driver_name(&self) -> &'static str;
+    fn capacity_sectors(&self) -> u64;
+    fn read_sectors(&mut self, lba: u64, count: u16, buf: &mut [u8]) -> Result<(), BlockError>;
+    fn write_sectors(&mut self, lba: u64, count: u16, buf: &[u8]) -> Result<(), BlockError>;
+    fn flush_cache(&mut self) -> Result<(), BlockError>;
+}
+
+/// C-LOOK Elevator Request Slot for 20-year-old HDD seek optimization
+#[derive(Clone, Copy)]
+pub struct ElevatorSlot {
+    pub lba: u64,
+    pub sector_count: u16,
+    pub op: IoOperation,
+    pub compartment_badge: u64,
+    pub active: bool,
+}
+
+const EMPTY_SLOT: ElevatorSlot = ElevatorSlot {
+    lba: 0,
+    sector_count: 0,
+    op: IoOperation::Read,
+    compartment_badge: 0,
+    active: false,
+};
+
+/// C-LOOK Elevator Scheduler and Hardware I/O Dispatcher
+pub struct KBlockScheduler {
+    pub driver: Box<dyn PersistentBlockDriver>,
+    current_head_lba: AtomicU64,
+    queue: [ElevatorSlot; 64],
+}
+
+impl KBlockScheduler {
+    pub fn new(driver: Box<dyn PersistentBlockDriver>) -> Self {
+        Self {
+            driver,
+            current_head_lba: AtomicU64::new(0),
+            queue: [EMPTY_SLOT; 64],
+        }
+    }
+
+    pub fn get_slot(&self, idx: usize) -> Option<&ElevatorSlot> {
+        if idx < self.queue.len() && self.queue[idx].active {
+            Some(&self.queue[idx])
+        } else {
+            None
+        }
+    }
+
+    /// Submits a request to the C-LOOK elevator queue, coalescing adjacent writes
+    pub fn submit(&mut self, lba: u64, sector_count: u16, op: IoOperation, compartment_badge: u64) -> Result<(), BlockError> {
+        // Coalesce adjacent writes if possible
+        if op == IoOperation::Write {
+            for slot in self.queue.iter_mut() {
+                if slot.active && slot.op == IoOperation::Write && slot.compartment_badge == compartment_badge {
+                    if slot.lba + (slot.sector_count as u64) == lba && slot.sector_count + sector_count <= 128 {
+                        slot.sector_count += sector_count;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // Find empty slot
+        for slot in self.queue.iter_mut() {
+            if !slot.active {
+                *slot = ElevatorSlot {
+                    lba,
+                    sector_count,
+                    op,
+                    compartment_badge,
+                    active: true,
+                };
+                return Ok(());
+            }
+        }
+
+        Err(BlockError::DeviceError) // Queue full
+    }
+
+    /// Selects the next request in ascending LBA order from current head position (C-LOOK)
+    pub fn next_scheduled_slot(&mut self) -> Option<usize> {
+        let head = self.current_head_lba.load(Ordering::Relaxed);
+        let mut best_idx: Option<usize> = None;
+        let mut best_lba = u64::MAX;
+
+        // Pass 1: Find lowest LBA >= current_head_lba
+        for (i, slot) in self.queue.iter().enumerate() {
+            if slot.active && slot.lba >= head && slot.lba < best_lba {
+                best_lba = slot.lba;
+                best_idx = Some(i);
+            }
+        }
+        if best_idx.is_some() {
+            return best_idx;
+        }
+
+        // Pass 2: Wrap around to the lowest LBA on the disk platter
+        for (i, slot) in self.queue.iter().enumerate() {
+            if slot.active && slot.lba < best_lba {
+                best_lba = slot.lba;
+                best_idx = Some(i);
+            }
+        }
+        best_idx
+    }
+
+    /// Deterministic Anti-Forensic Sector Zeroing with immediate hardware cache flush
+    pub fn deterministic_zero_lba(&mut self, lba: u64, sectors: u16) -> Result<(), BlockError> {
+        let zero_block = [0u8; BLOCK_SIZE];
+        let mut remaining = sectors;
+        let mut cur_lba = lba;
+
+        while remaining > 0 {
+            let chunk = remaining.min((BLOCK_SIZE / SECTOR_SIZE) as u16);
+            let byte_len = (chunk as usize) * SECTOR_SIZE;
+            self.driver.write_sectors(cur_lba, chunk, &zero_block[..byte_len])?;
+            cur_lba += chunk as u64;
+            remaining -= chunk;
+        }
+        self.current_head_lba.store(cur_lba, Ordering::Relaxed);
+        self.driver.flush_cache()
+    }
+}
+
+// ── Legacy Compatibility Layer ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockOperation {
     Read,
     Write,
     FlushBarrier,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockError {
-    DeviceError,
-    OutOfBounds,
-    Timeout,
-    Unsupported,
-    AlignmentError,
 }
 
 pub struct BlockRequest {
@@ -47,14 +206,6 @@ pub trait BlockDevice: Send + Sync {
     fn poll_completions(&self);
 }
 
-// ── C-LOOK Elevator Scheduler with Request Coalescing ────────────────────────
-
-/// Circular LOOK (C-LOOK) elevator scheduler for rotational hard drives.
-///
-/// 1. Forward Coalescing: Contiguous pending write sectors are merged in memory
-///    into a single transfer, eliminating rotational gap latencies.
-/// 2. Unidirectional Platter Sweeping: Sweeps in one direction across ascending
-///    sectors to eliminate random head thrashing.
 pub struct ElevatorScheduler {
     read_queue: BTreeMap<u64, BlockRequest>,
     write_queue: BTreeMap<u64, BlockRequest>,
@@ -76,7 +227,6 @@ impl ElevatorScheduler {
         }
     }
 
-    /// Inserts a block request, attempting to coalesce adjacent contiguous sectors.
     pub fn insert_and_coalesce(&mut self, request: BlockRequest) {
         let queue = match request.op {
             BlockOperation::Read => &mut self.read_queue,
@@ -84,7 +234,6 @@ impl ElevatorScheduler {
             BlockOperation::FlushBarrier => return,
         };
 
-        // Check if this request can be forward-coalesced with an immediately preceding sector
         if let Some((&prev_sector, prev_req)) = queue.range_mut(..=request.start_sector).next_back() {
             if prev_sector + (prev_req.sector_count as u64) == request.start_sector {
                 prev_req.sector_count += request.sector_count;
@@ -95,7 +244,6 @@ impl ElevatorScheduler {
         queue.insert(request.start_sector, request);
     }
 
-    /// Pops the next optimal request in the platter sweep direction.
     pub fn pop_next_request(&mut self) -> Option<BlockRequest> {
         if let Some(req) = Self::pop_from_queue(&mut self.read_queue, &mut self.head_sector) {
             return Some(req);
@@ -103,10 +251,7 @@ impl ElevatorScheduler {
         Self::pop_from_queue(&mut self.write_queue, &mut self.head_sector)
     }
 
-    fn pop_from_queue(
-        queue: &mut BTreeMap<u64, BlockRequest>,
-        head_sector: &mut u64,
-    ) -> Option<BlockRequest> {
+    fn pop_from_queue(queue: &mut BTreeMap<u64, BlockRequest>, head_sector: &mut u64) -> Option<BlockRequest> {
         let next_key = queue.range(*head_sector..)
             .map(|(&k, _)| k)
             .next()
@@ -124,8 +269,6 @@ impl ElevatorScheduler {
     }
 }
 
-// ── Sector Geometry Normalization ────────────────────────────────────────────
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SectorGeometry {
     Legacy512n,
@@ -140,186 +283,4 @@ impl SectorGeometry {
             SectorGeometry::Native4Kn => 4096,
         }
     }
-}
-
-// ── In-Memory Block Device (Amnesic RAM Disk / Testing) ───────────────────────
-
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, Ordering};
-
-struct SpinLock<T> {
-    locked: AtomicBool,
-    data: UnsafeCell<T>,
-}
-
-unsafe impl<T: Send> Sync for SpinLock<T> {}
-
-impl<T> SpinLock<T> {
-    const fn new(data: T) -> Self {
-        SpinLock {
-            locked: AtomicBool::new(false),
-            data: UnsafeCell::new(data),
-        }
-    }
-
-    fn lock(&self) -> SpinLockGuard<'_, T> {
-        while self.locked.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
-            core::hint::spin_loop();
-        }
-        SpinLockGuard { lock: self }
-    }
-}
-
-struct SpinLockGuard<'a, T> {
-    lock: &'a SpinLock<T>,
-}
-
-impl<T> core::ops::Deref for SpinLockGuard<'_, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        unsafe { &*self.lock.data.get() }
-    }
-}
-
-impl<T> core::ops::DerefMut for SpinLockGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.lock.data.get() }
-    }
-}
-
-impl<T> Drop for SpinLockGuard<'_, T> {
-    fn drop(&mut self) {
-        self.lock.locked.store(false, Ordering::Release);
-    }
-}
-
-pub struct MemBlockDevice {
-    sectors: u64,
-    sector_size: u32,
-    data: alloc::sync::Arc<SpinLock<Vec<u8>>>,
-}
-
-impl MemBlockDevice {
-    pub fn new(sectors: u64, sector_size: u32) -> Self {
-        let total_bytes = (sectors as usize) * (sector_size as usize);
-        let mut buffer = Vec::with_capacity(total_bytes);
-        buffer.resize(total_bytes, 0);
-        MemBlockDevice {
-            sectors,
-            sector_size,
-            data: alloc::sync::Arc::new(SpinLock::new(buffer)),
-        }
-    }
-}
-
-impl BlockDevice for MemBlockDevice {
-    fn sector_size_bytes(&self) -> u32 {
-        self.sector_size
-    }
-
-    fn total_sectors(&self) -> u64 {
-        self.sectors
-    }
-
-    fn is_rotational(&self) -> bool {
-        false
-    }
-
-    fn submit_request(&self, req: BlockRequest) -> Result<(), BlockError> {
-        let offset = (req.start_sector as usize) * (self.sector_size as usize);
-        let len = (req.sector_count as usize) * (self.sector_size as usize);
-
-        let mut lock = self.data.lock();
-        if offset + len > lock.len() {
-            return Err(BlockError::OutOfBounds);
-        }
-
-        match req.op {
-            BlockOperation::Read => {
-                unsafe {
-                    core::ptr::copy_nonoverlapping(lock[offset..].as_ptr(), req.memory_buffer, len);
-                }
-            }
-            BlockOperation::Write => {
-                unsafe {
-                    core::ptr::copy_nonoverlapping(req.memory_buffer, lock[offset..].as_mut_ptr(), len);
-                }
-            }
-            BlockOperation::FlushBarrier => {
-                // In-memory data is already synced
-            }
-        }
-
-        if let Some(cb) = req.callback {
-            cb(Ok(()));
-        }
-        Ok(())
-    }
-
-    fn poll_completions(&self) {}
-}
-
-// ── Vintage 20-Year-Old PATA / IDE Driver (Ports 0x1F0-0x1F7) ─────────────────
-
-/// Legacy Parallel ATA (IDE) hard drive controller driver.
-/// Provides PIO data transfer for vintage hardware (~2000–2010 PCs).
-pub struct PataIdeController {
-    io_base: u16,
-    ctrl_base: u16,
-    total_sectors: u64,
-}
-
-impl PataIdeController {
-    pub const PRIMARY_IO: u16 = 0x1F0;
-    pub const PRIMARY_CTRL: u16 = 0x3F6;
-
-    pub const fn new_primary() -> Self {
-        PataIdeController {
-            io_base: Self::PRIMARY_IO,
-            ctrl_base: Self::PRIMARY_CTRL,
-            total_sectors: 0,
-        }
-    }
-
-    pub fn io_base(&self) -> u16 {
-        self.io_base
-    }
-
-    pub fn ctrl_base(&self) -> u16 {
-        self.ctrl_base
-    }
-
-    pub fn identify(&mut self) -> Result<u64, BlockError> {
-        // Ports: 0x1F6 selects drive (0xA0 for master drive)
-        // Send IDENTIFY command (0xEC) to 0x1F7
-        // Return total LBA28 sectors
-        self.total_sectors = 204800; // Default fallback: 100 MiB disk
-        Ok(self.total_sectors)
-    }
-}
-
-impl BlockDevice for PataIdeController {
-    fn sector_size_bytes(&self) -> u32 {
-        512
-    }
-
-    fn total_sectors(&self) -> u64 {
-        self.total_sectors
-    }
-
-    fn is_rotational(&self) -> bool {
-        true // Vintage IDE drive is rotational
-    }
-
-    fn submit_request(&self, req: BlockRequest) -> Result<(), BlockError> {
-        if req.start_sector + (req.sector_count as u64) > self.total_sectors {
-            return Err(BlockError::OutOfBounds);
-        }
-        if let Some(cb) = req.callback {
-            cb(Ok(()));
-        }
-        Ok(())
-    }
-
-    fn poll_completions(&self) {}
 }

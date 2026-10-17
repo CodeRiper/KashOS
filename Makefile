@@ -62,7 +62,7 @@ x86:
 	@ls -lh $(BIN_X86)
 
 arm:
-	cargo build --release -p kernel --target $(TARGET_ARM)
+	cargo build --release -p kernel --target $(TARGET_ARM) --features kernel/qemu-virt
 	@echo "✓ AArch64 kernel: $(BIN_ARM)"
 	@ls -lh $(BIN_ARM)
 

@@ -11,21 +11,37 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrustDomain {
-    System,        // Green border
-    StandardApp,   // Blue border
-    UntrustedNet,  // Red border
-    Disposable,    // Yellow border
+    CoreSystem,            // Badge 0x01: Cyan Border (0x00E5FF)
+    SovereignPersonal,      // Badge 0x02: Emerald Border (0x00E676)
+    EnterpriseWork,        // Badge 0x03: Blue Border (0x2979FF)
+    EphemeralSandbox,      // Badge 0x04: Tangerine Border (0xFF9100)
+    UntrustedExternalMedia,// Badge 0x05: Red Border (0xFF1744)
+    System,                // Legacy alias for CoreSystem (Badge 0x01)
+    StandardApp,           // Legacy alias for EnterpriseWork (Badge 0x03)
+    UntrustedNet,          // Legacy alias for UntrustedExternalMedia (Badge 0x05)
+    Disposable,            // Legacy alias for EphemeralSandbox (Badge 0x04)
 }
 
 impl TrustDomain {
+    pub fn badge(&self) -> u64 {
+        match self {
+            TrustDomain::CoreSystem | TrustDomain::System => 0x01,
+            TrustDomain::SovereignPersonal => 0x02,
+            TrustDomain::EnterpriseWork | TrustDomain::StandardApp => 0x03,
+            TrustDomain::EphemeralSandbox | TrustDomain::Disposable => 0x04,
+            TrustDomain::UntrustedExternalMedia | TrustDomain::UntrustedNet => 0x05,
+        }
+    }
+
     pub fn border_color_name(&self) -> &'static str {
         match self {
-            TrustDomain::System => "Green (Trusted System)",
-            TrustDomain::StandardApp => "Blue (Isolated Sandbox)",
-            TrustDomain::UntrustedNet => "Red (Untrusted / Network-Exposed)",
-            TrustDomain::Disposable => "Yellow (Disposable Ephemeral Session)",
+            TrustDomain::CoreSystem | TrustDomain::System => "Cyan (Badge 0x01 - Core System)",
+            TrustDomain::SovereignPersonal => "Emerald (Badge 0x02 - Sovereign Personal)",
+            TrustDomain::EnterpriseWork | TrustDomain::StandardApp => "Blue (Badge 0x03 - Enterprise Work)",
+            TrustDomain::EphemeralSandbox | TrustDomain::Disposable => "Tangerine (Badge 0x04 - Ephemeral Sandbox)",
+            TrustDomain::UntrustedExternalMedia | TrustDomain::UntrustedNet => "Red (Badge 0x05 - Untrusted External Media)",
         }
     }
 }

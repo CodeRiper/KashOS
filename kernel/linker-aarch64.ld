@@ -1,11 +1,12 @@
-/* Phantom Kernel — AArch64 linker script
- * QEMU virt machine loads the kernel ELF at 0x40000000 (physical).
+/* KashOS — AArch64 QEMU virt linker script
+ * QEMU virt reserves the start of RAM for its boot handoff/DTB. Keep the
+ * ELF image above that reserved area so QEMU can supply a real device tree.
  * No OpenSBI layer on ARM64 — QEMU hands control directly to _start at EL2.
  */
 OUTPUT_ARCH(aarch64)
 ENTRY(_start)
 
-BASE = 0x40000000;
+BASE = 0x40200000;
 
 SECTIONS {
     . = BASE;

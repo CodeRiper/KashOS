@@ -83,7 +83,16 @@ static EXCEPTION_NAMES: [&str; 32] = [
 pub extern "C" fn x86_exception_handler(frame: &ExceptionFrame) -> ! {
     let vec = frame.vector as usize;
     let name = if vec < 32 { EXCEPTION_NAMES[vec] } else { "#?? Unknown" };
-    kprintln!("\n[EXCEPTION] {} (vector={:#x} err={:#x})", name, vec, frame.error);
+
+    let is_user_mode = (frame.cs & 3) != 0;
+    if is_user_mode {
+        kprintln!("\n[USER-FAULT] Exception in user mode process: {} (vector={:#x} err={:#x})", name, vec, frame.error);
+        kprintln!("  Faulting User RIP={:#018x} RSP={:#018x} RFLAGS={:#018x}", frame.rip, frame.rsp, frame.rflags);
+        kprintln!("[USER-FAULT] No process scheduler or teardown path is wired yet; stopping the system safely.");
+        crate::arch::shutdown(true)
+    }
+
+    kprintln!("\n[KERNEL-PANIC] Unrecoverable Supervisor Exception: {} (vector={:#x} err={:#x})", name, vec, frame.error);
     kprintln!("  RIP={:#018x}  RSP={:#018x}  RFLAGS={:#018x}",
               frame.rip, frame.rsp, frame.rflags);
     kprintln!("  RAX={:#018x}  RBX={:#018x}  RCX={:#018x}  RDX={:#018x}",
@@ -194,8 +203,19 @@ pub fn init() {
     unsafe {
         for (i, &h) in raw_handlers.iter().enumerate() {
             let addr = h as *const () as usize as u64;
-            // Vector 8 (#DF Double Fault) uses dedicated IST 1 stack from TSS
-            let ist = if i == 8 { 1 } else { 0 };
+            // Dedicated IST stacks (Part A9):
+            // Vector 8 (#DF Double Fault) -> IST 1
+            // Vector 2 (#NMI Non-Maskable Interrupt) -> IST 2
+            // Vector 18 (#MC Machine Check) -> IST 3
+            let ist = if i == 8 {
+                1
+            } else if i == 2 {
+                2
+            } else if i == 18 {
+                3
+            } else {
+                0
+            };
             IDT.0[i] = IdtGate::interrupt_gate(addr, ist);
         }
         let ptr = IdtPointer {
@@ -205,5 +225,5 @@ pub fn init() {
         // SAFETY: installing a well-formed IDT with valid handlers.
         core::arch::asm!("lidt [{0}]", in(reg) &ptr, options(nostack, preserves_flags));
     }
-    kprintln!("[idt] 33 gates installed (vectors 0..32)");
+    kprintln!("[idt] 33 gates installed (IST1: #DF, IST2: #NMI, IST3: #MC)");
 }

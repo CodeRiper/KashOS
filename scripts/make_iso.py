@@ -67,7 +67,7 @@ security_profile = "high_assurance_graphene_hardened"
 
 [storage]
 vault_filesystem = "kvault-fs"
-encryption = "Kyber-1024 + XChaCha20-Poly1305"
+encryption = "Argon2id (m=256MiB, t=12, p=1) + XChaCha20-Poly1305 / XTS-AES-256"
 dispersal_stripes = 4000
 blinded_superblocks = true
 

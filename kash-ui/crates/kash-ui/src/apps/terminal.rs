@@ -1,4 +1,4 @@
-//! Terminal — talks to the (simulated) Phantom kernel services.
+//! Terminal — KashOS microkernel console and capability shell.
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -28,7 +28,7 @@ pub struct Terminal {
 impl Terminal {
     pub fn new() -> Terminal {
         let mut t = Terminal { lines: Vec::new(), input: String::new(), hist: Vec::new(), hist_i: 0, pending: Vec::new(), timer: 0.0, scroll: Scroll::default(), blink: 0.0, stick: true };
-        for l in ["KashOS 27 — terminal on /dev/tty0", "type `help` for commands · `selftest` re-runs the kernel capability tests", ""] { t.lines.push((String::from(l), Style::Dim)); }
+        for l in ["KashOS 0.2.0 — UI demo terminal (not connected to the kernel shell)", "`open`, `clear`, `date`, and `shutdown` are local UI actions; system output is unavailable", ""] { t.lines.push((String::from(l), Style::Dim)); }
         t
     }
     /// Run a command as if typed (used by demos).
@@ -42,27 +42,14 @@ impl Terminal {
         let rest: Vec<&str> = it.collect();
         match c {
             "" => {}
-            "help" => for l in ["help         this list", "clear        clear screen", "uname [-a]   kernel identification", "whoami       current principal", "date         wall clock",
-                "caps         capability tree (kcore)", "services     tier 0–5 service map", "selftest     run the 7 capability self-tests", "memmap       untyped memory regions",
-                "net          network layer status", "vault        kvault status", "neofetch     system summary", "open <app>   launch an app", "shutdown     power off"] { self.say(l, Style::Normal); },
+            "help" => for l in ["help         this list", "clear        clear screen", "date         UI clock value", "open <app>   open a UI app", "shutdown     request power off",
+                "uname, whoami, ls, caps, services, selftest, memmap, net, vault", "              unavailable: no kernel-shell connection"] { self.say(l, Style::Normal); },
             "clear" => { self.lines.clear(); self.pending.clear(); }
-            "whoami" => self.say("akash  (principal 0x0001, rights: R W G)", Style::Normal),
-            "uname" => self.say(if rest.contains(&"-a") { "Phantom 0.2.0 phantom-kernel #1 x86_64 capability/sel4-path" } else { "Phantom" }, Style::Normal),
+            "whoami" => self.say("unavailable: no process identity is connected to this UI", Style::Warn),
+            "uname" => self.say("KashOS prototype 0.2.0 (kernel identity unavailable in UI)", Style::Normal),
             "date" => { let s = cx.sys.unix_secs; self.say(&format!("unix {}", s), Style::Normal); }
             "echo" => { let s = rest.join(" "); self.say(&s, Style::Normal); }
-            "ls" => self.say("Applications  Desktop  Documents  Downloads  Pictures  Music  System  Vault", Style::Accent),
-            "caps" => { for l in ["root-untyped  [511 MiB]  rights=RWG", "├─ vault-region [ 64 MiB]  rights=RW   (derived)", "├─ gw-endpoint  [IPC]      rights=W    (anonymity gateway)", "├─ ui-framebuffer [ 8 MiB] rights=RW   (kash-ui)", "└─ telemetry    [IPC]      rights=R    (read-only mirror)"] { self.say(l, Style::Normal); } }
-            "services" => for l in ["T0 Silicon   TPM2.0  IOMMU  measured boot", "T1 Kernel    seL4 (verified)", "T2 Root task kcore + kvault", "T3 Services  AnonymityGW · PacketFilter · Telemetry", "T4 Drivers   sDDF native · Linux Driver VMs", "T5 Enclaves  Offensive VM · Comms VM · Desktop VM  ← kash-ui"] { self.say(l, Style::Normal); },
-            "selftest" => {
-                for l in ["[selftest] 1/7 rights can only shrink ............ ok", "[selftest] 2/7 untyped cannot be duplicated ........ ok", "[selftest] 3/7 revoke destroys derived caps ........ ok",
-                    "[selftest] 4/7 memory zeroed before reuse ........ ok", "[selftest] 5/7 nested untyped sub-allocation ....... ok", "[selftest] 6/7 structural invariant checker ........ ok",
-                    "[selftest] 7/7 cross-space isolation ............... ok"] { self.say(l, Style::Ok); }
-                self.say("[selftest] ✓ all 7 tests passed on 4.0 MiB of real hardware RAM", Style::Ok);
-            }
-            "memmap" => for l in ["0x0000000000100000  size 2^28  free", "0x0000000010000000  size 2^27  free", "0x0000000018000000  size 2^26  free", "… 13 regions · 511 MiB → capability system"] { self.say(l, Style::Normal); },
-            "net" => { let a = cx.sys.anon_gateway; let k = cx.sys.kill_switch; self.say(&format!("gateway     {}", if a { "up · 3 hops" } else { "down" }), if a { Style::Ok } else { Style::Warn }); self.say(&format!("kill-switch {}", if k { "armed" } else { "off" }), Style::Normal); self.say("app VMs hold NO NIC capability", Style::Dim); }
-            "vault" => self.say("kvault: sealed · AEAD · 0 handles open", Style::Normal),
-            "neofetch" => for l in ["        .--.        akash@kashos", "       |o_o |       -------------", "       |:_/ |       OS      KashOS 27", "      //   \\ \\      Kernel  Phantom 0.2.0", "     (|     | )     UI      kash-ui (Rust, software)", "    /'\\_   _/`\\     Shell   Golden Gate", "    \\___)=(___/     Memory  512 MiB"] { self.say(l, Style::Accent); },
+            "ls" | "caps" | "services" | "selftest" | "memmap" | "net" | "vault" | "neofetch" => self.say("unavailable: this demo terminal is not connected to the kernel service", Style::Warn),
             "open" => { match rest.first().copied().unwrap_or("") { "files" => cx.cmds.push(Cmd::Open(AppKind::Files)), "settings" => cx.cmds.push(Cmd::Open(AppKind::Settings)), "notes" => cx.cmds.push(Cmd::Open(AppKind::Notes)), _ => self.say("usage: open files|settings|notes", Style::Warn) } }
             "shutdown" => cx.cmds.push(Cmd::Shutdown),
             other => self.say(&format!("kash: command not found: {}", other), Style::Warn),

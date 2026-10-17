@@ -20,6 +20,8 @@ def main():
 
     cmd = [
         "qemu-system-x86_64",
+        "-accel", "tcg,thread=multi",
+        "-cpu", "max",
         "-kernel", "isodir/boot/kash-kernel",
         "-m", "512M",
         "-vga", "std",
@@ -61,10 +63,10 @@ def main():
         text = line.decode('utf-8', errors='ignore').strip()
         if "[gui]" in text or "[boot]" in text or "PANIC" in text:
             print(f"[{time.time()-t0:6.2f}s] {text}", flush=True)
-        if "Entering Liquid-Glass compositor main render loop" in text:
+        if "frame 2 blit complete" in text or "frame: 5" in text:
             entered = True
             break
-        if time.time() - t0 > 450:
+        if time.time() - t0 > 180:
             print("Timeout waiting for render loop!")
             break
 

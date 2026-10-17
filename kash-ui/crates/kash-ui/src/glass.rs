@@ -298,3 +298,81 @@ impl Canvas {
         }
     }
 }
+
+// ── Nitpicker-Inspired Frosted Glass Surface & Unforgeable 4px Security Border ──
+
+use crate::registry::SecurityColorTag;
+use crate::theme::{theme_for_tag, RgbaColor};
+
+pub struct GlassSurface {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub border_thickness: u32,
+}
+
+impl GlassSurface {
+    /// Renders an unforgeable security border and optional domain-tinted glass background
+    /// directly into the hardware framebuffer. Client VMs cannot draw over `border_thickness`.
+    pub fn composite_secure_frame(
+        &self,
+        framebuffer: &mut [u32],
+        fb_stride: u32,
+        tag: SecurityColorTag,
+        apply_background_tint: bool,
+        xray_overlay_mode: bool,
+    ) {
+        let theme = theme_for_tag(tag);
+        let border_px = self.border_thickness.max(4); // Mandatory minimum 4px security border
+        let border_argb = theme.primary_border.to_argb32();
+        let bg_color = if apply_background_tint {
+            theme.subtle_window_tint
+        } else {
+            RgbaColor::new(20, 22, 26, 240)
+        };
+
+        for row in 0..self.height {
+            let py = self.y + row;
+            for col in 0..self.width {
+                let px = self.x + col;
+                let idx = (py * fb_stride + px) as usize;
+
+                if idx >= framebuffer.len() {
+                    continue;
+                }
+
+                let is_security_border = row < border_px
+                    || row >= self.height.saturating_sub(border_px)
+                    || col < border_px
+                    || col >= self.width.saturating_sub(border_px)
+                    || row < 28; // Mandatory 28px unforgeable Nitpicker title bar
+
+                if is_security_border {
+                    framebuffer[idx] = border_argb;
+                } else if xray_overlay_mode {
+                    // Nitpicker X-Ray mode dims client content and highlights domain ownership
+                    framebuffer[idx] = Self::blend_pixel(framebuffer[idx], theme.primary_border, 96);
+                } else {
+                    framebuffer[idx] = Self::blend_pixel(framebuffer[idx], bg_color, bg_color.a);
+                }
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn blend_pixel(dst: u32, src: RgbaColor, alpha: u8) -> u32 {
+        let inv_a = (255 - alpha) as u32;
+        let a = alpha as u32;
+        let dst_r = (dst >> 16) & 0xFF;
+        let dst_g = (dst >> 8) & 0xFF;
+        let dst_b = dst & 0xFF;
+
+        let out_r = ((src.r as u32 * a) + (dst_r * inv_a)) >> 8;
+        let out_g = ((src.g as u32 * a) + (dst_g * inv_a)) >> 8;
+        let out_b = ((src.b as u32 * a) + (dst_b * inv_a)) >> 8;
+
+        0xFF00_0000 | (out_r << 16) | (out_g << 8) | out_b
+    }
+}
+

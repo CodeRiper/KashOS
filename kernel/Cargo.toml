@@ -4,6 +4,17 @@ version = "0.1.0"
 edition = "2021"
 build = "build.rs"
 
+[features]
+default = []
+# QEMU virt only: the ELF boot protocol does not pass the generated DTB in x0.
+# Keep this off for hardware builds, which must receive their DTB from firmware.
+qemu-virt = []
+
+[[bin]]
+name = "kernel"
+path = "src/main.rs"
+test = false
+
 [dependencies]
 kcore   = { path = "../kcore"   }
 khal    = { path = "../khal"    }
@@ -17,6 +28,7 @@ kipc    = { path = "../kipc"    }
 kscheduler = { path = "../kscheduler" }
 sha2    = { version = "0.10", default-features = false, features = ["force-soft"] }
 kash-ui = { path = "../kash-ui/crates/kash-ui" }
+ed25519-dalek = { version = "2.1", default-features = false, features = ["alloc"] }
 
 # Only on ARM64 — device-tree parsing
 [target.'cfg(target_arch = "aarch64")'.dependencies]

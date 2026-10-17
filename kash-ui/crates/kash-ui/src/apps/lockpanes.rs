@@ -59,14 +59,14 @@ impl Settings {
         let mut g = cx.group_begin(f, 4, 48.0);
         let mut pf = core::mem::take(&mut self.pw_f);
         field_row(cx, &mut g, "pw_cur", "Current passphrase", &mut pf[0], "Required");
-        field_row(cx, &mut g, "pw_new", "New passphrase", &mut pf[1], "At least 4 characters");
+        field_row(cx, &mut g, "pw_new", "New passphrase", &mut pf[1], "At least 12 characters");
         field_row(cx, &mut g, "pw_ver", "Verify", &mut pf[2], "Re-enter");
         field_row(cx, &mut g, "pw_hint", "Hint (optional)", &mut pf[3], "Shown after a failed attempt");
         let br = Rect::new(f.x + f.w - 170.0, f.y - 8.0, 170.0, 30.0);
         if cx.button("pw_save", br, "Change Passphrase", true) {
             let cur_ok = cx.sys.passphrase.is_empty() || pf[0].text == cx.sys.passphrase;
             if !cur_ok { self.pw_msg = (String::from("Current passphrase is incorrect."), false); }
-            else if pf[1].text.chars().count() < 4 { self.pw_msg = (String::from("Use at least 4 characters."), false); }
+            else if pf[1].text.chars().count() < 12 { self.pw_msg = (String::from("Use at least 12 characters."), false); }
             else if pf[1].text != pf[2].text { self.pw_msg = (String::from("The two new passphrases don’t match."), false); }
             else if !cx.sys.duress_pass.is_empty() && pf[1].text == cx.sys.duress_pass { self.pw_msg = (String::from("Must differ from the duress passphrase."), false); }
             else {
@@ -77,7 +77,7 @@ impl Settings {
             }
         }
         let l2 = cx.th.label2();
-        cx.text(f.x + 6.0, f.y + 12.0, if cx.sys.passphrase.is_empty() { "No passphrase set — anyone can unlock this Mac." } else { "Passphrase is set." }, 12.0, Weight::Regular, l2);
+        cx.text(f.x + 6.0, f.y + 12.0, if cx.sys.passphrase.is_empty() { "No passphrase set — first unlock will ask you to create one." } else { "Passphrase is set for this session." }, 12.0, Weight::Regular, l2);
         f.y += 38.0;
         let pm = self.pw_msg.clone(); msg_line(cx, f, &pm);
         self.pw_f = pf;
@@ -98,7 +98,7 @@ impl Settings {
         if cx.button("dz_set", set_r, "Set Duress Passphrase", true) {
             let cur_ok = cx.sys.passphrase.is_empty() || df[0].text == cx.sys.passphrase;
             if !cur_ok { self.dz_msg = (String::from("Your passphrase is incorrect."), false); }
-            else if df[1].text.chars().count() < 4 { self.dz_msg = (String::from("Use at least 4 characters."), false); }
+            else if df[1].text.chars().count() < 12 { self.dz_msg = (String::from("Use at least 12 characters."), false); }
             else if df[1].text == cx.sys.passphrase { self.dz_msg = (String::from("Must differ from your real passphrase."), false); }
             else if df[1].text != df[2].text { self.dz_msg = (String::from("The two entries don’t match."), false); }
             else {
@@ -115,7 +115,7 @@ impl Settings {
         f.y += 34.0;
         let dm = self.dz_msg.clone(); msg_line(cx, f, &dm);
         self.dz_f = df;
-        cx.caption(f, "Typing the duress passphrase on the lock screen unlocks the desktop normally and looks identical, but silently tells the kernel to mount the decoy vault, lock the real keys and alert your gateway.");
+        cx.caption(f, "The UI can recognize a duress passphrase, but decoy-vault mounting, key revocation, and gateway alerts are not connected. Credentials are kept in RAM for this session only.");
         let mut g = cx.group_begin(f, 2, 54.0);
         self.opt(cx, &mut g, 44, "Erase kvault keys after 10 failed attempts", "Cannot be undone — requires recovery key");
         self.opt(cx, &mut g, 45, "Lock the screen when the hardware key is removed", "");
@@ -226,7 +226,7 @@ impl Settings {
         cx.app_icon(AppKind::About, Rect::new(r.cx() - 52.0, r.y + 22.0, 104.0, 104.0));
         let lc = cx.th.label(); let l2 = cx.th.label2();
         cx.text_in(Rect::new(r.x, r.y + 136.0, r.w, 30.0), "KashOS", 26.0, Weight::Bold, lc, Align::Center);
-        cx.text_in(Rect::new(r.x, r.y + 166.0, r.w, 20.0), "Version 27.0 · Golden Gate", 13.0, Weight::Regular, l2, Align::Center);
+        cx.text_in(Rect::new(r.x, r.y + 166.0, r.w, 20.0), "Development build · 0.1.0", 13.0, Weight::Regular, l2, Align::Center);
         let b = Rect::new(r.cx() - 62.0, r.y + 192.0, 124.0, 28.0);
         if cx.button("about_upd", b, "Software Update…", false) { cx.sys.settings_pane_request = Some(19); }
         f.y += 250.0;
@@ -235,7 +235,7 @@ impl Settings {
         let mut g = cx.group_begin(f, 7, 40.0);
         cx.row_value(&mut g, "Name", "akash@kash");
         cx.row_value(&mut g, "Processor", "x86-64 · 4 cores · NX · SMEP · SMAP");
-        cx.row_value(&mut g, "Memory", "512 MiB");
+        cx.row_value(&mut g, "Memory", "Runtime total unavailable");
         cx.row_value(&mut g, "Startup disk", "Kash HD");
         cx.row_value(&mut g, "Display", &format!("{} × {} · 60 Hz", cx.sys.screen.w as i32, cx.sys.screen.h as i32));
         cx.row_value(&mut g, "Serial number", "KASH-0027-A1B2C3");
@@ -244,7 +244,7 @@ impl Settings {
 
         cx.heading(f, "System");
         let mut g = cx.group_begin(f, 5, 40.0);
-        cx.row_value(&mut g, "Kernel", "Phantom Kernel 0.2.0 (capability core)");
+        cx.row_value(&mut g, "Kernel", "KashOS kernel 0.1.0");
         cx.row_value(&mut g, "Capability self-tests", "7 / 7 passed");
         cx.row_value(&mut g, "Encrypted vault", "kvault · AEAD sealed");
         let (a, k, d) = cx.sys.reg.totals(); let _ = (a, k, d);

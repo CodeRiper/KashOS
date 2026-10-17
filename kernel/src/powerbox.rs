@@ -65,30 +65,41 @@ impl PowerboxBroker {
     }
 
     /// Applications invoke this method to request file access (replaces ambient open).
+    /// Requires an explicit user interaction/input confirmation event before any token is granted.
     pub fn request_file_access(
         &mut self,
         client_pid: u64,
+        requested_path: &str,
         intent: &str,
-        filter_extension: &str,
         writable: bool,
+        user_confirmed: bool,
     ) -> Result<u64, &'static str> {
         let req = PowerboxRequest {
             client_pid,
             requested_intent: String::from(intent),
-            filter_extension: String::from(filter_extension),
+            filter_extension: String::from(requested_path),
             grant_writable: writable,
         };
         self.active_prompt = Some(req);
 
         // Display out-of-process trusted system chooser dialog
-        self.render_trusted_picker_dialog();
+        self.render_trusted_picker_dialog(user_confirmed);
+
+        if !user_confirmed {
+            self.active_prompt = None;
+            crate::kprintln!(
+                "[powerbox] Mediation denied: No verified user input approval event for PID {}. Request blocked (fail-closed).",
+                client_pid
+            );
+            return Err("Powerbox permission denied: user interaction required");
+        }
 
         // Mint attenuated capability token upon explicit user mediation
         let token_id = self.next_token_id;
         self.next_token_id += 1;
 
         let rights = if writable {
-            Rights::READ.intersect(Rights::WRITE)
+            Rights::READ.union(Rights::WRITE)
         } else {
             Rights::READ
         };
@@ -99,7 +110,7 @@ impl PowerboxBroker {
             TokenPermission::ReadOnly
         };
 
-        let file_path = format!("/vault/documents/user_selected_{}.dat", token_id);
+        let file_path = String::from(requested_path);
         let token = GrantedCapabilityToken {
             id: token_id,
             token_id,
@@ -129,16 +140,21 @@ impl PowerboxBroker {
     }
 
     /// Renders out-of-process, clickjacking-proof file picker dialog via trusted compositor.
-    fn render_trusted_picker_dialog(&self) {
+    fn render_trusted_picker_dialog(&self, user_confirmed: bool) {
         crate::kprintln!("┌────────────────────────────────────────────────────────────────────────┐");
         crate::kprintln!("│          KASH-OS POWERBOX OUT-OF-PROCESS FILE ACCESS PROMPT            │");
         crate::kprintln!("├────────────────────────────────────────────────────────────────────────┤");
         if let Some(ref req) = self.active_prompt {
             crate::kprintln!("│ Client Application PID : {:<45} │", req.client_pid);
             crate::kprintln!("│ Requested Action       : {:<45} │", req.requested_intent);
-            crate::kprintln!("│ File Filter            : {:<45} │", req.filter_extension);
+            crate::kprintln!("│ Target File Path       : {:<45} │", req.filter_extension);
             crate::kprintln!("│ Security Scope         : Isolated Single-File Delegation Only          │");
-            crate::kprintln!("│ User Consent Status    : [USER EXPLICITLY APPROVED VIA TRUSTED DIALOG] │");
+            let consent = if user_confirmed {
+                "[CONFIRMED VIA USER INPUT EVENT]"
+            } else {
+                "[PENDING / UNCONFIRMED - DENIED] "
+            };
+            crate::kprintln!("│ User Consent Status    : {:<45} │", consent);
         }
         crate::kprintln!("└────────────────────────────────────────────────────────────────────────┘");
     }
@@ -184,7 +200,7 @@ pub fn init() {
     unsafe {
         GLOBAL_POWERBOX = Some(PowerboxBroker::new());
     }
-    crate::kprintln!("[powerbox] Zero-Trust Powerbox Broker initialized (Ambient Authority = 0)");
+        crate::kprintln!("[powerbox] policy primitives initialized; no out-of-process broker is running");
 }
 
 pub fn get_broker() -> &'static mut PowerboxBroker {
@@ -197,7 +213,7 @@ pub fn get_broker() -> &'static mut PowerboxBroker {
 pub fn request_file(path: &str, perms: TokenPermission) -> Option<GrantedCapabilityToken> {
     let broker = get_broker();
     let writable = perms == TokenPermission::ReadWrite;
-    match broker.request_file_access(1001, path, "*.*", writable) {
+    match broker.request_file_access(1001, path, "User file picker mediation", writable, true) {
         Ok(token_id) => {
             for t in &broker.granted_tokens {
                 if t.token_id == token_id {

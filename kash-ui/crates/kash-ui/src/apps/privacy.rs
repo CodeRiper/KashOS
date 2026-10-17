@@ -182,21 +182,17 @@ impl Privacy {
         let ne = cx.sys.reg.log.len();
         if nav_row(cx, &mut g, "log_page", Icon::Clock, 0x8E8E93, "Activity Log", &format!("{} event{}", ne, if ne == 1 { "" } else { "s" })) { self.push(Page::Log); }
 
-        cx.heading(f, "Phantom services · Tier 3");
-        let mut g = cx.group_begin(f, 6, 54.0);
-        let mut v = [cx.sys.anon_gateway, cx.sys.packet_filter, cx.sys.kill_switch, cx.sys.telemetry, cx.sys.key_manager, cx.sys.duress];
-        let items = [("Anonymity Gateway", "Only holder of the NIC capability — all traffic is mixed"), ("Packet Inspection Proxy", "Classify, label and DPI-inspect every flow"),
-            ("Network kill-switch", "Drop all traffic if the gateway goes down"), ("Telemetry domain", "Read-only mirror; never transmits"),
-            ("Key manager", "Hardware-backed key custody (TPM 2.0)"), ("Duress handler", "Wipe on duress passphrase")];
-        let mut changed: Option<usize> = None;
-        for i in 0..6 { if cx.row_toggle(&mut g, items[i].0, items[i].0, items[i].1, &mut v[i]) { changed = Some(i); } }
-        cx.sys.anon_gateway = v[0]; cx.sys.packet_filter = v[1]; cx.sys.kill_switch = v[2]; cx.sys.telemetry = v[3]; cx.sys.key_manager = v[4]; cx.sys.duress = v[5];
-        if let Some(i) = changed { cx.cmds.push(Cmd::Toast(format!("{} {}", items[i].0, if v[i] { "enabled" } else { "disabled" }))); }
+        cx.heading(f, "Service status");
+        let mut g = cx.group_begin(f, 6, 44.0);
+        for name in ["Anonymity Gateway", "Packet Filter", "Network kill-switch", "Telemetry service", "Hardware key manager", "Kernel duress handler"] {
+            cx.row_value(&mut g, name, "Not connected to this UI build");
+        }
+        cx.caption(f, "These services are not controlled by the desktop preferences. The current kernel boot status is printed to the serial console.");
         cx.heading(f, "Capabilities");
         let mut g = cx.group_begin(f, 3, 44.0);
-        cx.row_value(&mut g, "Root task", "kcore · 7 / 7 self-tests");
-        cx.row_value(&mut g, "Untyped memory", "511 MiB · zeroed on revoke");
-        cx.row_value(&mut g, "Encrypted vault", "kvault · locked");
+        cx.row_value(&mut g, "Capability core", "Boot self-tests; no live UI feed");
+        cx.row_value(&mut g, "Physical memory", "No live UI feed");
+        cx.row_value(&mut g, "Encrypted vault", "Library present; not mounted by this UI");
     }
 
     // ───────── by permission ─────────
@@ -378,7 +374,23 @@ impl Privacy {
         let mut g = cx.group_begin(f, 1, 60.0);
         let mut on = cx.sys.reg.lockdown;
         if cx.row_toggle(&mut g, "lockdown", "Lockdown Mode", "Deny every prompt automatically · block unsigned code", &mut on) { cx.sys.reg.lockdown = on; cx.sys.reg.rev += 1; cx.cmds.push(Cmd::Toast(String::from(if on { "Lockdown Mode on" } else { "Lockdown Mode off" }))); }
-        cx.caption(f, "For people who may be targeted. Anything set to Ask is treated as Denied and no new access is ever granted.");
+        cx.caption(f, "This policy affects the UI app catalog only. It is not enforced by kernel capabilities or a process sandbox.");
+
+        cx.heading(f, "Security mechanisms");
+        let mut g = cx.group_begin(f, 4, 44.0);
+        for name in ["TRESOR key staging", "Memory scrub on shutdown", "USB data-line gating", "Authenticated vault mount"] {
+            cx.row_value(&mut g, name, "Not controlled by this UI build");
+        }
+        cx.caption(f, "KashOS is a prototype kernel. These rows are informational; this page cannot enable hardware security features.");
+
+        cx.heading(f, "Installation");
+        let mut g = cx.group_begin(f, 1, 60.0);
+        let r = cx.group_row(&mut g);
+        cx.text(r.x + 14.0, r.cy() - 2.0, "Disk installation", 13.5, Weight::Regular, lc);
+        cx.text(r.x + 14.0, r.cy() + 13.0, "Installer is not implemented", 11.5, Weight::Regular, l2);
+        cx.text_in(Rect::new(r.right() - 150.0, r.y, 136.0, r.h), "Unavailable", 12.5, Weight::Medium, l2, Align::Right);
+        cx.caption(f, "This build boots from a test image. It does not partition or install to a physical disk.");
+
         cx.heading(f, "Reset");
         let mut g = cx.group_begin(f, 1, 56.0);
         let r = cx.group_row(&mut g);
