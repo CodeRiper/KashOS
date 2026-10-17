@@ -124,22 +124,19 @@ impl KashShell {
             "uname" => {
                 let show_all = parts.len() > 1 && (parts[1] == "-a" || parts[1] == "--all");
                 if show_all {
-                    kprintln!("KashOS kash-node-01 6.6.0-kash-secure #1 SMP PREEMPT 2026 x86_64 KashOS GNU/Linux");
+                    kprintln!("KashOS kash-node-01 0.2.0-dev #1 SMP=1 2026 x86_64 KashOS (Rust no_std microkernel prototype)");
                 } else {
                     kprintln!("KashOS");
                 }
             }
 
             "ls" | "dir" => {
-                kprintln!("total 48");
-                kprintln!("drwx------  4 root root 4096 Oct 15 12:00 .");
-                kprintln!("drwx------ 10 root root 4096 Oct 15 12:00 ..");
-                kprintln!("drwx------  2 root root 4096 Oct 15 12:00 vault/");
-                kprintln!("drwxr-xr-x  2 root root 4096 Oct 15 12:00 ext4/");
-                kprintln!("drwxr-xr-x  2 root root 4096 Oct 15 12:00 btrfs/");
-                kprintln!("drwxr-xr-x  2 root root 4096 Oct 15 12:00 dev/");
-                kprintln!("-rw-------  1 root root 8192 Oct 15 12:00 .vault_master_stripe.kfs");
-                kprintln!("-r--r--r--  1 root root  256 Oct 15 12:00 motd");
+                kprintln!("total 4");
+                kprintln!("-r--r--r-- 1 root root  128 motd");
+                kprintln!("crw-rw-rw- 1 root root    0 dev:null");
+                kprintln!("crw-rw-rw- 1 root root    0 dev:zero");
+                kprintln!("crw-rw-rw- 1 root root    0 dev:random");
+                kprintln!("[vfs] Root filesystem not mounted (kvault block driver mounting scheduled for Phase 6).");
             }
 
             "pwd" => {
@@ -162,8 +159,8 @@ impl KashShell {
                 }
                 match parts[1] {
                     "motd" => {
-                        kprintln!("Welcome to KashOS — High-Assurance Hardened Microkernel.");
-                        kprintln!("All processes execute under seL4 CDT + OpenBSD pledge/unveil.");
+                        kprintln!("Welcome to KashOS — Capability-Based Microkernel Research Prototype.");
+                        kprintln!("All processes execute under capability spaces (Phase 3 enforcement).");
                     }
                     "/dev/null" | "dev:null" => {}
                     "/dev/zero" | "dev:zero" => {
@@ -178,20 +175,19 @@ impl KashShell {
                         }
                     }
                     file => {
-                        kprintln!("[vfs] Reading '{}' via Post-Quantum authenticated Merkle tree...", file);
-                        kprintln!("[vfs] 0 bytes (empty secure node)");
+                        kprintln!("cat: {}: No such file or directory (persistent filesystem scheduled for Phase 6)", file);
                     }
                 }
             }
 
             "ps" => {
                 kprintln!("  PID TTY          TIME CMD");
-                kprintln!("    1 tty0     00:00:01 kash-kernel / kash-init [Ring 0 microkernel]");
+                kprintln!("    1 tty0     00:00:01 kash-kernel [Ring 0 Root Task]");
                 let reg = crate::status::get();
-                if reg.liquid_glass_gui.is_real() {
-                    kprintln!("    2 ?        00:00:01 kash-ui [Liquid-Glass Desktop Compositor]");
+                if reg.linear_framebuffer.is_real() {
+                    kprintln!("    2 ?        00:00:01 kash-ui [Desktop Compositor]");
                 }
-                kprintln!("[ps] Status: Full Ring 3 preemptive process scheduler scheduled for Part B3.");
+                kprintln!("[ps] User-mode preemptive process scheduler scheduled for Phase 1/2.");
             }
 
             "free" => {
@@ -209,15 +205,19 @@ impl KashShell {
                 let used_kb = (stats.sectors_written * (stats.sector_size as u64)) / 1024;
                 let avail_kb = total_kb.saturating_sub(used_kb);
                 let pct = if total_kb > 0 { (used_kb * 100) / total_kb } else { 0 };
-                kprintln!("Filesystem     1K-blocks      Used Available Use% Mounted on");
-                kprintln!("dev:               16384         0     16384   0% /dev (In-Memory Schemes)");
-                kprintln!("disk:0             {:5}     {:5}     {:5}   {}% /vault (kvault-fs)", total_kb, used_kb, avail_kb, pct);
-                kprintln!("[df] Additional filesystems (ext4/btrfs): NOT IMPLEMENTED (kvault-fs active)");
+                kprintln!("Filesystem     1K-blocks      Used Available Use% Type");
+                kprintln!("dev:               16384         0     16384   0% In-Memory Schemes");
+                if stats.total_sectors > 0 {
+                    kprintln!("disk:0             {:5}     {:5}     {:5}   {}% Block Device ({})", total_kb, used_kb, avail_kb, pct, stats.active_driver);
+                } else {
+                    kprintln!("disk:0                 0         0         0   0% No Block Device Online");
+                }
+                kprintln!("[df] Persistent filesystem: NOT MOUNTED (Root kvault-fs mounting scheduled for Phase 6)");
             }
 
             "mkdir" => {
                 if parts.len() > 1 {
-                    kprintln!("[vfs] Created directory '{}' (in-memory scheme node).", parts[1]);
+                    kprintln!("[vfs] mkdir: in-memory transient node '{}' created.", parts[1]);
                 } else {
                     kprintln!("mkdir: missing operand");
                 }
@@ -225,7 +225,7 @@ impl KashShell {
 
             "rm" | "unlink" => {
                 if parts.len() > 1 {
-                    kprintln!("[vfs] Unlinking '{}' with anti-forensic zero-overwrite.", parts[1]);
+                    kprintln!("[vfs] rm: in-memory transient node '{}' removed.", parts[1]);
                 } else {
                     kprintln!("rm: missing operand");
                 }
@@ -261,14 +261,14 @@ impl KashShell {
 
             "status" => {
                 kprintln!("[kash-init] Process ID: 1 (Root Task)");
-                kprintln!("[kash-init] Capability Derivation Tree: ACTIVE (Zero Ambient Authority)");
-                kprintln!("[kash-init] Sandboxing: OpenBSD pledge() and unveil() enforced in syscall layer");
-                kprintln!("[kash-init] Isolation: Single address space Ring 0 microkernel");
+                kprintln!("[kash-init] Execution Mode: Ring 0 monolithic prototype (pre-user-mode)");
+                kprintln!("[kash-init] Address Space: Single identity-mapped W^X space (higher-half & per-process scheduled for Phase 1)");
+                kprintln!("[kash-init] Capability Engine: kcore library tested; OS enforcement scheduled for Phase 3");
             }
 
             "security" => {
                 let reg = crate::status::get();
-                kprintln!("[security] Verified Subsystem Status (Rule R1: Single Source of Truth):");
+                kprintln!("[security] Subsystem Status (Rule R1: Single Source of Truth from status.rs):");
                 kprintln!("  TRESOR Debug Registers : {}", reg.tresor_debug_regs.label());
                 kprintln!("  Memory W^X Enforcement : {}", reg.wx_paging.label());
                 kprintln!("  Hardware IOMMU (VT-d)  : {}", reg.vtd_iommu.label());
@@ -280,43 +280,38 @@ impl KashShell {
 
             "opsec" => {
                 let reg = crate::status::get();
+                let scrubbed = crate::security::total_scrubbed_bytes();
                 kprintln!("\n╔══════════════════════════════════════════════════════════════╗");
                 kprintln!("║               KASH OS OPSEC SECURITY AUDIT                   ║");
                 kprintln!("╠══════════════════════════════════════════════════════════════╣");
                 kprintln!("║ 1. Cold-Boot & Key Material Protection:                      ║");
                 kprintln!("║    - Key staging: CPU DR0-DR3 registers ({:<17})     ║", reg.tresor_debug_regs.label());
-                kprintln!("║    - Memory Scrubbing: clflush + volatile zeroize on revoke  ║");
+                kprintln!("║    - Memory Scrubbing: clflush + volatile zeroize ({:<8})   ║", if scrubbed > 0 { "Active" } else { "Ready" });
                 kprintln!("║ 2. Peripheral & DMA Containment:                             ║");
                 kprintln!("║    - Hardware IOMMU (VT-d/AMD-Vi): {:<25} ║", reg.vtd_iommu.label());
-                kprintln!("║    - USB Data Endpoints: Dynamic Charge-Only on lock         ║");
+                kprintln!("║    - USB Data Endpoints: Policy helper only; HW gating STUB  ║");
                 kprintln!("║ 3. Speculative Execution & Side Channels:                    ║");
                 kprintln!("║    - IBRS, STIBP, SSBD: {:<36} ║", reg.spec_mitigations.label());
                 kprintln!("║ 4. Network & Privacy Architecture:                           ║");
-                kprintln!("║    - Tor Gateway / Kill-Switch: NOT IMPLEMENTED (Part B9)    ║");
-                kprintln!("║ 5. Plausible Deniability & Storage:                          ║");
-                kprintln!("║    - AF-Split with RNG: {:<36} ║", reg.kvault_fs.label());
+                kprintln!("║    - Tor Gateway / Kill-Switch: NOT IMPLEMENTED (Phase 7)    ║");
+                kprintln!("║ 5. Storage Encryption:                                       ║");
+                kprintln!("║    - kvault crypto library: {:<32} ║", reg.kvault_fs.label());
                 kprintln!("╚══════════════════════════════════════════════════════════════╝\n");
             }
 
             "graphene" => {
-                kprintln!("\n╔══════════════════════════════════════════════════════════════╗");
-                kprintln!("║            GRAPHENEOS-LEVEL SECURITY ARCHITECTURE            ║");
-                kprintln!("╠══════════════════════════════════════════════════════════════╣");
-                kprintln!("║ 1. Memory Hardening: W^X enforced, frame scrub on revoke     ║");
-                kprintln!("║ 2. Auto-Reboot & BFU State Transition: Simulation (Part D2)  ║");
-                kprintln!("║ 3. Peripheral Gating: Charge-only USB mode on screen lock    ║");
-                kprintln!("║ 4. Sandboxing: OpenBSD pledge() and unveil() syscall filters ║");
-                kprintln!("╚══════════════════════════════════════════════════════════════╝\n");
+                kprintln!("[hardening] Memory W^X enforced in kernel page tables.");
+                kprintln!("[hardening] Per-process compartmentalization scheduled for Phase 8.");
             }
 
             "bfu-test" => {
-                kprintln!("[bfu-test] Simulating 18-hour inactivity timeout policy (Part D2)...");
+                kprintln!("[bfu-test] Testing inactivity timeout policy model...");
                 let mut auto_reboot = crate::security::AutoRebootManager::new();
                 auto_reboot.on_user_unlock();
                 kprintln!("[bfu-test] Initial State: {:?}", auto_reboot.current_state);
                 auto_reboot.tick_inactivity(18 * 3600);
                 kprintln!("[bfu-test] Final State: {:?}", auto_reboot.current_state);
-                kprintln!("[bfu-test] Software state transition simulated (hardware watchdog reboot in Part D2).");
+                kprintln!("[bfu-test] State transition tested (hardware watchdog reboot scheduled for Phase 5).");
             }
 
             "schemes" => {
@@ -324,7 +319,7 @@ impl KashShell {
                 for s in self.scheme_mgr.list_schemes() {
                     kprintln!("  - {}: (URI Handler active)", s);
                 }
-                kprintln!("  - file: (VFS Router mounted: /vault, /ext4, /btrfs, /ntfs, /apfs)");
+                kprintln!("  - file: (VFS in-memory router; persistent storage driver scheduled for Phase 6)");
                 kprintln!("  - pipe: (kipc SPSC lockless shared memory ring)");
             }
 
@@ -364,15 +359,11 @@ impl KashShell {
             }
 
             "storage" => {
-                kprintln!("[kblock] Adaptive Storage Engine: ACTIVE");
-                kprintln!("[kblock] Rotational HDDs  : Circular LOOK (C-LOOK) Elevator + Coalescing");
-                kprintln!("[kblock] NVMe SSDs        : Lockless Parallel Submission Queues");
-                kprintln!("[vfs] Active Mount Points :");
-                kprintln!("  /vault -> kvault-fs (Authenticated Merkle B-tree, Blinded Superblock)");
-                kprintln!("  /ext4  -> Linux ext4 (Read/Write Extent Driver)");
-                kprintln!("  /btrfs -> Linux Btrfs (CoW B-tree Forest Driver)");
-                kprintln!("  /ntfs  -> Windows NTFS (MFT Zero-Copy Driver)");
-                kprintln!("  /apfs  -> Apple APFS (Container Superblock Driver)");
+                let stats = crate::blockdev::get_stats();
+                kprintln!("[kblock] Block Subsystem: {}", stats.active_driver);
+                kprintln!("[kblock] Total Sectors  : {} (~{} MiB)", stats.total_sectors, (stats.total_sectors * 512) / (1024 * 1024));
+                kprintln!("[vfs] In-Memory Root: ACTIVE (/dev, /motd)");
+                kprintln!("[vfs] Persistent Filesystems: NOT MOUNTED (kvault-fs root mounting scheduled for Phase 6)");
             }
 
             "nuke" => {
@@ -517,18 +508,13 @@ impl KashShell {
 
             "multilang" => {
                 kprintln!("\n╔══════════════════════════════════════════════════════════════╗");
-                kprintln!("║          MULTI-LANGUAGE CAPSULE RUNTIME STATUS               ║");
+                kprintln!("║             MULTI-LANGUAGE RUNTIME STATUS                    ║");
                 kprintln!("╠══════════════════════════════════════════════════════════════╣");
-                kprintln!("║ 1. C Runtime (Musl / Relibc ELF):                            ║");
-                kprintln!("║    - Status: [PASS] Native ELF64 parser + auxv stack layout  ║");
-                kprintln!("║ 2. C++ Runtime (C++20 Native Toolchain):                     ║");
-                kprintln!("║    - Status: [PASS] Static libc++ / musl ELF64 execution     ║");
-                kprintln!("║ 3. Python Runtime (Python 3.12 Sandboxed Interpreter):       ║");
-                kprintln!("║    - Status: [PASS] MicroPython / CPython hermetic binary    ║");
-                kprintln!("║ 4. Java Runtime (Java 21 JVM / MicroVM Bytecode):            ║");
-                kprintln!("║    - Status: [PASS] GraalVM native-image Musl ELF64          ║");
-                kprintln!("║ 5. Rust Microkernel Native Core:                             ║");
-                kprintln!("║    - Status: [PASS] 100% Native Bare-Metal Microkernel Core  ║");
+                kprintln!("║ 1. ELF64 Binary Parser: Header & segment parsing active      ║");
+                kprintln!("║ 2. C / C++ Runtime (musl/relibc): NOT IMPLEMENTED (Phase 2)  ║");
+                kprintln!("║ 3. Python Interpreter: NOT IMPLEMENTED (Phase 2 user service)║");
+                kprintln!("║ 4. Java JVM Bytecode: NOT IMPLEMENTED (Phase 2 user service) ║");
+                kprintln!("║ 5. Rust Microkernel Native: Ring 0 monolithic execution      ║");
                 kprintln!("╚══════════════════════════════════════════════════════════════╝\n");
             }
 
@@ -615,16 +601,7 @@ impl KashShell {
             }
 
             "iptables" | "firewall" => {
-                kprintln!("Chain INPUT (policy DROP)");
-                kprintln!("target     prot opt source               destination         ");
-                kprintln!("ACCEPT     all  --  127.0.0.1            127.0.0.1           /* loopback */");
-                kprintln!("ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:22 /* SSH */");
-                kprintln!("DROP       all  --  0.0.0.0/0            0.0.0.0/0            /* Default Drop */");
-                kprintln!();
-                kprintln!("Chain OUTPUT (policy DROP)");
-                kprintln!("target     prot opt source               destination         ");
-                kprintln!("ACCEPT     tcp  --  10.150.0.0/16        0.0.0.0/0            /* Tor Tunnel Only */");
-                kprintln!("DROP       all  --  0.0.0.0/0            0.0.0.0/0            /* Fail-Closed Killswitch */");
+                kprintln!("iptables: NOT IMPLEMENTED (User-mode network service & default-deny firewall scheduled for Phase 7)");
             }
 
             "sha256sum" => {
@@ -656,12 +633,12 @@ impl KashShell {
             }
 
             "top" => {
-                kprintln!("[top] NOT IMPLEMENTED: interactive process viewer scheduled for Part B3 / D9.");
+                kprintln!("[top] NOT IMPLEMENTED (Interactive process monitor scheduled for Phase 2).");
             }
 
             "touch" => {
                 if parts.len() > 1 {
-                    kprintln!("[vfs] touch: Created secure inode for '{}' in Merkle B-tree.", parts[1]);
+                    kprintln!("[vfs] touch: Transient node '{}' created (in-memory prototype).", parts[1]);
                 } else {
                     kprintln!("touch: missing file operand");
                 }
@@ -669,7 +646,7 @@ impl KashShell {
 
             "cp" => {
                 if parts.len() > 2 {
-                    kprintln!("[vfs] cp: Cloned '{}' to '{}' (CoW authenticated extent).", parts[1], parts[2]);
+                    kprintln!("[vfs] cp: Persistent file cloning scheduled for Phase 6.");
                 } else {
                     kprintln!("cp: missing destination file operand");
                 }
@@ -677,7 +654,7 @@ impl KashShell {
 
             "mv" => {
                 if parts.len() > 2 {
-                    kprintln!("[vfs] mv: Renamed '{}' to '{}' within scoped namespace.", parts[1], parts[2]);
+                    kprintln!("[vfs] mv: Persistent file moving scheduled for Phase 6.");
                 } else {
                     kprintln!("mv: missing destination file operand");
                 }
@@ -934,17 +911,13 @@ impl KashShell {
             }
 
             "usb" => {
+                let reg = crate::status::get();
                 kprintln!("\n+==============================================================+");
-                kprintln!("|              USB xHCI HOST CONTROLLER & PORTS                |");
+                kprintln!("|              USB xHCI HOST CONTROLLER STATUS                 |");
                 kprintln!("+==============================================================+");
-                kprintln!("| Controller Standard  : eXtensible Host Controller (xHCI 1.1) |");
-                kprintln!("| Maximum Device Slots : 32 slots                              |");
-                kprintln!("| Root Hub Ports       : 8 ports (USB 3.0 SuperSpeed 5Gbps)    |");
-                kprintln!("| Connected Devices    :                                       |");
-                kprintln!("|   Port 1: USB 3.0 Root Hub (Vendor 0x1d6b, Device 0x0003)    |");
-                kprintln!("|   Port 2: Human Interface Device (HID Keyboard)              |");
-                kprintln!("|   Port 3: Optical Mouse (Relative Motion 1000DPI)            |");
-                kprintln!("| Port Security State  : Dynamically gated on screen lock      |");
+                kprintln!("| Controller Driver    : {:<38}|", reg.xhci_usb.label());
+                kprintln!("| Implementation State : Stub driver; USB keyboard/mouse use PS/2 |");
+                kprintln!("| Real xHCI & USB HID  : Scheduled for Phase 4                  |");
                 kprintln!("+==============================================================+\n");
             }
 

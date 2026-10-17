@@ -46,3 +46,35 @@ jobs:
 
       - name: Run Workspace Tests
         run: cargo test --workspace --exclude kernel
+
+  honesty-gate:
+    name: Phase 0 Honesty Gate Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Verify Status Registry Exclusivity ([OK] in kernel)
+        run: |
+          MATCHES=$(git grep -n "OK\]" kernel/src | grep -v "kernel/src/status.rs" || true)
+          if [ -n "$MATCHES" ]; then
+            echo "ERROR: Found non-registry [OK] prints in kernel/src:"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "PASS: Only status.rs emits [OK] status tags."
+
+      - name: Verify No Unbacked Verification Claims in README
+        run: |
+          python3 -c '
+          import sys
+          with open("README.md", "r", encoding="utf-8") as f:
+              content = f.read()
+          forbidden = ["formally verified", "verus-verified", "sel4 vs grapheneos", "mathematically bounded"]
+          found = [phrase for phrase in forbidden if phrase.lower() in content.lower()]
+          if found:
+              print("ERROR: Found unbacked claims in README.md:", found)
+              sys.exit(1)
+          print("PASS: README.md complies with honesty guidelines.")
+          '
+

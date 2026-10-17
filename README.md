@@ -1,109 +1,147 @@
 # KashOS
 
-**Formally-Verified Rust Separation Microkernel & Zero-Trust Compartmentalized Workstation**
+**A Capability-Based Microkernel Workstation Prototype in Rust**
 
-[![Kernel Build](https://img.shields.io/badge/Kernel-Verified%20Rust-brightgreen.svg)](kernel/)
-[![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20AArch64-blue.svg)](kernel/src/arch/)
-[![Verification](https://img.shields.io/badge/Verification-Verus%20SMT%20%2B%20CONVEROS-purple.svg)](kernel/src/kash_kernel.rs)
-[![Compositor](https://img.shields.io/badge/UI-Nitpicker--Style%20Zero--Trust-orange.svg)](kash-ui/)
-[![Memory Model](https://img.shields.io/badge/Kernel%20Heap-Zero%20Post--Boot%20(Anti--OOM)-red.svg)](kernel/src/kash_kernel.rs)
+[![Kernel Build](https://img.shields.io/badge/Kernel-no__std%20Rust-brightgreen.svg)](kernel/)
+[![Architecture](https://img.shields.io/badge/Arch-x86__64-blue.svg)](kernel/src/arch/)
+[![Compositor](https://img.shields.io/badge/UI-Nitpicker--Style%20Glass-orange.svg)](kash-ui/)
+[![Security Policy](https://img.shields.io/badge/Policy-Zero%20Ambient%20Authority-purple.svg)](docs/THREAT_MODEL.md)
+[![Status](https://img.shields.io/badge/Baseline-Ring%200%20Prototype-yellow.svg)](docs/CLAIMS.md)
 
 ---
 
 ## 🌟 Overview
 
-**KashOS** is a high-assurance, compartmentalized desktop operating system engineered to unite the mathematical rigor of **seL4** with the hardware-enforced compartment isolation of **Qubes OS** and the zero-trust privacy primitives of **GrapheneOS**.
+**KashOS** is an open-source, capability-based microkernel research workstation operating system written from bare metal in `#![no_std]` Rust for x86_64 architectures.
 
-Built from bare metal in `#![no_std]` Rust with Verus SMT deductive verification, KashOS eliminates C memory safety vulnerabilities at compile time, enforces capability-based spatial and temporal isolation, and replaces bloated legacy X11/Wayland display stacks with a custom, mathematically bounded ~5,000 LoC Rust compositor (**kash-ui**).
+Its long-term architectural goal is to build a small, robust workstation operating system where drivers, networking, filesystems, and the window compositor run as separate unprivileged user-mode services, backed by hardware-enforced isolation (IOMMU, NX, SMEP/SMAP) and an unforgeable domain-bordered display server ([`kash-ui`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kash-ui/)).
 
----
-
-## 🏛️ Core Architecture
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                   kash-ui Zero-Trust Compositor                        │
-│   • Unforgeable 4px Security Borders    • Nitpicker F12 X-Ray Mode    │
-│   • Sanitized [DomainID: Name] Titles   • 5-Tab KashControl Center     │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                       Isolated Compartments                            │
-│   ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────────────┐   │
-│   │  sys-net  │  │  sys-usb  │  │ work-app  │  │    vault-keys     │   │
-│   │(PCIe NIC) │  │ (xHCI USB)│  │ (Domain)  │  │(Air-Gapped Crypto)│   │
-│   └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └─────────┬─────────┘   │
-└─────────┼──────────────┼──────────────┼──────────────────┼─────────────┘
-          │              │              │                  │
-┌─────────▼──────────────▼──────────────▼──────────────────▼─────────────┐
-│                  kash-rpc Zero-Copy Inter-Domain Fabric                │
-│   • Synchronous Fastpath (< 400 CPU cycles)                            │
-│   • 64 KiB Lock-Free Ring Buffers                                      │
-│   • Non-Interference Invariant: Vault Cannot Route to Net/Disposable   │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                kash-kernel (Verus-Verified Microkernel)                │
-│   • Untyped Memory Watermark Allocator (Zero Dynamic Heap Post-Boot)   │
-│   • ARINC 653 Cyclic Scheduler & Continuous Built-In Tests (CBIT)      │
-│   • Intel VT-d Scalable Mode Second-Stage IOMMU DMA Remapping          │
-└────────────────────────────────────────────────────────────────────────┘
-```
+The project follows the **10 Non-Negotiable Rules** defined in [`docs/KASHOS_BUILD_GUIDE.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/KASHOS_BUILD_GUIDE.md): no simulated system output, no unearned `[OK]` status banners, no unbacked claims, fail-closed hardware support, and a public claim-to-evidence registry.
 
 ---
 
-## 🛡️ Key Security & Privacy Guarantees
+## 📊 Current Status Baseline (Code Audit)
 
-### 1. Mathematical Elimination of Kernel OOM
-monolithic kernels and hypervisors are vulnerable to Kernel Out-Of-Memory (OOM) denial-of-service attacks caused by unbounded system calls. KashOS enforces **zero dynamic heap allocators post-boot**. All physical RAM is partitioned into `UntypedCapability` regions where allocations monotonically advance a watermark pointer. Revocation executes in amortized **$O(1)$ time** with zero heap fragmentation.
+The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via BIOS / Multiboot2, builds an identity-mapped $W\oplus X$ page table, initializes GDT/IDT/APIC, and renders a 60 FPS retained-scene desktop to the linear framebuffer in ring 0.
 
-### 2. ARINC 653 Deterministic Time-and-Space Partitioning
-Temporal isolation is enforced via a fixed Virtual Machine Configuration Table (VCT). If an anomalous domain experiences 130% computational overload ($U_{P2} = 1.3$), deadline misses are strictly confined to that domain; critical peer partitions retain a **0% deadline-miss rate**.
-
-### 3. Hardware-Enforced I/O Isolation (Intel VT-d Second-Stage)
-Network stacks and USB controllers are banished from ring 0 into unprivileged virtual machines (`sys-net`, `sys-usb`). 256-bit `VtdScalableContextEntry` descriptors bind peripherals to isolated Domain IDs, and PCID-tagged IOTLB invalidation traps physically prevent compromised firmware from reading or writing unauthorized host RAM.
-
-### 4. Nitpicker-Style Zero-Trust Compositor (`kash-ui`)
-Replaces X11 and Wayland entirely. Every window is rendered with an immutable 4-pixel high-contrast security border matched to its domain color:
-- **`kash-dom0` (ID: 0)**: Obsidian Admin (`#E1E6F0`)
-- **`vault-keys` (ID: 5)**: Purple Vault (`#C58AF9`)
-- **`personal` (ID: 2)**: Mint Green (`#81C995`)
-- **`work-app` (ID: 3)**: Blue Work (`#1A73E8`)
-- **`sys-usb` (ID: 2)**: Amber USB (`#FA903E`)
-- **`sys-net` (ID: 1)**: Red Untrusted Net (`#D93025`)
-- **`disp-vm` (ID: 4)**: Magenta Disposable (`#F538A0`)
-
-Holding **F12** triggers **Nitpicker X-Ray Mode**, dimming client surfaces and overlaying unforgeable kernel capability credentials across the screen.
-
-### 5. `kvault` Authenticated Cryptographic Storage
-- AEAD authenticated storage using ChaCha20-Poly1305 and AES-256-XTS.
-- Merkle tree integrity verification with immediate detection of bit flips.
-- Plausibly deniable hidden volumes and duress passphrases that instantaneously scrub master encryption keys from hardware registers.
-
----
-
-## 🚀 Low-Hardware & High-Hardware Scalability
-
-| Feature | Low-End Hardware (1 vCPU, 256–512 MiB RAM) | High-End Workstation |
+| Subsystem | Current State | Gap to Real Implementation |
 | :--- | :--- | :--- |
-| **VRAM Blitting** | **Adaptive Dirty-Rectangle Blitting** ($80\times80$ bounding box = 25.6 KB vs 3.14 MB; **99.2% bus write reduction**) | Full hardware-accelerated page flips |
-| **Pacing** | Smart TSC 60 FPS pacing with PS/2 port `0x64` fast-break (< 2% host CPU) | High-resolution APIC timer vectoring |
-| **Memory Footprint** | Operates strictly within static untyped capabilities; zero swap thrashing | Scales across multi-gigabyte untyped memory nodes |
-| **Multiprocessing** | Deterministic single-core ARINC 653 cyclic scheduling | Multi-core ARINC 653 VCT partitions with core affinity |
+| **Boot, GDT/IDT/APIC, Heap** | Working (BIOS / Multiboot2, 64-bit IDT, APIC timer, buddy heap) | UEFI loader is a stub; SMP not started (CPU count hardcoded to 1) |
+| **Paging & Memory** | Real identity-mapped $W\oplus X$ page tables | No higher-half kernel, no per-process address spaces, no KASLR/KPTI |
+| **Ring 3 / Syscalls** | Entry assembly and GDT segment descriptors exist | `enter_user_mode()` not yet called; all code runs in ring 0 |
+| **Scheduler & IPC** | `kscheduler` (3-band QoS) and `kipc` (SPSC ring) pass unit tests | Not yet wired into kernel runtime loop; context switch not linked |
+| **Capability Engine** | `kcore` capability derivations and rights pass host tests | Capability spaces not yet active around unprivileged processes |
+| **kash_kernel.rs** | Model untyped memory allocator & ARINC scheduler structures | Wire in or delete in Phase 3 |
+| **IOMMU (VT-d)** | Register definitions and ACPI DMAR table parser | Off unless DMAR found; no driver domain translation; no AMD-Vi |
+| **Drivers** | PS/2 keyboard/mouse works; e1000 & virtio-net partial; kblock passes tests | xHCI USB is a stub; no integrated disk filesystem; no Wi-Fi |
+| **Storage Crypto (`kvault`)** | Argon2id, XChaCha20-Poly1305, Merkle CoW tree pass 20 tests | AES-256-XTS not implemented; not mounted as root OS filesystem |
+| **Network** | `knet` passive packet parser tested | No user-mode TCP/IP stack (`smoltcp`), no Tor, no kill switch |
+| **GUI (`kash-ui`)** | Real retained-scene renderer, dock, lock, files, terminal, settings | Applications are ring-0 widgets; settings not backed by IPC service |
+| **Shell Commands** | Standard utilities read real hardware/heap state or report stubs | Replaced all hardcoded simulations with honest state checks |
+| **Proofs & Verification** | Unit tests passing across workspace | Zero machine-checked proofs; no proof claims made |
 
 ---
 
-## ⚖️ Comparison: seL4 vs GrapheneOS vs KashOS
+## 🛡️ Threat Model & Security Policy
 
-| Dimension | seL4 Microkernel | GrapheneOS (AOSP/Linux) | **KashOS (Our OS)** |
-| :--- | :--- | :--- | :--- |
-| **Core Language** | C & Assembly | C (Linux Kernel) + AOSP | **#![no_std] Rust (Affine Types)** |
-| **Formal Proofs** | Isabelle/HOL (20:1 ratio) | None (Defensive hardening) | **Verus SMT (~7.5:1 ratio)** |
-| **TCB Size** | ~10,000 LoC (Headless) | 30,000,000+ LoC (Monolithic) | **~12,000 LoC (Kernel + Compositor)** |
-| **Kernel OOM** | Untyped Watermark | Vulnerable to heap exhaustion | **Untyped Watermark + $O(1)$ Revocation** |
-| **DMA Protection**| Optional / Unverified | Monolithic ring-0 drivers | **Intel VT-d Second-Stage Remapping** |
-| **Display Server** | None (Headless) | SurfaceFlinger | **Nitpicker Zero-Trust Compositor** |
-| **Anti-Forensics** | None | File-Based Encryption (FBE) | **kvault Hidden Volumes & Duress Nuke** |
+KashOS operates under a clear, public threat model documented in [`docs/THREAT_MODEL.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/THREAT_MODEL.md).
+
+- **In Scope**: Remote network attackers, malicious applications/files, untrusted USB/PCIe peripherals, physical theft of powered-off machines (full-disk AEAD encryption).
+- **Partly In Scope**: Evil maid boot tampering (requires Secure Boot + TPM measured boot), cold-boot attacks (RAM scrubbing on lock).
+- **Out of Scope**: Compromised hardware silicon, microcode trojans, or compromised hypervisors.
+
+All claims are tracked in the claim-to-evidence registry in [`docs/CLAIMS.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/CLAIMS.md).
+
+---
+
+## 🎨 Compartment Domains & Unforgeable Borders
+
+The desktop compositor frames every surface with an unforgeable 4-pixel security border color-coded to its assigned domain label:
+
+| Domain ID | Name | Compartment Type | Security Color Tag | Hex Code |
+| :---: | :--- | :--- | :--- | :---: |
+| **0** | `kash-dom0` | Administrative Plane | Obsidian Admin | `#E1E6F0` |
+| **1** | `sys-net` | Untrusted NIC Jail | Red Untrusted Net | `#D93025` |
+| **2** | `personal` | Trusted Private Data | Mint Green | `#81C995` |
+| **3** | `work-app` | Enterprise Domain | Blue Work | `#1A73E8` |
+| **4** | `sys-usb` | Isolated xHCI Jail | Amber USB | `#FA903E` |
+| **5** | `disp-vm` | Ephemeral Disposable Sandbox | Magenta Disposable | `#F538A0` |
+| **6** | `vault-keys` | Air-Gapped Key Storage | Purple Vault | `#C58AF9` |
+
+Pressing **F12** activates **Nitpicker X-Ray Mode**, dimming client application buffers and overlaying kernel domain credentials directly on the screen.
+
+---
+
+## 🗺️ Engineering Roadmap (Phases 0 to 10)
+
+```
+Phase 0: Honesty Cleanup [IN PROGRESS]
+  ├── Strip unproven claims, add status tables & roadmap
+  ├── Sanitize shell commands to read real state or report stubs
+  ├── Add docs/THREAT_MODEL.md and docs/CLAIMS.md
+  └── Fix domain ID collision (personal: 2, sys-usb: 4)
+
+Phase 1: Kernel Core
+  ├── Higher-half kernel mapping & per-process page tables (kpaging)
+  ├── Interrupt-safe spinlocks & SMP ticket locks
+  ├── Wire in kscheduler preemptive timer scheduler & context switch
+  └── SMP bring-up from ACPI MADT (AP start via INIT-SIPI)
+
+Phase 2: Real User Mode
+  ├── ELF loader with exact segment permissions into fresh address spaces
+  ├── Syscall boundary with SMAP pointer validation
+  └── User-mode init and fault isolation (user fault kills process, not kernel)
+
+Phase 3: Capabilities & IPC Enforced
+  ├── Per-process capability spaces with rights, badges, derive, and revoke
+  ├── Synchronous IPC with capability transfer (kipc)
+  └── Delete ambient authority (no path-based open without capability grant)
+
+Phase 4: Userspace Services & Drivers
+  ├── Move storage, network, and input into user-mode driver services
+  ├── Real VT-d / AMD-Vi second-stage page tables per peripheral
+  └── VirtIO-blk, VirtIO-net, AHCI, and xHCI native drivers
+
+Phase 5: Boot Chain & Measured Boot
+  ├── UEFI PE32+ loader verifying SHA-256 / Ed25519 signatures
+  └── TPM 2.0 driver extending PCRs and sealing vault keys
+
+Phase 6: Storage & Crypto
+  ├── Mount kvault as real root filesystem through block storage service
+  └── Key service with memory zeroization on lock
+
+Phase 7: Network & Privacy
+  ├── User-mode network service with smoltcp (IPv4/IPv6, TCP, UDP, DNS)
+  └── Default-deny firewall and WireGuard / Tor tunnel routing
+
+Phase 8: Compartments
+  ├── FLASK mandatory access control engine enforced on all IPC
+  ├── Disposable domains (RAM scratchpad zeroized on close)
+  └── User-approved out-of-process powerbox dialogs
+
+Phase 9: GUI & Display Server
+  ├── kash-ui as an unprivileged user-mode display service
+  └── Secure input routing (keystrokes delivered only to focused window)
+
+Phase 10: Hardening & Verification
+  ├── Fuzzing of syscalls, ELF loader, IPC, and network parsers
+  └── Machine-checked invariant proofs (Kani / Verus) run in CI
+```
+
+---
+
+## ⚡ Performance & Low-Hardware Scalability
+
+| Hardware Tier | Specifications | Boot Budget | Desktop Target |
+| :--- | :--- | :---: | :--- |
+| **Minimum** | 1 vCPU, 256 MiB RAM, BIOS/VGA | $\le 10$ s | Software renderer, $1024\times768$, 30 FPS floor |
+| **Low** | 2 cores, 1–2 GiB RAM, laptop | $\le 6$ s | Software renderer, $1280\times720$, 60 FPS cursor / window drag |
+| **Mid** | 4 cores, 4–8 GiB RAM, UEFI | $\le 4$ s | Full glass effects, 1080p, 60 FPS multicore compositor |
+| **High** | 8+ cores, 16+ GiB RAM, NVMe | $\le 3$ s | GPU-accelerated path, 4K, 120 Hz, SMP scheduler affinity |
+
+KashOS achieves 60 FPS on low memory and software VGA controllers through **Adaptive Dirty-Rectangle Blitting**:
+- Normal mouse movement updates only an $80\times80$ bounding box ($25.6\text{ KB}$ written to VRAM vs $3.14\text{ MB}$ full-frame blit, a **$99.2\%$ reduction in bus traffic**).
+- PS/2 port `0x64` fast-break polling drops host CPU utilization to $< 2\%$.
 
 ---
 
@@ -111,55 +149,50 @@ Holding **F12** triggers **Nitpicker X-Ray Mode**, dimming client surfaces and o
 
 ### Prerequisites
 - Rust Nightly (`x86_64-unknown-none` target)
-- QEMU or Oracle VirtualBox
-- `grub-mkrescue` and `xorriso` (for ISO creation)
+- QEMU (`qemu-system-x86_64`) or Oracle VirtualBox
+- Python 3 (for ISO creation script)
 
-### 1. Build the Kernel
+### 1. Compile the Kernel
 ```bash
 cargo build --release --target x86_64-unknown-none --manifest-path kernel/Cargo.toml
 ```
 
-### 2. Build the Live Bootable ISO
+### 2. Run Workspace Tests
 ```bash
-# Strip debug symbols and package into GRUB image
-strip --strip-debug -o isodir/boot/kash-kernel target/x86_64-unknown-none/release/kernel
-grub-mkrescue -o kash-os.iso isodir
+cargo test --workspace --exclude kernel
 ```
 
-### 3. Run in VirtualBox
-```powershell
-.\launch_virtualbox.bat
-```
-*(Mouse integration capture popups are automatically suppressed via `GUI/SuppressMessages`)*
-
-### 4. Run in QEMU
-```cmd
-Launch_KashOS.bat
+### 3. Generate Bootable ISO
+```bash
+python scripts/make_iso.py
 ```
 
----
+### 4. Boot in QEMU
+```bash
+# Low-memory profile (256 MiB, 1 vCPU)
+qemu-system-x86_64 -cdrom kash-os.iso -m 256M -smp 1 -vga std -serial stdio
 
-## 📂 Repository Layout
-
-```
-kash-kernel/
-├── kernel/            # Verus-verified separation microkernel (x86_64 & AArch64)
-│   ├── src/kash_kernel.rs  # Untyped memory, ARINC 653, VT-d, kash-rpc
-│   ├── src/gui.rs          # Adaptive dirty-rectangle blitter & TSC pacing
-│   └── src/cap/            # seL4 capability space & CDT tree
-├── kash-ui/           # Nitpicker-style zero-trust glass compositor
-│   └── crates/kash-ui/src/ # Glass renderer, themes, icons, text sanitization
-├── kblock/            # Block storage subsystem (AHCI, NVMe, ATA, VirtIO, C-LOOK)
-├── kvault/            # Encrypted authenticated storage & hidden volumes
-├── kscheduler/        # 3-band QoS strict-priority real-time scheduler
-├── kpaging/           # 4-level paging with strict W^X enforcement
-├── khal/              # Hardware Abstraction Layer & memory regions
-├── kcore/             # Core capability space & process memory models
-├── isodir/            # Multiboot GRUB bootloader directory
-└── ARCHITECTURAL_SECURITY_REPORT.md  # Detailed formal verification analysis
+# Standard profile (2 GiB, 4 vCPUs)
+qemu-system-x86_64 -cdrom kash-os.iso -m 2048M -smp 4 -vga std -serial stdio
 ```
 
 ---
 
-## 📜 License
-Dual-licensed under MIT and Apache-2.0.
+## 📜 The 10 Non-Negotiable Rules
+
+1. **No simulation**: Never hardcode output that looks like system state (`ps`, `free`, `df`, `dmesg`, `opsec`, `security`). Every number shown must be read from real kernel state.
+2. **No fake `[OK]`**: A status line prints `[OK]` only after the code just checked the thing. `status.rs` is the single source of truth.
+3. **Feature "done" criteria**: Code exists, reachable from boot, test proves it, and status registry says `Real`.
+4. **Claim-to-evidence**: Every security claim gets a row in [`docs/CLAIMS.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/CLAIMS.md). No evidence, no claim.
+5. **Fail closed**: If hardware support (IOMMU, RNG, TPM) is missing, say so, disable the dependent feature, and do not pretend.
+6. **No dead code**: Wire in or remove unused components.
+7. **Real GUI settings**: Every setting in the GUI must be backed by a real service API.
+8. **Phase gates**: Do not start phase $N+1$ until phase $N$ acceptance tests pass in CI and in QEMU.
+9. **Minimise unsafe**: Every `unsafe` block requires a `// SAFETY:` comment stating the invariant.
+10. **Honest verification**: Never write "verified", "proven", or "mathematically" unless a machine-checked proof runs in CI.
+
+---
+
+## 📄 License & Attribution
+
+KashOS is developed by **Akash** ([`akash.official.j@gmail.com`](mailto:akash.official.j@gmail.com)) under the MIT License.
