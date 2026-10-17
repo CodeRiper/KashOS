@@ -28,8 +28,10 @@ pub mod kvaultfs;
 pub mod pool;
 
 pub use blockdev::{BlockDevice, MemDevice, BLOCK_SIZE};
-pub use crypto::{combine_password_keyfile, KdfParams};
+pub use crypto::{combine_password_keyfile, random_key, subkey, KdfParams, Key};
 pub use error::{VaultError, VaultResult};
+pub use rand_core;
+pub use zeroize;
 pub use vault::{FileInfo, FolderInfo, FormatOptions, OpenFail, OpenOutcome, Vault};
 pub use kvaultfs::{
     AfSplit, CryptoProfile, KfsInode, MerkleBlockHeader, MerkleBlockPointer,

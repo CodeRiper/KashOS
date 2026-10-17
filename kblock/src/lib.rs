@@ -160,6 +160,13 @@ impl KBlockScheduler {
         best_idx
     }
 
+    /// Marks a scheduled slot as completed and frees it in the elevator queue
+    pub fn complete_slot(&mut self, idx: usize) {
+        if idx < self.queue.len() {
+            self.queue[idx].active = false;
+        }
+    }
+
     /// Deterministic Anti-Forensic Sector Zeroing with immediate hardware cache flush
     pub fn deterministic_zero_lba(&mut self, lba: u64, sectors: u16) -> Result<(), BlockError> {
         let zero_block = [0u8; BLOCK_SIZE];

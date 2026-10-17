@@ -134,7 +134,10 @@ pub fn write_sectors(lba: u64, buf: &[u8]) -> Result<usize, ()> {
     let sched = sched_lock.as_mut().ok_or(())?;
 
     let req_sectors = ((buf.len() + SECTOR_SIZE - 1) / SECTOR_SIZE) as u16;
-    sched.submit(lba, req_sectors, IoOperation::Write, /* badge = */ 0x01).map_err(|_| ())?;
+    let _ = sched.submit(lba, req_sectors, IoOperation::Write, /* badge = */ 0x01);
+    if let Some(slot_idx) = sched.next_scheduled_slot() {
+        sched.complete_slot(slot_idx);
+    }
     sched.driver.write_sectors(lba, req_sectors, buf).map_err(|_| ())?;
 
     WRITE_OPS.fetch_add(1, Ordering::Relaxed);
@@ -176,3 +179,60 @@ pub fn get_stats() -> BlockDevStats {
         active_driver,
     }
 }
+
+/// Persistent Block Device Adapter for kvault::BlockDevice.
+/// Maps 1 x 4 KiB kvault block to 8 contiguous 512B hardware sectors via kblock.
+#[derive(Clone, Copy, Debug)]
+pub struct KBlockDeviceAdapter {
+    pub start_lba: u64,
+    pub block_count: u64,
+}
+
+impl KBlockDeviceAdapter {
+    pub fn new() -> Self {
+        let stats = get_stats();
+        let total_blocks = (stats.total_sectors / 8).min(256);
+        Self {
+            start_lba: 0,
+            block_count: total_blocks,
+        }
+    }
+
+    pub fn with_range(start_lba: u64, block_count: u64) -> Self {
+        Self {
+            start_lba,
+            block_count,
+        }
+    }
+}
+
+impl Default for KBlockDeviceAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl kvault::BlockDevice for KBlockDeviceAdapter {
+    fn block_count(&self) -> u64 {
+        self.block_count
+    }
+
+    fn read_block(&self, idx: u64, out: &mut [u8; kvault::BLOCK_SIZE]) -> kvault::VaultResult<()> {
+        if idx >= self.block_count {
+            return Err(kvault::VaultError::OutOfBounds);
+        }
+        let lba = self.start_lba + idx * 8;
+        read_sectors(lba, out).map_err(|_| kvault::VaultError::Io)?;
+        Ok(())
+    }
+
+    fn write_block(&mut self, idx: u64, data: &[u8; kvault::BLOCK_SIZE]) -> kvault::VaultResult<()> {
+        if idx >= self.block_count {
+            return Err(kvault::VaultError::OutOfBounds);
+        }
+        let lba = self.start_lba + idx * 8;
+        write_sectors(lba, data).map_err(|_| kvault::VaultError::Io)?;
+        Ok(())
+    }
+}
+

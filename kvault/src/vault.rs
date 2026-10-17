@@ -787,6 +787,16 @@ impl<D: BlockDevice> Vault<D> {
         Ok(out)
     }
 
+    /// Returns the absolute physical block starting index and block count on the underlying `BlockDevice`.
+    pub fn file_block_range(&self, folder: &str, name: &str) -> VaultResult<(u64, u32)> {
+        let pos = self.folder_pos(folder)?;
+        let fk = self.folder_key(pos)?;
+        let entries = self.read_index(pos, &fk)?;
+        let e = entries.iter().find(|e| e.name == name).ok_or(VaultError::NotFound)?;
+        let abs = self.region_start + e.start;
+        Ok((abs, e.nblocks))
+    }
+
     pub fn write_file<R: RngCore + CryptoRng>(
         &mut self,
         rng: &mut R,

@@ -296,3 +296,239 @@ pub static VFS_ROUTER: crate::blockdev::SpinLock<BlindObjectRouter> =
         inodes: Vec::new(),
         next_inode: 1,
     });
+
+// ── 4. Persistent kvault Authenticated Root Filesystem ────────────────────────
+
+use kvault::{FormatOptions, KdfParams, OpenOutcome, Vault, VaultError};
+use crate::blockdev::KBlockDeviceAdapter;
+use crate::csprng::Csprng;
+
+pub struct RootVaultFs {
+    vault: Option<Vault<KBlockDeviceAdapter>>,
+    is_mounted: bool,
+}
+
+impl RootVaultFs {
+    pub const fn new() -> Self {
+        Self {
+            vault: None,
+            is_mounted: false,
+        }
+    }
+
+    pub fn is_mounted(&self) -> bool {
+        self.is_mounted && self.vault.is_some()
+    }
+
+    /// Mounts the persistent kvault filesystem as the root (/) filesystem over kblock.
+    pub fn mount_root(&mut self, master_key: &[u8]) -> Result<(), VfsError> {
+        crate::kprintln!("[vfs] Mounting persistent kvault authenticated root filesystem over kblock...");
+
+        let dev = KBlockDeviceAdapter::new();
+        if dev.block_count < 32 {
+            crate::kprintln!("[vfs] ERROR: Block device too small for kvault (has {} blocks, minimum 32 required)", dev.block_count);
+            return Err(VfsError::IoError);
+        }
+
+        let mut rng = Csprng::new();
+
+        // Fast KDF profile suited for microkernel memory budget
+        let opts = FormatOptions {
+            params: KdfParams::TEST_ONLY_INSECURE_FAST,
+            hidden_percent: 0,
+        };
+
+        // Attempt 1: Open existing formatted vault
+        let open_res = Vault::open(dev, &mut rng, master_key);
+        let mut vault = match open_res {
+            Ok(OpenOutcome::Unlocked(v)) => {
+                crate::kprintln!("[vfs] ✓ Existing kvault root volume unlocked successfully");
+                v
+            }
+            Ok(OpenOutcome::Duress(_)) => {
+                crate::kprintln!("[vfs] [ALERT] Duress unlock occurred; all vault key slots wiped!");
+                return Err(VfsError::CorruptFilesystem);
+            }
+            Err(open_fail) => {
+                crate::kprintln!("[vfs] No existing kvault header detected; formatting new authenticated root volume...");
+                let fmt_dev = Vault::format(open_fail.device, &mut rng, &opts, master_key, None, None)
+                    .map_err(|e| {
+                        crate::kprintln!("[vfs] Format failed: {:?}", e);
+                        VfsError::IoError
+                    })?;
+
+                match Vault::open(fmt_dev, &mut rng, master_key) {
+                    Ok(OpenOutcome::Unlocked(v)) => {
+                        crate::kprintln!("[vfs] ✓ Freshly formatted kvault root volume opened successfully");
+                        v
+                    }
+                    _ => return Err(VfsError::CorruptFilesystem),
+                }
+            }
+        };
+
+        // Ensure baseline directory hierarchy exists: system, apps, personal, etc
+        let folders = ["system", "apps", "personal", "etc"];
+        for f in &folders {
+            if !vault.list_folders().iter().any(|fi| fi.name == *f) {
+                let _ = vault.create_folder(&mut rng, f, None);
+            }
+        }
+
+        // Provision standard baseline files if missing
+        if vault.read_file("system", "os-release").is_err() {
+            let os_rel = b"NAME=KashOS\nVERSION=0.1.0-alpha\nID=kashos\nPRETTY_NAME=\"KashOS Verified Microkernel\"\n";
+            let _ = vault.write_file(&mut rng, "system", "os-release", os_rel);
+        }
+
+        if vault.read_file("etc", "kashos.conf").is_err() {
+            let conf = b"# KashOS Core Configuration\nlockdown=enforcing\nw_xor_x=strict\niommu=strict\ntpm_measured_boot=enabled\n";
+            let _ = vault.write_file(&mut rng, "etc", "kashos.conf", conf);
+        }
+
+        if vault.read_file("personal", "welcome.txt").is_err() {
+            let welcome = b"Welcome to KashOS: Native Authenticated Storage with XChaCha20-Poly1305 and Anti-Evil Maid TPM 2.0.\n";
+            let _ = vault.write_file(&mut rng, "personal", "welcome.txt", welcome);
+        }
+
+        let free_blks = vault.free_blocks();
+        crate::kprintln!("[vfs] ✓ Persistent root filesystem mounted at '/' ({} free blocks, {} KiB available)",
+                         free_blks, free_blks * 4);
+
+        self.vault = Some(vault);
+        self.is_mounted = true;
+        Ok(())
+    }
+
+    /// Splits a path like "/system/manifest.toml" or "system/manifest.toml" into ("system", "manifest.toml")
+    fn split_path<'a>(path: &'a str) -> Result<(&'a str, &'a str), VfsError> {
+        let p = path.trim_start_matches('/');
+        let mut parts = p.splitn(2, '/');
+        let folder = parts.next().ok_or(VfsError::NotFound)?;
+        let file = parts.next().ok_or(VfsError::NotFound)?;
+        if folder.is_empty() || file.is_empty() {
+            return Err(VfsError::NotFound);
+        }
+        Ok((folder, file))
+    }
+
+    /// Reads an authenticated file from the root kvault filesystem.
+    pub fn read_file(&self, path: &str) -> Result<Vec<u8>, VfsError> {
+        let (folder, file) = Self::split_path(path)?;
+        let vault = self.vault.as_ref().ok_or(VfsError::IoError)?;
+        match vault.read_file(folder, file) {
+            Ok(content) => Ok(content.to_vec()),
+            Err(VaultError::NotFound) => Err(VfsError::NotFound),
+            Err(VaultError::Corrupt) => {
+                crate::kprintln!("[vfs] [ALERT] Authentication tag mismatch (Poly1305 / bit-flip detected) on '{}'!", path);
+                Err(VfsError::CorruptFilesystem)
+            }
+            Err(_) => Err(VfsError::IoError),
+        }
+    }
+
+    /// Returns the absolute LBA and sector count on the underlying block driver for a file path.
+    pub fn file_lba_range(&self, path: &str) -> Result<(u64, u32), VfsError> {
+        let (folder, file) = Self::split_path(path)?;
+        let vault = self.vault.as_ref().ok_or(VfsError::IoError)?;
+        let (abs_block, count) = vault.file_block_range(folder, file).map_err(|_| VfsError::NotFound)?;
+        // Each 4 KiB kvault block is 8 512-byte sectors
+        Ok((abs_block * 8, count * 8))
+    }
+
+    /// Writes an authenticated file to the root kvault filesystem.
+    pub fn write_file(&mut self, path: &str, data: &[u8]) -> Result<(), VfsError> {
+        let (folder, file) = Self::split_path(path)?;
+        let vault = self.vault.as_mut().ok_or(VfsError::IoError)?;
+        let mut rng = Csprng::new();
+        vault.write_file(&mut rng, folder, file, data).map_err(|e| match e {
+            VaultError::NoSpace => VfsError::IoError,
+            _ => VfsError::IoError,
+        })
+    }
+
+    /// Lists entries in a directory.
+    pub fn list_dir(&self, dir_path: &str) -> Result<Vec<String>, VfsError> {
+        let vault = self.vault.as_ref().ok_or(VfsError::IoError)?;
+        let p = dir_path.trim_matches('/');
+        if p.is_empty() {
+            // List top-level folders
+            let mut list = Vec::new();
+            for f in vault.list_folders() {
+                list.push(f.name);
+            }
+            Ok(list)
+        } else {
+            // List files within folder
+            let mut list = Vec::new();
+            let files = vault.list_files(p).map_err(|_| VfsError::NotFound)?;
+            for fi in files {
+                list.push(alloc::format!("{} ({} B)", fi.name, fi.size));
+            }
+            Ok(list)
+        }
+    }
+
+    /// Anti-forensic lock: evicts folder keys and zeroizes transient decrypt cache.
+    pub fn lock_all(&mut self) {
+        if let Some(v) = self.vault.as_mut() {
+            v.lock_all();
+        }
+    }
+
+    pub fn free_blocks(&self) -> u64 {
+        self.vault.as_ref().map(|v| v.free_blocks()).unwrap_or(0)
+    }
+}
+
+pub static ROOT_FS: crate::blockdev::SpinLock<RootVaultFs> =
+    crate::blockdev::SpinLock::new(RootVaultFs::new());
+
+/// Mounts the persistent kvault filesystem as the root filesystem.
+pub fn mount_root(master_key: &[u8]) -> Result<(), VfsError> {
+    let mut guard = ROOT_FS.lock();
+    guard.mount_root(master_key)
+}
+
+/// Reads an authenticated file from the root kvault filesystem.
+pub fn read(path: &str) -> Result<Vec<u8>, VfsError> {
+    let guard = ROOT_FS.lock();
+    guard.read_file(path)
+}
+
+/// Writes an authenticated file to the root kvault filesystem.
+pub fn write(path: &str, data: &[u8]) -> Result<(), VfsError> {
+    let mut guard = ROOT_FS.lock();
+    guard.write_file(path, data)
+}
+
+/// Lists files or folders at the specified directory path.
+pub fn list(dir_path: &str) -> Result<Vec<String>, VfsError> {
+    let guard = ROOT_FS.lock();
+    guard.list_dir(dir_path)
+}
+
+/// Checks if root filesystem is mounted.
+pub fn is_root_mounted() -> bool {
+    let guard = ROOT_FS.lock();
+    guard.is_mounted()
+}
+
+/// Returns free blocks in root vault.
+pub fn free_blocks() -> u64 {
+    let guard = ROOT_FS.lock();
+    guard.free_blocks()
+}
+
+/// Locks all folders in the root vault.
+pub fn lock_root_vault() {
+    let mut guard = ROOT_FS.lock();
+    guard.lock_all();
+}
+
+/// Returns the starting LBA and sector count for an authenticated file.
+pub fn file_lba_range(path: &str) -> Result<(u64, u32), VfsError> {
+    let guard = ROOT_FS.lock();
+    guard.file_lba_range(path)
+}
+

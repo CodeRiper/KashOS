@@ -73,8 +73,10 @@ pub mod sync;
 #[allow(unsafe_code)]
 pub mod task;
 mod shell;
+pub mod csprng;
+pub mod kms;
 #[allow(unsafe_code)]
-mod vfs;
+pub mod vfs;
 
 fn show_loading_screen() {
     kprintln!();
@@ -226,15 +228,29 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     services.print();
 
     print_progress_bar(80, "Mounting kvault-fs authenticated storage & schemes...");
+    csprng::init();
     arch::init_vtd();
     arch::init_tpm();
     arch::init_input();
     arch::init_nic();
     blockdev::init();
+    kms::init();
+
+    // Mount persistent kvault root filesystem
+    if let Ok(master_key) = kms::KMS.lock().get_master_key() {
+        if vfs::mount_root(master_key).is_ok() {
+            status::update(|s| s.kvault_fs = crate::status::ComponentStatus::Real);
+        }
+    }
+
     dde::init();
     driver::init();
     powerbox::init();
     lockdown::init();
+
+    // ── Phase 6 Storage & Crypto Acceptance Gates ────────────────────────────
+    #[cfg(target_arch = "x86_64")]
+    selftest::run_storage_crypto_tests();
 
     // ── Step 7b: RTC & Framebuffer Graphics Foundation ───────────────────────
     let rtc_secs = arch::read_rtc_unix_seconds();

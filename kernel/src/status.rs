@@ -174,7 +174,7 @@ pub fn print_boot_banner() {
         ("Multi-Language ELF Runtimes", reg.multilang_runtimes, "Userspace relibc / Musl layer"),
         ("Smithay-Style Wayland Compositor", reg.wayland_compositor, "External Wayland client protocol"),
         ("Kash UI Desktop", reg.liquid_glass_gui, "direct framebuffer renderer; app services incomplete"),
-        ("kvault Authenticated Storage", reg.kvault_fs, "library engine; OS storage integration incomplete"),
+        ("kvault Authenticated Storage", reg.kvault_fs, "root VFS mount & tamper gate"),
         ("Speculative Execution Mitigations", reg.spec_mitigations, "best-effort CPU controls; not independently verified"),
         ("Strict Security Lockdown Mode", reg.lockdown_mode, "W^X violation blocks & port gating"),
         ("Security Diagnostic Toolkit", reg.security_toolkit, "Sandboxed security testing capsule (Part E)"),

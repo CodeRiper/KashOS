@@ -131,12 +131,25 @@ impl KashShell {
             }
 
             "ls" | "dir" => {
-                kprintln!("total 4");
-                kprintln!("-r--r--r-- 1 root root  128 motd");
-                kprintln!("crw-rw-rw- 1 root root    0 dev:null");
-                kprintln!("crw-rw-rw- 1 root root    0 dev:zero");
-                kprintln!("crw-rw-rw- 1 root root    0 dev:random");
-                kprintln!("[vfs] Root filesystem not mounted (kvault block driver mounting scheduled for Phase 6).");
+                let target = if parts.len() > 1 { parts[1] } else { "/" };
+                if crate::vfs::is_root_mounted() {
+                    match crate::vfs::list(target) {
+                        Ok(entries) => {
+                            kprintln!("Listing '{}' on kvault root filesystem:", target);
+                            for e in entries {
+                                kprintln!("  drwxr-xr-x 1 root root  {}", e);
+                            }
+                        }
+                        Err(_) => kprintln!("ls: cannot access '{}': No such file or directory", target),
+                    }
+                } else {
+                    kprintln!("total 4");
+                    kprintln!("-r--r--r-- 1 root root  128 motd");
+                    kprintln!("crw-rw-rw- 1 root root    0 dev:null");
+                    kprintln!("crw-rw-rw- 1 root root    0 dev:zero");
+                    kprintln!("crw-rw-rw- 1 root root    0 dev:random");
+                    kprintln!("[vfs] Root filesystem not mounted (provisional staging mode).");
+                }
             }
 
             "pwd" => {
@@ -175,7 +188,20 @@ impl KashShell {
                         }
                     }
                     file => {
-                        kprintln!("cat: {}: No such file or directory (persistent filesystem scheduled for Phase 6)", file);
+                        if crate::vfs::is_root_mounted() {
+                            match crate::vfs::read(file) {
+                                Ok(content) => {
+                                    if let Ok(text) = core::str::from_utf8(&content) {
+                                        kprintln!("{}", text);
+                                    } else {
+                                        kprintln!("<binary content: {} bytes>", content.len());
+                                    }
+                                }
+                                Err(_) => kprintln!("cat: {}: No such file or directory", file),
+                            }
+                        } else {
+                            kprintln!("cat: {}: No such file or directory", file);
+                        }
                     }
                 }
             }
@@ -212,7 +238,17 @@ impl KashShell {
                 } else {
                     kprintln!("disk:0                 0         0         0   0% No Block Device Online");
                 }
-                kprintln!("[df] Persistent filesystem: NOT MOUNTED (Root kvault-fs mounting scheduled for Phase 6)");
+                if crate::vfs::is_root_mounted() {
+                    let free_blocks = crate::vfs::free_blocks();
+                    let free_kb = free_blocks * 4;
+                    let total_kb = (stats.total_sectors * 512) / 1024;
+                    let used_kb = total_kb.saturating_sub(free_kb);
+                    let pct = if total_kb > 0 { (used_kb * 100) / total_kb } else { 0 };
+                    kprintln!("/                  {:5}     {:5}     {:5}   {}% kvault-fs (XChaCha20-Poly1305)", total_kb, used_kb, free_kb, pct);
+                    kprintln!("[df] Persistent filesystem: MOUNTED at '/' (authenticated, tamper-evident)");
+                } else {
+                    kprintln!("[df] Persistent filesystem: NOT MOUNTED (provisional staging mode)");
+                }
             }
 
             "mkdir" => {
@@ -362,8 +398,13 @@ impl KashShell {
                 let stats = crate::blockdev::get_stats();
                 kprintln!("[kblock] Block Subsystem: {}", stats.active_driver);
                 kprintln!("[kblock] Total Sectors  : {} (~{} MiB)", stats.total_sectors, (stats.total_sectors * 512) / (1024 * 1024));
-                kprintln!("[vfs] In-Memory Root: ACTIVE (/dev, /motd)");
-                kprintln!("[vfs] Persistent Filesystems: NOT MOUNTED (kvault-fs root mounting scheduled for Phase 6)");
+                if crate::vfs::is_root_mounted() {
+                    kprintln!("[vfs] Persistent Filesystem: MOUNTED at '/' (kvault-fs authenticated root)");
+                    kprintln!("[vfs] Free Capacity: {} KiB ({} blocks)", crate::vfs::free_blocks() * 4, crate::vfs::free_blocks());
+                    kprintln!("[vfs] Encryption: XChaCha20-Poly1305 AEAD per-block with AAD binding");
+                } else {
+                    kprintln!("[vfs] Persistent Filesystem: NOT MOUNTED (provisional staging mode)");
+                }
             }
 
             "nuke" => {

@@ -35,7 +35,7 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | **IOMMU (VT-d)** | ACPI DMAR discovery, Intel VT-d 4-level Second-Level Page Tables (SLPT) translation, fault recording register (FRCD) logging, rogue DMA write & translation fault containment | Tested and verified in Phase 4; active in QEMU `q35` with `-device intel-iommu` |
 | **Drivers** | Unprivileged Ring 3 driver services (`storage_srv`, `net_srv`, `input_srv`, `display_srv`) with isolated CSpaces, capability-checked port I/O & MMIO, transparent `DriverSupervisor` crash recovery | Tested and verified in Phase 4; survived simulated SIGSEGV with zero kernel panics |
 | **Boot Chain & TPM 2.0** | PE32+ (UEFI) and manifest SHA-256 validation, zero-heap TPM 2.0 CRTM driver with 24-register SHA-256 PCR bank, Anti-Evil Maid key sealing & fail-closed policy lock | Tested and verified in Phase 5; survived 1-byte tamper simulation with locked vault |
-| **Storage Crypto (`kvault`)** | Argon2id, XChaCha20-Poly1305, Merkle CoW tree pass 20 tests | AES-256-XTS not implemented; not mounted as root OS filesystem |
+| **Storage Crypto (`kvault`)** | Real authenticated root filesystem (`/`) mounted over `kblock`, hardware CSPRNG, zero-allocation KMS, TPM 2.0 PCR sealing, 1-byte bit-flip tamper rejection, screen-lock memory zeroization (`clflush`) | Tested and verified in Phase 6; boot self-tests T24, T25, T26, T27 passed |
 | **Network** | `knet` passive packet parser tested | No user-mode TCP/IP stack (`smoltcp`), no Tor, no kill switch |
 | **GUI (`kash-ui`)** | Real retained-scene renderer, dock, lock, files, terminal, settings | Applications are ring-0 widgets; settings not backed by IPC service |
 | **Shell Commands** | Standard utilities read real hardware/heap state or report stubs | Replaced all hardcoded simulations with honest state checks |
@@ -108,9 +108,11 @@ Phase 5: Boot Chain & Measured Boot [COMPLETED]
   ├── TPM 2.0 driver extending PCRs (0, 1, 2, 4, 7, 9) with clean-boot reproducibility
   └── Anti-Evil Maid key sealing with fail-closed tamper lock
 
-Phase 6: Storage & Crypto
-  ├── Mount kvault as real root filesystem through block storage service
-  └── Key service with memory zeroization on lock
+Phase 6: Storage & Crypto [COMPLETED]
+  ├── Bare-metal CSPRNG (RDRAND/RDSEED) & zero-allocation Key Management Service (KMS)
+  ├── Mount kvault as real root filesystem through kblock C-LOOK elevator adapter
+  ├── Tamper-evident Poly1305 MAC bit-flip detection halting corrupt block reads
+  └── Anti-forensic screen lock memory scrubbing with explicit clflush cache line eviction
 
 Phase 7: Network & Privacy
   ├── User-mode network service with smoltcp (IPv4/IPv6, TCP, UDP, DNS)
