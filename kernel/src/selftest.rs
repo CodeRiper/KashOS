@@ -1583,3 +1583,141 @@ fn test_powerbox_token_revocation() {
     kprintln!("[selftest] ✓ T35 Powerbox Token Revocation & Isolation Gate: user revocation immediately severs delegated capability, ambient access rejected, POLA preserved");
 }
 
+/// Runs acceptance gates for Phase 9: GUI & Display Server
+pub fn run_gui_display_tests() {
+    kprintln!("\n[selftest] ─── Phase 9: GUI & Display Server Acceptance Gates ───");
+    test_nitpicker_security_borders_and_anti_spoofing();
+    test_secure_input_routing();
+    test_cross_window_shm_buffer_isolation();
+    test_mediated_clipboard_sanitization();
+
+    crate::status::update(|s| {
+        s.wayland_compositor = crate::status::ComponentStatus::Real;
+        s.liquid_glass_gui = crate::status::ComponentStatus::Real;
+    });
+}
+
+/// Test 36: Unforgeable Nitpicker Domain Border & Anti-Spoofing Gate
+#[cfg(target_arch = "x86_64")]
+fn test_nitpicker_security_borders_and_anti_spoofing() {
+    use crate::display::{self, TrustDomain};
+
+    // 1. Create client surfaces under distinct trust domains
+    let sys_w = display::create_surface(501, "System Monitor", TrustDomain::CoreSystem, 50, 100, 400, 300)
+        .expect("create sys surface failed");
+    let personal_w = display::create_surface(502, "Private Vault Browser", TrustDomain::SovereignPersonal, 100, 150, 500, 400)
+        .expect("create personal surface failed");
+    let untrusted_w = display::create_surface(503, "Untrusted Media Player", TrustDomain::UntrustedExternalMedia, 150, 200, 600, 450)
+        .expect("create untrusted surface failed");
+
+    // 2. Verify Nitpicker unforgeable domain border colors
+    let sys_color = display::verify_border_integrity(sys_w).expect("sys border verify failed");
+    check!(sys_color == 0xFF00_E5FF); // Cyan for CoreSystem (Badge 0x01)
+
+    let personal_color = display::verify_border_integrity(personal_w).expect("personal border verify failed");
+    check!(personal_color == 0xFF00_E676); // Emerald for SovereignPersonal (Badge 0x02)
+
+    let untrusted_color = display::verify_border_integrity(untrusted_w).expect("untrusted border verify failed");
+    check!(untrusted_color == 0xFFFF_1744); // Red for UntrustedExternalMedia (Badge 0x05)
+
+    // 3. Verify Anti-Fullscreen Spoofing: Surface created at y = 0 is clamped to y >= TOP_BAR_HEIGHT (28)
+    let spoof_attempt = display::create_surface(504, "Phishing Dialog", TrustDomain::UntrustedExternalMedia, 0, 5, 400, 300)
+        .expect("create spoof surface failed");
+    check!(display::verify_anti_spoofing(spoof_attempt).is_ok());
+
+    kprintln!("[selftest] ✓ T36 Unforgeable Nitpicker Domain Border & Anti-Spoofing Gate: hardware-badged 4px colored borders enforced, client surface cannot occlude top system bar");
+}
+
+/// Test 37: Secure Input Routing Gate
+#[cfg(target_arch = "x86_64")]
+fn test_secure_input_routing() {
+    use crate::display::{self, get_surface_received_keys};
+    use khal::KeyCode;
+
+    // We have surfaces 1 (sys), 2 (personal), 3 (untrusted) from T36
+    // 1. Focus personal surface (ID 2)
+    display::set_focus(2).expect("focus personal window failed");
+
+    // 2. Dispatch keystrokes
+    let d1 = display::dispatch_key(KeyCode::K).expect("dispatch K failed");
+    let d2 = display::dispatch_key(KeyCode::A).expect("dispatch A failed");
+    let d3 = display::dispatch_key(KeyCode::S).expect("dispatch S failed");
+    let d4 = display::dispatch_key(KeyCode::H).expect("dispatch H failed");
+    check!(d1 == 2 && d2 == 2 && d3 == 2 && d4 == 2);
+
+    // 3. Verify window 2 received all 4 keystrokes
+    let keys2 = get_surface_received_keys(2).expect("get keys for win 2 failed");
+    check!(keys2.len() == 4);
+    check!(keys2[0] == KeyCode::K && keys2[1] == KeyCode::A && keys2[2] == KeyCode::S && keys2[3] == KeyCode::H);
+
+    // 4. Verify unfocused windows 1 and 3 received ZERO keystrokes (anti-eavesdropping)
+    let keys1 = get_surface_received_keys(1).expect("get keys for win 1 failed");
+    let keys3 = get_surface_received_keys(3).expect("get keys for win 3 failed");
+    check!(keys1.is_empty());
+    check!(keys3.is_empty());
+
+    // 5. Switch focus to window 3 (untrusted)
+    display::set_focus(3).expect("focus untrusted window failed");
+    let d5 = display::dispatch_key(KeyCode::X).expect("dispatch X failed");
+    check!(d5 == 3);
+
+    let keys3_after = get_surface_received_keys(3).expect("get keys for win 3 failed");
+    check!(keys3_after.len() == 1);
+    check!(keys3_after[0] == KeyCode::X);
+
+    // Window 2 did not observe KeyCode::X
+    let keys2_after = get_surface_received_keys(2).expect("get keys for win 2 failed");
+    check!(keys2_after.len() == 4);
+
+    kprintln!("[selftest] ✓ T37 Secure Input Routing Gate: keystrokes routed strictly to focused surface, background surfaces receive 0 events, cross-window keylogging prevented");
+}
+
+/// Test 38: Cross-Window Shared-Memory Buffer Isolation Gate
+#[cfg(target_arch = "x86_64")]
+fn test_cross_window_shm_buffer_isolation() {
+    use crate::display;
+
+    // 1. Verify surfaces 1 and 2 have disjoint shared memory buffer allocations
+    let iso_1_2 = display::verify_buffer_isolation(1, 2);
+    check!(iso_1_2.is_ok());
+
+    // 2. Verify surfaces 2 and 3 have disjoint shared memory buffer allocations
+    let iso_2_3 = display::verify_buffer_isolation(2, 3);
+    check!(iso_2_3.is_ok());
+
+    // 3. Verify surfaces 1 and 3 have disjoint shared memory buffer allocations
+    let iso_1_3 = display::verify_buffer_isolation(1, 3);
+    check!(iso_1_3.is_ok());
+
+    kprintln!("[selftest] ✓ T38 Cross-Window SHM Buffer Isolation Gate: client surface pixel buffers isolated in non-overlapping memory ranges, cross-compartment screen-scraping blocked");
+}
+
+/// Test 39: Mediated Clipboard Daemon Gate
+#[cfg(target_arch = "x86_64")]
+fn test_mediated_clipboard_sanitization() {
+    use crate::display;
+
+    // 1. Copy text containing malicious terminal escape sequences and non-printable control characters
+    let hostile_payload = "KashOS-Secret-Token\x00\x07\x1b[31;1m\tAuthorized-Session";
+    display::copy_to_clipboard(hostile_payload);
+
+    // 2. Currently focused window is ID 3 (from T37). Window ID 1 is unfocused.
+    // Attempt paste into unfocused window 1 -> must fail closed (None)
+    let unfocused_paste = display::paste_to_window(1);
+    check!(unfocused_paste.is_none());
+
+    // 3. Attempt paste into focused window 3 -> succeeds with sanitized text
+    let focused_paste = display::paste_to_window(3);
+    check!(focused_paste.is_some());
+    let pasted = focused_paste.unwrap();
+
+    // Verify sanitization: control codes (null \x00, bell \x07, escape \x1b) stripped; tab and letters preserved
+    check!(!pasted.contains('\x00'));
+    check!(!pasted.contains('\x07'));
+    check!(!pasted.contains('\x1b'));
+    check!(pasted.contains("KashOS-Secret-Token"));
+    check!(pasted.contains("\tAuthorized-Session"));
+
+    kprintln!("[selftest] ✓ T39 Mediated Clipboard Daemon Gate: control characters and terminal escapes stripped, paste delivered strictly to focused window, background sniffing blocked");
+}
+

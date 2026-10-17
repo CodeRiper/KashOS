@@ -38,7 +38,7 @@ impl KashShell {
     pub fn new() -> Self {
         let mut compositor = CompositorEngine::new();
         let term_id = compositor.create_surface("kash-terminal (tty0)", TrustDomain::System, 1024, 768);
-        compositor.set_focus(term_id);
+        let _ = compositor.set_focus(term_id);
 
         KashShell {
             is_locked: false,
