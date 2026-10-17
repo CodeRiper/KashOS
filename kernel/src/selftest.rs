@@ -1421,3 +1421,165 @@ fn test_smoltcp_socket_and_loopback_transport() {
     kprintln!("[selftest] ✓ T31 smoltcp Network Service & Loopback Socket Transport Gate: TCP socket connection established, packet loopback roundtrip verified with 100% payload integrity");
 }
 
+/// Runs acceptance gates for Phase 8: Compartments & Mandatory Access Control
+pub fn run_compartment_tests() {
+    kprintln!("\n[selftest] ─── Phase 8: Compartments & Mandatory Access Control Acceptance Gates ───");
+    test_flask_mac_ipc_enforcement();
+    test_disposable_domain_zero_remanence();
+    test_powerbox_user_approval_and_token_minting();
+    test_powerbox_token_revocation();
+
+    crate::status::update(|s| {
+        s.flask_mac = crate::status::ComponentStatus::Real;
+        s.zero_trust_powerbox = crate::status::ComponentStatus::Real;
+    });
+}
+
+/// Test 32: FLASK MAC Policy Enforcement on IPC Gate
+#[cfg(target_arch = "x86_64")]
+fn test_flask_mac_ipc_enforcement() {
+    use crate::flask::{self, MacMode, SecurityClass, perms, SID_SYSTEM, SID_UNTRUSTED_KAPP, SID_USB_DOMAIN, SID_STORAGE_DOMAIN, SID_DISPOSABLE, SID_NET_DOMAIN};
+
+    // 1. Verify default-deny cross-compartment IPC
+    // Untrusted app attempting to message raw USB hardware domain
+    let denied_usb = flask::check_ipc(SID_UNTRUSTED_KAPP, SID_USB_DOMAIN, perms::IPC_SEND);
+    check!(denied_usb.is_err());
+
+    // 2. Disposable domain attempting to message persistent storage domain directly
+    let denied_storage = flask::check_permission(SID_DISPOSABLE, SID_STORAGE_DOMAIN, SecurityClass::File, perms::FILE_READ);
+    check!(denied_storage.is_err());
+
+    // 3. Authorized IPC: untrusted app messaging system root
+    let allow_sys = flask::check_ipc(SID_UNTRUSTED_KAPP, SID_SYSTEM, perms::IPC_SEND);
+    check!(allow_sys.is_ok());
+
+    // 4. Authorized IPC: untrusted app messaging network proxy
+    let allow_net = flask::check_ipc(SID_UNTRUSTED_KAPP, SID_NET_DOMAIN, perms::IPC_SEND);
+    check!(allow_net.is_ok());
+
+    // 5. Capability transfer check: untrusted app CANNOT transfer caps to USB domain
+    let cap_transfer_denied = flask::check_ipc(SID_UNTRUSTED_KAPP, SID_USB_DOMAIN, perms::IPC_TRANSFER_CAP);
+    check!(cap_transfer_denied.is_err());
+
+    // System can transfer caps anywhere
+    let sys_cap_transfer = flask::check_ipc(SID_SYSTEM, SID_UNTRUSTED_KAPP, perms::IPC_TRANSFER_CAP);
+    check!(sys_cap_transfer.is_ok());
+
+    // 6. Test dynamic policy reload: Permissive mode logs but permits
+    flask::set_mode(MacMode::Permissive);
+    check!(flask::get_mode() == MacMode::Permissive);
+    let perm_res = flask::check_ipc(SID_UNTRUSTED_KAPP, SID_USB_DOMAIN, perms::IPC_SEND);
+    check!(perm_res.is_ok());
+
+    // Restore Enforcing mode
+    flask::set_mode(MacMode::Enforcing);
+    check!(flask::get_mode() == MacMode::Enforcing);
+    let enf_res = flask::check_ipc(SID_UNTRUSTED_KAPP, SID_USB_DOMAIN, perms::IPC_SEND);
+    check!(enf_res.is_err());
+
+    kprintln!("[selftest] ✓ T32 FLASK MAC Policy Enforcement on IPC Gate: cross-compartment IPC access control enforced, unpermitted channels blocked, AVC lookup verified, atomic policy reload confirmed");
+}
+
+/// Test 33: Disposable Domain RAM Scratchpad & Zero-Remanence Teardown Gate
+#[cfg(target_arch = "x86_64")]
+fn test_disposable_domain_zero_remanence() {
+    use crate::disposable::{DisposableDomain, DISPOSABLE_DOMAIN_ID};
+    use crate::flask::{self, SID_DISPOSABLE, SID_STORAGE_DOMAIN, SecurityClass, perms};
+
+    let test_pid = 301u32;
+    let scratchpad_size = 64 * 1024; // 64 KiB
+    let mut domain = DisposableDomain::new(test_pid, scratchpad_size).expect("create disposable domain failed");
+    check!(domain.domain_id == DISPOSABLE_DOMAIN_ID);
+    check!(domain.pid == test_pid);
+    check!(domain.sid == SID_DISPOSABLE);
+
+    // 1. Write confidential test secret pattern to RAM scratchpad
+    let secret_pattern = b"TOP-SECRET-VAULT-EPHEMERAL-KEY-2026-DISPOSABLE-SESSION";
+    domain.write_scratchpad(0, secret_pattern).expect("write scratchpad failed");
+    domain.write_scratchpad(1024, secret_pattern).expect("write scratchpad offset failed");
+
+    // 2. Read back and verify pattern in volatile memory
+    let mut read_buf = [0u8; 54];
+    domain.read_scratchpad(0, &mut read_buf).expect("read scratchpad failed");
+    check!(&read_buf == secret_pattern);
+
+    // 3. Confirm air-gap policy: disposable domain is strictly forbidden from accessing persistent vault
+    let storage_access = flask::check_permission(SID_DISPOSABLE, SID_STORAGE_DOMAIN, SecurityClass::File, perms::FILE_READ);
+    check!(storage_access.is_err());
+
+    // 4. Terminate disposable domain and execute cryptographic teardown
+    let report = domain.terminate().expect("terminate disposable domain failed");
+    check!(report.domain_id == DISPOSABLE_DOMAIN_ID);
+    check!(report.bytes_scrubbed == scratchpad_size);
+    check!(!report.remanence_detected);
+    check!(report.zero_remanence_verified);
+
+    kprintln!("[selftest] ✓ T33 Disposable Domain RAM Scratchpad & Zero-Remanence Teardown Gate: air-gapped ephemeral session executed in RAM, 100% of memory scrubbed & cache-evicted on close with zero byte remanence");
+}
+
+/// Test 34: Out-of-Process Powerbox User-Approval & Token Minting Gate
+#[cfg(target_arch = "x86_64")]
+fn test_powerbox_user_approval_and_token_minting() {
+    use crate::powerbox::{self, verify_file_access};
+    use kcore::Rights;
+
+    let client_pid = 401u64;
+    let target_file = "/personal/finances.csv";
+    let sibling_file = "/personal/passwords.txt";
+
+    // 1. Attempt file access without user confirmation (simulating ambient or unprompted access)
+    let denied_attempt = powerbox::request_access(client_pid, target_file, "Unauthorized background read", false, false);
+    check!(denied_attempt.is_err());
+
+    // Ambient open without token must be denied
+    let ambient_attempt = verify_file_access(client_pid, target_file, None, Rights::READ);
+    check!(ambient_attempt.is_err());
+
+    // 2. Client requests access WITH user confirmation in trusted file picker
+    let token_id = powerbox::request_access(client_pid, target_file, "Document Editor Import", false, true)
+        .expect("powerbox token minting failed");
+    check!(token_id >= 1000);
+
+    // 3. Verify access to designated target file using the minted capability token
+    let valid_access = verify_file_access(client_pid, target_file, Some(token_id), Rights::READ);
+    check!(valid_access.is_ok());
+
+    // 4. Negative test: Attempt to access sibling file in the same directory using the same token
+    let sibling_access = verify_file_access(client_pid, sibling_file, Some(token_id), Rights::READ);
+    check!(sibling_access.is_err());
+
+    // 5. Negative test: Sibling process attempts to use token minted for PID 401
+    let wrong_pid = 402u64;
+    let cross_compartment_access = verify_file_access(wrong_pid, target_file, Some(token_id), Rights::READ);
+    check!(cross_compartment_access.is_err());
+
+    kprintln!("[selftest] ✓ T34 Out-of-Process Powerbox User-Approval & Token Minting Gate: unconfirmed file access denied, explicit user mediation mints single-file token, sibling files and cross-compartment access strictly blocked");
+}
+
+/// Test 35: Powerbox Token Revocation & Sibling File Isolation Gate
+#[cfg(target_arch = "x86_64")]
+fn test_powerbox_token_revocation() {
+    use crate::powerbox::{self, verify_file_access};
+    use kcore::Rights;
+
+    let client_pid = 405u64;
+    let target_file = "/personal/confidential.pdf";
+
+    // 1. Mint a fresh capability token with user approval
+    let token_id = powerbox::request_access(client_pid, target_file, "PDF Viewer Read", false, true)
+        .expect("mint token failed");
+
+    // 2. Verify token is initially active and valid
+    let initial_access = verify_file_access(client_pid, target_file, Some(token_id), Rights::READ);
+    check!(initial_access.is_ok());
+
+    // 3. User revokes access to the document
+    powerbox::revoke(token_id).expect("revoke token failed");
+
+    // 4. Subsequent access attempt must fail immediately
+    let revoked_access = verify_file_access(client_pid, target_file, Some(token_id), Rights::READ);
+    check!(revoked_access.is_err());
+
+    kprintln!("[selftest] ✓ T35 Powerbox Token Revocation & Isolation Gate: user revocation immediately severs delegated capability, ambient access rejected, POLA preserved");
+}
+

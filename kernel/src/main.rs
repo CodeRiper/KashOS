@@ -40,6 +40,8 @@ pub mod cap;
 pub mod dde;
 pub mod display;
 #[allow(unsafe_code)]
+pub mod disposable;
+#[allow(unsafe_code)]
 pub mod driver;
 pub mod elf;
 pub mod flask;
@@ -246,6 +248,7 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
 
     dde::init();
     driver::init();
+    flask::init();
     powerbox::init();
     lockdown::init();
 
@@ -257,6 +260,10 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     net::init();
     #[cfg(target_arch = "x86_64")]
     selftest::run_network_privacy_tests();
+
+    // ── Phase 8 Compartments & MAC Acceptance Gates ─────────────────────────
+    #[cfg(target_arch = "x86_64")]
+    selftest::run_compartment_tests();
 
     // ── Step 7b: RTC & Framebuffer Graphics Foundation ───────────────────────
     let rtc_secs = arch::read_rtc_unix_seconds();

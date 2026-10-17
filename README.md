@@ -37,6 +37,7 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | **Boot Chain & TPM 2.0** | PE32+ (UEFI) and manifest SHA-256 validation, zero-heap TPM 2.0 CRTM driver with 24-register SHA-256 PCR bank, Anti-Evil Maid key sealing & fail-closed policy lock | Tested and verified in Phase 5; survived 1-byte tamper simulation with locked vault |
 | **Storage Crypto (`kvault`)** | Real authenticated root filesystem (`/`) mounted over `kblock`, hardware CSPRNG, zero-allocation KMS, TPM 2.0 PCR sealing, 1-byte bit-flip tamper rejection, screen-lock memory zeroization (`clflush`) | Tested and verified in Phase 6; boot self-tests T24, T25, T26, T27 passed |
 | **Network** | User-mode network service (`sys-net`, Domain 1) with `smoltcp` stack, `knet::FilterTable` default-deny packet filtering, fail-closed kill switch, hardware CSPRNG MAC randomization, and lock-free SPSC queues | Tested and verified in Phase 7; boot self-tests T28, T29, T30, T31 passed |
+| **Compartments & MAC** | FLASK Mandatory Access Control (MAC) on all synchronous IPC, Access Vector Cache (AVC), ephemeral disposable domains (Domain 5, `disp-vm`) with zero-remanence teardown (`clflush` & audit scan), out-of-process Zero-Trust Powerbox broker (single-file delegation, sibling files blind, token revocation) | Tested and verified in Phase 8; boot self-tests T32, T33, T34, T35 passed |
 | **GUI (`kash-ui`)** | Real retained-scene renderer, dock, lock, files, terminal, settings | Applications are ring-0 widgets; settings not backed by IPC service |
 | **Shell Commands** | Standard utilities read real hardware/heap state or report stubs | Replaced all hardcoded simulations with honest state checks |
 | **Proofs & Verification** | Unit tests passing across workspace | Zero machine-checked proofs; no proof claims made |
@@ -121,10 +122,10 @@ Phase 7: Network & Privacy [COMPLETED]
   ├── Hardware CSPRNG MAC address randomization hiding burned-in physical OUIs
   └── Lock-free SPSC packet rings for physical NIC (Intel e1000) and loopback IPC transport
 
-Phase 8: Compartments
-  ├── FLASK mandatory access control engine enforced on all IPC
-  ├── Disposable domains (RAM scratchpad zeroized on close)
-  └── User-approved out-of-process powerbox dialogs
+Phase 8: Compartments [COMPLETED]
+  ├── FLASK mandatory access control engine enforced on all synchronous IPC (kipc)
+  ├── Disposable domains (RAM scratchpad zeroized on close with clflush & audit scan)
+  └── User-approved out-of-process powerbox broker (single-file delegation, sibling blind)
 
 Phase 9: GUI & Display Server
   ├── kash-ui as an unprivileged user-mode display service

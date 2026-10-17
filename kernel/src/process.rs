@@ -36,6 +36,7 @@ pub struct ProcessControlBlock {
     pub exit_code: Option<i32>,
     pub entry_point: u64,
     pub user_stack_top: u64,
+    pub sid: u32,
     pub in_use: bool,
 }
 
@@ -49,6 +50,7 @@ impl ProcessControlBlock {
             exit_code: None,
             entry_point: 0,
             user_stack_top: 0,
+            sid: crate::flask::SID_SYSTEM,
             in_use: false,
         }
     }
@@ -142,6 +144,7 @@ pub fn spawn_user_process(
         exit_code: None,
         entry_point: loaded.entry_point,
         user_stack_top: loaded.user_stack_top,
+        sid: crate::flask::SID_UNTRUSTED_KAPP,
         in_use: true,
     };
 
@@ -220,6 +223,33 @@ pub fn on_user_process_fault(pid: u32, exit_code: i32) {
 /// Return total number of contained user-mode faults observed.
 pub fn user_fault_count() -> u32 {
     FAULT_COUNT.load(Ordering::Relaxed)
+}
+
+/// Returns the FLASK Security Identifier (SID) for the specified process PID.
+pub fn get_process_sid(pid: u32) -> u32 {
+    let pcb_table = PROCESS_TABLE.lock();
+    for pcb in pcb_table.iter() {
+        if pcb.in_use && pcb.pid == pid {
+            return pcb.sid;
+        }
+    }
+    // Default fallback: kernel root threads are SYSTEM, others UNTRUSTED_KAPP
+    if pid <= 1 {
+        crate::flask::SID_SYSTEM
+    } else {
+        crate::flask::SID_UNTRUSTED_KAPP
+    }
+}
+
+/// Sets the FLASK Security Identifier (SID) for the specified process PID.
+pub fn set_process_sid(pid: u32, sid: u32) {
+    let mut pcb_table = PROCESS_TABLE.lock();
+    for pcb in pcb_table.iter_mut() {
+        if pcb.in_use && pcb.pid == pid {
+            pcb.sid = sid;
+            return;
+        }
+    }
 }
 
 /// Trampoline called when redirecting a faulting user-mode thread back into the scheduler.

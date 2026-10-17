@@ -142,6 +142,43 @@ pub fn sys_ipc_send(
     let mut endpoints = ENDPOINTS.lock();
     let ep = &mut endpoints[ep_idx];
 
+    // FLASK Mandatory Access Control (MAC) on IPC Channel (Phase 8)
+    let sender_sid = crate::process::get_process_sid(sender_pid);
+    let target_sid = match ep.state {
+        EndpointState::WaitRecv => {
+            if let Some(r_pid) = ep.waiting_pid {
+                crate::process::get_process_sid(r_pid)
+            } else {
+                crate::flask::SID_SYSTEM
+            }
+        }
+        _ => {
+            if ep_id < 10 {
+                crate::flask::SID_SYSTEM
+            } else {
+                crate::process::get_process_sid(ep_id as u32)
+            }
+        }
+    };
+
+    if let Err(e) = crate::flask::check_ipc(sender_sid, target_sid, crate::flask::perms::IPC_SEND) {
+        crate::kprintln!(
+            "[ipc] FLASK MAC blocked IPC transmission from PID {} (SID {}) to target SID {}: {}",
+            sender_pid, sender_sid, target_sid, e
+        );
+        return Err(SyscallError::InsufficientRights);
+    }
+
+    if cap_to_transfer_slot.is_some() {
+        if let Err(e) = crate::flask::check_ipc(sender_sid, target_sid, crate::flask::perms::IPC_TRANSFER_CAP) {
+            crate::kprintln!(
+                "[ipc] FLASK MAC blocked capability transfer from PID {} (SID {}) to target SID {}: {}",
+                sender_pid, sender_sid, target_sid, e
+            );
+            return Err(SyscallError::InsufficientRights);
+        }
+    }
+
     match ep.state {
         EndpointState::WaitRecv => {
             // Rendezvous: receiver is already waiting! Deliver directly.
@@ -218,8 +255,16 @@ pub fn sys_ipc_recv(
 
     match ep.state {
         EndpointState::WaitSend => {
-            // Rendezvous: sender is already waiting! Receive immediately.
-            let sender_pid = ep.waiting_pid.take().ok_or(SyscallError::InvalidCapability)?;
+            // Rendezvous: sender is already waiting! Check FLASK MAC receive permission
+            let sender_pid = ep.waiting_pid.ok_or(SyscallError::InvalidCapability)?;
+            let sender_sid = crate::process::get_process_sid(sender_pid);
+            let receiver_sid = crate::process::get_process_sid(receiver_pid);
+            if let Err(e) = crate::flask::check_ipc(sender_sid, receiver_sid, crate::flask::perms::IPC_RECV) {
+                crate::kprintln!("[ipc] FLASK MAC blocked IPC receive for PID {} from PID {}: {}", receiver_pid, sender_pid, e);
+                return Err(SyscallError::InsufficientRights);
+            }
+
+            let sender_pid = ep.waiting_pid.take().unwrap();
             let msg = ep.pending_msg.take().ok_or(SyscallError::InvalidCapability)?;
 
             // If capability transfer was attached, install into receiver's CSpace

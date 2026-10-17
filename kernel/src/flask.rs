@@ -59,6 +59,11 @@ pub mod perms {
     pub const DEV_AUDIO_MIC: u32   = 1 << 12;
     pub const DEV_VIDEO_CAM: u32   = 1 << 13;
     pub const DEV_USB_RAW: u32     = 1 << 14;
+
+    // Synchronous IPC Channel permissions (Phase 8)
+    pub const IPC_SEND: u32        = 1 << 15;
+    pub const IPC_RECV: u32        = 1 << 16;
+    pub const IPC_TRANSFER_CAP: u32 = 1 << 17;
 }
 
 // ── MAC Enforcement Mode ─────────────────────────────────────────────────────
@@ -197,7 +202,15 @@ impl FlaskSecurityServer {
 
         match class {
             SecurityClass::File => {
-                if s_sid == SID_UNTRUSTED_KAPP || s_sid == SID_DISPOSABLE {
+                if s_sid == SID_DISPOSABLE {
+                    if t_sid == SID_SYSTEM {
+                        // Disposable domain may execute system binaries, but zero access to persistent storage
+                        perms::FILE_READ | perms::FILE_EXECUTE
+                    } else {
+                        // Strictly air-gapped: zero ambient access to persistent storage domain
+                        0
+                    }
+                } else if s_sid == SID_UNTRUSTED_KAPP {
                     if t_sid == SID_STORAGE_DOMAIN {
                         // Applications can read/write their scoped storage only
                         perms::FILE_READ | perms::FILE_WRITE | perms::FILE_CREATE | perms::FILE_UNLINK
@@ -236,9 +249,20 @@ impl FlaskSecurityServer {
             }
 
             SecurityClass::IpcChannel => {
-                if t_sid == SID_SYSTEM || t_sid == SID_STORAGE_DOMAIN || t_sid == SID_NET_DOMAIN {
-                    0xFFFF
+                // System root context has full IPC rights across all compartments
+                if s_sid == SID_SYSTEM || t_sid == SID_SYSTEM {
+                    perms::IPC_SEND | perms::IPC_RECV | perms::IPC_TRANSFER_CAP
+                } else if s_sid == t_sid {
+                    // Intra-compartment communication and capability delegation allowed
+                    perms::IPC_SEND | perms::IPC_RECV | perms::IPC_TRANSFER_CAP
+                } else if s_sid == SID_UNTRUSTED_KAPP && (t_sid == SID_NET_DOMAIN || t_sid == SID_STORAGE_DOMAIN) {
+                    // Sandboxed apps can communicate with network and storage proxies
+                    perms::IPC_SEND | perms::IPC_RECV
+                } else if s_sid == SID_DISPOSABLE && t_sid == SID_NET_DOMAIN {
+                    // Disposable domain can communicate with network proxy for web sessions
+                    perms::IPC_SEND | perms::IPC_RECV
                 } else {
+                    // All other inter-compartment IPC strictly denied (zero ambient authority)
                     0
                 }
             }
@@ -255,4 +279,45 @@ impl FlaskSecurityServer {
             self.policy_generation.load(Ordering::Relaxed)
         );
     }
+}
+
+pub static FLASK: crate::sync::SpinLock<FlaskSecurityServer> =
+    crate::sync::SpinLock::new(FlaskSecurityServer::new());
+
+/// Evaluates permission against the global FLASK Security Server.
+pub fn check_permission(
+    source_sid: Sid,
+    target_sid: Sid,
+    class: SecurityClass,
+    requested_perm: u32,
+) -> Result<(), &'static str> {
+    let mut server = FLASK.lock();
+    server.check_permission(source_sid, target_sid, class, requested_perm)
+}
+
+/// Convenience helper for synchronous IPC MAC permission checks.
+pub fn check_ipc(source_sid: Sid, target_sid: Sid, perm: u32) -> Result<(), &'static str> {
+    check_permission(source_sid, target_sid, SecurityClass::IpcChannel, perm)
+}
+
+/// Sets the global MAC enforcement mode (Enforcing, Permissive, Disabled).
+pub fn set_mode(mode: MacMode) {
+    let mut server = FLASK.lock();
+    server.reload_policy(mode);
+}
+
+/// Gets current global MAC enforcement mode.
+pub fn get_mode() -> MacMode {
+    let server = FLASK.lock();
+    server.mode
+}
+
+/// Initializes FLASK MAC subsystem and marks status registry.
+pub fn init() {
+    let mut server = FLASK.lock();
+    server.reload_policy(MacMode::Enforcing);
+    crate::status::update(|s| {
+        s.flask_mac = crate::status::ComponentStatus::Real;
+    });
+    crate::kprintln!("[flask] ✓ FLASK Mandatory Access Control (MAC) active: Enforcing mode, AVC initialized");
 }

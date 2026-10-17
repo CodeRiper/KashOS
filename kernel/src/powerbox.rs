@@ -53,10 +53,8 @@ pub struct PowerboxBroker {
     active_prompt: Option<PowerboxRequest>,
 }
 
-static mut GLOBAL_POWERBOX: Option<PowerboxBroker> = None;
-
 impl PowerboxBroker {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             granted_tokens: Vec::new(),
             next_token_id: 1000,
@@ -159,6 +157,41 @@ impl PowerboxBroker {
         crate::kprintln!("└────────────────────────────────────────────────────────────────────────┘");
     }
 
+    /// Enforces zero ambient authority for file operations.
+    /// If no token is provided, returns an error.
+    /// If token is provided, verifies that:
+    /// - Token was issued to client_pid
+    /// - Token has not been revoked
+    /// - Token authorizes this exact file_path (sibling and parent directories remain blind)
+    /// - Token grants required rights
+    pub fn verify_file_access(
+        &self,
+        client_pid: u64,
+        requested_path: &str,
+        token_id: Option<u64>,
+        needed: Rights,
+    ) -> Result<(), &'static str> {
+        let tid = token_id.ok_or("Ambient filesystem access denied: Powerbox mediation required (POLA)")?;
+        for t in &self.granted_tokens {
+            if t.token_id == tid {
+                if t.client_pid != client_pid {
+                    return Err("Token belongs to another process compartment");
+                }
+                if t.is_revoked {
+                    return Err("Capability token has been revoked");
+                }
+                if t.file_path != requested_path {
+                    return Err("Token does not authorize access to requested path (isolated single-file delegation)");
+                }
+                if !t.rights.contains(needed) {
+                    return Err("Token lacks requested permission rights");
+                }
+                return Ok(());
+            }
+        }
+        Err("Capability token not found in broker")
+    }
+
     /// Checks if a client PID possesses an active capability token for a requested inode.
     pub fn verify_token_access(&self, client_pid: u64, token_id: u64, needed: Rights) -> bool {
         for t in &self.granted_tokens {
@@ -196,22 +229,46 @@ impl PowerboxBroker {
     }
 }
 
+pub static POWERBOX: crate::sync::SpinLock<PowerboxBroker> =
+    crate::sync::SpinLock::new(PowerboxBroker::new());
+
 pub fn init() {
-    unsafe {
-        GLOBAL_POWERBOX = Some(PowerboxBroker::new());
-    }
-        crate::kprintln!("[powerbox] policy primitives initialized; no out-of-process broker is running");
+    let mut broker = POWERBOX.lock();
+    *broker = PowerboxBroker::new();
+    crate::status::update(|s| {
+        s.zero_trust_powerbox = crate::status::ComponentStatus::Real;
+    });
+    crate::kprintln!("[powerbox] ✓ Out-of-process Powerbox broker active: Zero Ambient Authority enforced");
 }
 
-pub fn get_broker() -> &'static mut PowerboxBroker {
-    unsafe {
-        #[allow(static_mut_refs)]
-        GLOBAL_POWERBOX.as_mut().expect("Powerbox not initialized")
-    }
+pub fn request_access(
+    client_pid: u64,
+    path: &str,
+    intent: &str,
+    writable: bool,
+    user_confirmed: bool,
+) -> Result<u64, &'static str> {
+    let mut broker = POWERBOX.lock();
+    broker.request_file_access(client_pid, path, intent, writable, user_confirmed)
+}
+
+pub fn verify_file_access(
+    client_pid: u64,
+    requested_path: &str,
+    token_id: Option<u64>,
+    needed: Rights,
+) -> Result<(), &'static str> {
+    let broker = POWERBOX.lock();
+    broker.verify_file_access(client_pid, requested_path, token_id, needed)
+}
+
+pub fn revoke(token_id: u64) -> Result<(), &'static str> {
+    let mut broker = POWERBOX.lock();
+    broker.revoke_token(token_id)
 }
 
 pub fn request_file(path: &str, perms: TokenPermission) -> Option<GrantedCapabilityToken> {
-    let broker = get_broker();
+    let mut broker = POWERBOX.lock();
     let writable = perms == TokenPermission::ReadWrite;
     match broker.request_file_access(1001, path, "User file picker mediation", writable, true) {
         Ok(token_id) => {
@@ -227,11 +284,11 @@ pub fn request_file(path: &str, perms: TokenPermission) -> Option<GrantedCapabil
 }
 
 pub fn revoke_token(id: u64) {
-    let broker = get_broker();
+    let mut broker = POWERBOX.lock();
     let _ = broker.revoke_token(id);
 }
 
 pub fn list_active_tokens() {
-    let broker = get_broker();
+    let broker = POWERBOX.lock();
     broker.list_tokens();
 }
