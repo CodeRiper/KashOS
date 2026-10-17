@@ -69,6 +69,9 @@ pub struct StatusRegistry {
     pub user_mode_ring3: ComponentStatus,
     pub elf_loader: ComponentStatus,
     pub sync_ipc: ComponentStatus,
+    pub user_drivers: ComponentStatus,
+    pub tpm2_crtm: ComponentStatus,
+    pub measured_boot: ComponentStatus,
 }
 
 impl StatusRegistry {
@@ -108,6 +111,9 @@ impl StatusRegistry {
             user_mode_ring3: ComponentStatus::Stub,
             elf_loader: ComponentStatus::Stub,
             sync_ipc: ComponentStatus::Stub,
+            user_drivers: ComponentStatus::Stub,
+            tpm2_crtm: ComponentStatus::Stub,
+            measured_boot: ComponentStatus::Stub,
         }
     }
 }
@@ -172,6 +178,9 @@ pub fn print_boot_banner() {
         ("Speculative Execution Mitigations", reg.spec_mitigations, "best-effort CPU controls; not independently verified"),
         ("Strict Security Lockdown Mode", reg.lockdown_mode, "W^X violation blocks & port gating"),
         ("Security Diagnostic Toolkit", reg.security_toolkit, "Sandboxed security testing capsule (Part E)"),
+        ("User Driver Services & Resilience", reg.user_drivers, "Ring 3 storage, net, input, display"),
+        ("TPM 2.0 Hardware & CRTM Engine", reg.tpm2_crtm, "TCG TIS MMIO & SHA-256 PCR bank"),
+        ("Anti-Evil Maid Measured Boot", reg.measured_boot, "PCR policy sealing & fail-closed key release"),
     ];
 
     for (name, status, detail) in entries {

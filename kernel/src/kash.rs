@@ -18,7 +18,7 @@ pub fn print_service_map(platform: &Platform) {
     kprintln!("\n╔══════════════════════════════════════════════════════════════╗");
     kprintln!("║              KASH KERNEL — SERVICE MAP                    ║");
     kprintln!("╠══════════════════════════════════════════════════════════════╣");
-    kprintln!("║ T0 Silicon   TPM support not implemented  IOMMU [{:<13}]  ║", reg.vtd_iommu.label());
+    kprintln!("║ T0 Silicon   TPM: [{:<6}]              IOMMU [{:<13}]  ║", reg.tpm2_crtm.label(), reg.vtd_iommu.label());
     kprintln!("║ T1 Kernel    monolithic prototype; capability isolation incomplete ║");
     kprintln!("║ T2 Storage   kcore/kvault libraries; OS integration [{:<13}]  ║", reg.kvault_fs.label());
     kprintln!("║ T3 Services  smoltcp / Net: [{:<13}]                   ║", reg.nic_virtio.label());

@@ -7,6 +7,7 @@ description = "Dual UEFI & BIOS Secure Bootloader Protocol for KashOS Microkerne
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 
 [lib]
 crate-type = ["lib"]

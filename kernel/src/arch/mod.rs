@@ -5,7 +5,7 @@
 pub use x86_64::{
     boot_stack_top, busy_delay, clear_screen, discover, enable_wx_paging, get_char, hw_entropy, init, kernel_end,
     kernel_sections, scan_pci, shutdown, zero_phys, probe_vbox, VirtualBoxProfile, AtaDriveInfo,
-    init_vtd, get_iommu_status, init_input, poll_input_event, init_nic, nic_transmit, nic_receive, nic_mac, rdtsc,
+    init_vtd, get_iommu_status, init_tpm, get_tpm_status, init_input, poll_input_event, init_nic, nic_transmit, nic_receive, nic_mac, rdtsc,
     framebuffer, fill_gradient_test, clear_framebuffer, read_rtc_unix_seconds, elapsed_seconds, tsc_frequency_hz, sse_selftest,
 };
 

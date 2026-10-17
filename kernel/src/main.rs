@@ -227,6 +227,7 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
 
     print_progress_bar(80, "Mounting kvault-fs authenticated storage & schemes...");
     arch::init_vtd();
+    arch::init_tpm();
     arch::init_input();
     arch::init_nic();
     blockdev::init();

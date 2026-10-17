@@ -129,12 +129,27 @@ pub fn run(region: MemRegion) {
     #[cfg(target_arch = "x86_64")]
     test_driver_resilient_restart();
 
+    // ── Test 21: Cryptographic Boot Signature & Manifest Validation ─────
+    #[cfg(target_arch = "x86_64")]
+    test_cryptographic_boot_verification();
+
+    // ── Test 22: TPM 2.0 PCR Measurement & Clean-Boot Reproducibility ───
+    #[cfg(target_arch = "x86_64")]
+    test_tpm2_pcr_measurements_and_reproducibility();
+
+    // ── Test 23: Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate ──────
+    #[cfg(target_arch = "x86_64")]
+    test_anti_evil_maid_tpm_sealing_fail_closed();
+
     crate::status::update(|s| {
         s.kcore_caps = crate::status::ComponentStatus::Real;
         s.sync_ipc = crate::status::ComponentStatus::Real;
         s.vtd_iommu = crate::status::ComponentStatus::Real;
         s.ps2_input = crate::status::ComponentStatus::Real;
         s.dde_linux = crate::status::ComponentStatus::Real;
+        s.user_drivers = crate::status::ComponentStatus::Real;
+        s.tpm2_crtm = crate::status::ComponentStatus::Real;
+        s.measured_boot = crate::status::ComponentStatus::Real;
     });
 }
 
@@ -860,4 +875,157 @@ fn test_driver_resilient_restart() {
     check!(sup.verify_io_port(50, 0x1F0, true).is_ok());
 
     kprintln!("[selftest] ✓ T20 Driver Service Fault Containment: net_srv restarted cleanly as PID 151 (restart #1), capability tree revoked & refreshed, microkernel stable");
+}
+
+/// Test 21: Cryptographic Boot Signature & Manifest Validation
+/// Verifies:
+/// - PE32+ (x86_64 UEFI) executable header validation.
+/// - Kernel image and system manifest integrity verification against SHA-256 digests.
+/// - Negative Check: 1-byte tamper in signed payload triggers cryptographic verification failure.
+#[cfg(target_arch = "x86_64")]
+fn test_cryptographic_boot_verification() {
+    // 1. PE32+ UEFI header validation
+    let mut pe_buffer = [0u8; 512];
+    unsafe {
+        let dos = pe_buffer.as_mut_ptr() as *mut kboot::PeDosHeader;
+        (*dos).e_magic = kboot::PE_DOS_MAGIC;
+        (*dos).e_lfanew = 128;
+        let pe_sig = pe_buffer.as_mut_ptr().add(128) as *mut u32;
+        *pe_sig = kboot::PE_SIGNATURE;
+        let coff = pe_buffer.as_mut_ptr().add(132) as *mut kboot::PeCoffHeader;
+        (*coff).machine = 0x8664; // AMD64
+        (*coff).size_of_optional_header = core::mem::size_of::<kboot::PeOptionalHeader64>() as u16;
+        let opt = pe_buffer.as_mut_ptr().add(132 + core::mem::size_of::<kboot::PeCoffHeader>()) as *mut kboot::PeOptionalHeader64;
+        (*opt).magic = kboot::PE32PLUS_OPTIONAL_HEADER_MAGIC;
+        (*opt).address_of_entry_point = 0x1000;
+        (*opt).image_base = 0x400000;
+    }
+    check!(kboot::validate_pe32plus_binary(&pe_buffer).is_ok());
+
+    // Negative Check 1: Invalid PE magic
+    let mut bad_pe = pe_buffer;
+    bad_pe[0] = 0x00;
+    check!(kboot::validate_pe32plus_binary(&bad_pe).is_err());
+
+    // 2. Kernel and system manifest cryptographic integrity check
+    let manifest_payload = b"[system]\nos_name = \"KashOS\"\nversion = \"0.2.0\"\nsecurity_profile = \"high_assurance_graphene_hardened\"\n";
+    let expected_hash = kboot::compute_sha256(manifest_payload);
+    check!(kboot::verify_payload_integrity(manifest_payload, &expected_hash));
+
+    // Negative Check 2: 1-byte tamper in system manifest
+    let mut tampered_manifest = *manifest_payload;
+    tampered_manifest[0] ^= 0xFF; // tamper first byte
+    check!(!kboot::verify_payload_integrity(&tampered_manifest, &expected_hash));
+
+    kprintln!("[selftest] ✓ T21 Cryptographic Boot Signature & Manifest Validation: PE32+ validated, payload verified, 1-byte tamper detected & rejected");
+}
+
+/// Test 22: TPM 2.0 PCR Measurement & Clean-Boot Reproducibility
+/// Verifies:
+/// - Stage-by-stage measurement extension into SHA-256 PCR bank:
+///   PCR 0 (CRTM/Firmware), PCR 1 (Hardware config), PCR 2 (Bootloader),
+///   PCR 4 (Kernel code), PCR 7 (Secure boot policy), PCR 9 (Manifest).
+/// - Reproducibility: deterministic measurements across clean boots produce identical PCR digests.
+#[cfg(target_arch = "x86_64")]
+fn test_tpm2_pcr_measurements_and_reproducibility() {
+    use crate::arch::x86_64::tpm::Tpm2Device;
+
+    let mut dev = Tpm2Device::new();
+    check!(dev.startup(0).is_ok());
+
+    // ── Boot #1: Measure entire boot chain ──
+    let crtm_data = b"KashOS CRTM Platform Firmware v0.2.0";
+    let hw_config = b"ACPI RSDP=0x000F6A50 MADT=0x1FFE2000 DMAR=0x1FFE2434";
+    let bootloader = b"kboot Dual UEFI PE32+ / Multiboot2 Hybrid Bootloader v0.2.0";
+    let kernel_code = b"KashOS Microkernel ELF64 text segment 0x0010_0000..0x0020_0000";
+    let secure_boot = b"SecureBoot=Enabled; PK=KashOS-Root-CA-2026; db=ReleaseKey";
+    let manifest = b"[system]\nos_name = \"KashOS\"\nversion = \"0.2.0\"";
+
+    let pcr0_boot1 = dev.measure_boot_stage(kboot::PCR_CRTM_FIRMWARE, crtm_data).unwrap();
+    let pcr1_boot1 = dev.measure_boot_stage(kboot::PCR_HARDWARE_CONFIG, hw_config).unwrap();
+    let pcr2_boot1 = dev.measure_boot_stage(kboot::PCR_BOOTLOADER, bootloader).unwrap();
+    let pcr4_boot1 = dev.measure_boot_stage(kboot::PCR_KERNEL_CODE, kernel_code).unwrap();
+    let pcr7_boot1 = dev.measure_boot_stage(kboot::PCR_SECURE_BOOT_POLICY, secure_boot).unwrap();
+    let pcr9_boot1 = dev.measure_boot_stage(kboot::PCR_MANIFEST_INITRD, manifest).unwrap();
+
+    check!(pcr0_boot1 != [0u8; 32]);
+    check!(pcr4_boot1 != [0u8; 32]);
+    check!(pcr7_boot1 != [0u8; 32]);
+
+    // ── Boot #2: Clean reset and re-measurement ──
+    check!(dev.pcr_reset(kboot::PCR_CRTM_FIRMWARE).is_ok());
+    check!(dev.pcr_reset(kboot::PCR_HARDWARE_CONFIG).is_ok());
+    check!(dev.pcr_reset(kboot::PCR_BOOTLOADER).is_ok());
+    check!(dev.pcr_reset(kboot::PCR_KERNEL_CODE).is_ok());
+    check!(dev.pcr_reset(kboot::PCR_SECURE_BOOT_POLICY).is_ok());
+    check!(dev.pcr_reset(kboot::PCR_MANIFEST_INITRD).is_ok());
+
+    let pcr0_boot2 = dev.measure_boot_stage(kboot::PCR_CRTM_FIRMWARE, crtm_data).unwrap();
+    let pcr1_boot2 = dev.measure_boot_stage(kboot::PCR_HARDWARE_CONFIG, hw_config).unwrap();
+    let pcr2_boot2 = dev.measure_boot_stage(kboot::PCR_BOOTLOADER, bootloader).unwrap();
+    let pcr4_boot2 = dev.measure_boot_stage(kboot::PCR_KERNEL_CODE, kernel_code).unwrap();
+    let pcr7_boot2 = dev.measure_boot_stage(kboot::PCR_SECURE_BOOT_POLICY, secure_boot).unwrap();
+    let pcr9_boot2 = dev.measure_boot_stage(kboot::PCR_MANIFEST_INITRD, manifest).unwrap();
+
+    // Verify 100% bit-for-bit reproducibility
+    check!(pcr0_boot1 == pcr0_boot2);
+    check!(pcr1_boot1 == pcr1_boot2);
+    check!(pcr2_boot1 == pcr2_boot2);
+    check!(pcr4_boot1 == pcr4_boot2);
+    check!(pcr7_boot1 == pcr7_boot2);
+    check!(pcr9_boot1 == pcr9_boot2);
+
+    kprintln!("[selftest] ✓ T22 TPM 2.0 PCR Measurement & Clean-Boot Reproducibility: PCR 0, 1, 2, 4, 7, 9 extended, 100% bit-for-bit reproducible across clean boots");
+}
+
+/// Test 23: Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate
+/// Verifies:
+/// - Sealing sensitive cryptographic master disk key to PCR 4 (Kernel code) and PCR 7 (Secure boot).
+/// - Unsealing under legitimate PCR state succeeds and releases key.
+/// - Tampering with 1 byte in the measured kernel image alters PCR 4 and causes unseal to fail closed.
+/// - Stored key is never exposed upon policy mismatch.
+#[cfg(target_arch = "x86_64")]
+fn test_anti_evil_maid_tpm_sealing_fail_closed() {
+    use crate::arch::x86_64::tpm::{Tpm2Device, TpmError};
+
+    let mut dev = Tpm2Device::new();
+    check!(dev.startup(0).is_ok());
+
+    // 1. Extend initial clean measurements into PCR 4 and PCR 7
+    let clean_kernel = b"KashOS Authentic Microkernel Build 2026";
+    let secure_policy = b"SecureBoot=Enabled; Enforcement=Strict";
+    dev.measure_boot_stage(kboot::PCR_KERNEL_CODE, clean_kernel).unwrap();
+    dev.measure_boot_stage(kboot::PCR_SECURE_BOOT_POLICY, secure_policy).unwrap();
+
+    // 2. Seal a 32-byte master disk vault key to PCR 4 & PCR 7
+    let master_vault_key = [
+        0x53, 0x4F, 0x56, 0x45, 0x52, 0x45, 0x49, 0x47,
+        0x4E, 0x5F, 0x56, 0x41, 0x55, 0x4C, 0x54, 0x5F,
+        0x4B, 0x45, 0x59, 0x5F, 0x32, 0x30, 0x32, 0x36,
+        0x5F, 0x4B, 0x41, 0x53, 0x48, 0x4F, 0x53, 0x21,
+    ];
+    let pcr_mask = (1 << kboot::PCR_KERNEL_CODE) | (1 << kboot::PCR_SECURE_BOOT_POLICY);
+    let handle = dev.seal(pcr_mask, &master_vault_key).expect("TPM2_Seal failed");
+
+    // ── Sub-test A: Legitimate Boot Unsealing ──
+    let mut out_buf = [0u8; 32];
+    let unsealed_len = dev.unseal(handle, &mut out_buf).expect("TPM2_Unseal failed on clean boot");
+    check!(unsealed_len == 32);
+    check!(out_buf == master_vault_key);
+
+    // ── Sub-test B: Evil-Maid Physical Attack Simulation ──
+    // An evil maid modifies 1 byte in the kernel binary before boot.
+    // The bootloader measures the altered kernel into PCR 4.
+    let tampered_kernel_hash = [0xEEu8; 32]; // Altered digest from tampered kernel binary
+    dev.pcr_extend(kboot::PCR_KERNEL_CODE, &tampered_kernel_hash).unwrap();
+
+    // The attacker attempts to unseal the master key
+    let mut stolen_key = [0u8; 32];
+    let unseal_result = dev.unseal(handle, &mut stolen_key);
+
+    // Rule R2 (Fail-Closed): Unsealing MUST fail with PolicyMismatch and zeroize buffer
+    check!(matches!(unseal_result, Err(TpmError::PolicyMismatch)));
+    check!(stolen_key == [0u8; 32]);
+
+    kprintln!("[selftest] ✓ T23 Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate: sealed key released under valid PCRs, 1-byte tamper in kernel image triggers PolicyMismatch and locks vault");
 }

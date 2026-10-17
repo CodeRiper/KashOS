@@ -20,10 +20,12 @@ pub mod clock;
 pub mod fb;
 pub mod acpi;
 pub mod smp;
+pub mod tpm;
 
 pub use pci::{scan_bus as scan_pci, PciDevice};
 pub use vbox::{probe_environment as probe_vbox, VirtualBoxProfile, VBoxBgaDisplay, VBoxAtaDriver, AtaDriveInfo};
 pub use vtd::{init as init_vtd, get_iommu_status, IntelVtdUnit, PcieAcsVerifier};
+pub use tpm::{init as init_tpm, get_tpm_status, Tpm2Device, TpmError};
 pub use input::{init as init_input, poll_input_event, Ps2Controller, XhciController};
 pub use nic::{init as init_nic, transmit as nic_transmit, receive as nic_receive, get_mac_address as nic_mac};
 pub use fb::{get_framebuffer as framebuffer, fill_gradient_test, clear_framebuffer};
@@ -380,6 +382,7 @@ pub fn init(kernel_stack_top: u64) {
     clock::calibrate_tsc();
     syscall::init();
     vtd::early_init();
+    tpm::early_init();
     smp::init(apic::bsp_id());
 
     // Initialize preemptive task manager with initial kernel stack

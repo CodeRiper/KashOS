@@ -7,15 +7,8 @@
 
 /// Searches physical memory for the ACPI RSDP and returns its physical address.
 pub fn find_rsdp() -> Option<usize> {
-    // 1. Search Extended BIOS Data Area (EBDA)
-    let ebda_ptr = unsafe { *((0x40E) as *const u16) } as usize * 16;
-    if ebda_ptr != 0 && ebda_ptr < 0xA0000 {
-        if let Some(addr) = scan_rsdp_range(ebda_ptr, ebda_ptr + 1024) {
-            return Some(addr);
-        }
-    }
-
-    // 2. Search BIOS read-only memory range 0xE0000..0x100000 on 16-byte boundaries
+    // Search BIOS read-only memory range 0xE0000..0x100000 on 16-byte boundaries.
+    // This region is identity-mapped as an MMIO region in enable_wx_paging.
     scan_rsdp_range(0xE0000, 0x100000)
 }
 
