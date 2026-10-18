@@ -58,21 +58,47 @@ impl App for Notes {
 }
 
 // ───────── Firefox Browser ─────────
-pub struct Browser { url: FieldState }
-impl Browser { pub fn new() -> Browser { Browser { url: FieldState { text: String::from("https://start.duckduckgo.com"), ..FieldState::default() } } } }
+pub struct Browser {
+    url: FieldState,
+    scroll: Scroll,
+}
+
+impl Browser {
+    pub fn new() -> Browser {
+        Browser {
+            url: FieldState { text: String::from("https://start.duckduckgo.com"), ..FieldState::default() },
+            scroll: Scroll::default(),
+        }
+    }
+}
+
 impl App for Browser {
-    fn animating(&self) -> bool { false }
+    fn animating(&self) -> bool { self.scroll.moving() }
     fn kind(&self) -> AppKind { AppKind::Browser }
     fn default_size(&self) -> (f32, f32) { (880.0, 580.0) }
     fn draw(&mut self, cx: &mut Ctx, area: Rect) {
         let th = *cx.th;
         cx.cv.fill_rect(area, th.content_bg());
-        cx.cv.fill_rect(Rect::new(0.0, 54.0, area.w, area.h - 54.0), Paint::VGrad { y0: 54.0, y1: area.h, c0: th.pick(Color::hex(0xEAF2FF), Color::hex(0x161B2E)), c1: th.content_bg() });
-        cx.text_in(Rect::new(0.0, 105.0, area.w, 36.0), "Firefox", 28.0, Weight::Bold, th.label(), Align::Center);
-        cx.text_in(Rect::new(0.0, 140.0, area.w, 20.0), "Quantum ESR · Default Web Browser · Enhanced Tracking Protection: Strict", 12.0, Weight::Medium, th.pick(Color::hex(0x0A84FF), Color::hex(0x5E5CE6)), Align::Center);
+
+        let content_r = Rect::new(0.0, 54.0, area.w, area.h - 54.0);
+        let total_h = 760.0;
+        self.scroll.update(cx.io, cx.hover(content_r), (total_h - content_r.h).max(0.0));
+
+        cx.cv.push_clip(content_r);
+        let base_y = 54.0 - self.scroll.y;
+
+        cx.cv.fill_rect(Rect::new(0.0, base_y, area.w, total_h), Paint::VGrad {
+            y0: base_y,
+            y1: base_y + total_h,
+            c0: th.pick(Color::hex(0xEAF2FF), Color::hex(0x161B2E)),
+            c1: th.content_bg(),
+        });
+
+        cx.text_in(Rect::new(0.0, base_y + 40.0, area.w, 36.0), "Firefox", 28.0, Weight::Bold, th.label(), Align::Center);
+        cx.text_in(Rect::new(0.0, base_y + 75.0, area.w, 20.0), "Quantum ESR · Default Web Browser · Enhanced Tracking Protection: Strict", 12.0, Weight::Medium, th.pick(Color::hex(0x0A84FF), Color::hex(0x5E5CE6)), Align::Center);
 
         // Security Lockdown Status Card
-        let sec_card = Rect::new(area.cx() - 320.0, 168.0, 640.0, 36.0);
+        let sec_card = Rect::new(area.cx() - 320.0, base_y + 105.0, 640.0, 36.0);
         cx.cv.fill_rrect(sec_card, 10.0, th.pick(Color::rgba(255, 69, 58, 24), Color::rgba(255, 69, 58, 36)));
         cx.cv.stroke_rrect(sec_card, 10.0, 1.0, Color::rgba(255, 69, 58, 90));
         cx.text_in(sec_card, "🛡 All Permissions Denied by Default (Camera, Mic, Network, Files blocked until enabled in Settings)", 11.5, Weight::Regular, th.pick(Color::hex(0xC92A2A), Color::hex(0xFF6B6B)), Align::Center);
@@ -80,7 +106,7 @@ impl App for Browser {
         let favs = [("DuckDuckGo", 0xDE5833), ("Mozilla", 0x000000), ("Wikipedia", 0x3366CC), ("EFF", 0xED1C24), ("Tor Project", 0x7D4698), ("Vault", 0x30D158)];
         let tw = 84.0; let gap = 20.0; let total = favs.len() as f32 * tw + (favs.len() as f32 - 1.0) * gap;
         for (i, (n, c)) in favs.iter().enumerate() {
-            let r = Rect::new(area.cx() - total * 0.5 + i as f32 * (tw + gap), 235.0, tw, tw);
+            let r = Rect::new(area.cx() - total * 0.5 + i as f32 * (tw + gap), base_y + 165.0, tw, tw);
             let h = cx.hit(id_of(n) ^ 0xB0, r);
             let hv = cx.anim(id2(id_of(n), 0xB1), if h.hovered { 1.0 } else { 0.0 });
             let rr = r.inset(-hv * 3.0);
@@ -89,6 +115,40 @@ impl App for Browser {
             cx.text_in(rr, &n[..1], 30.0, Weight::Bold, Color::WHITE, Align::Center);
             cx.text_in(Rect::new(r.x - 10.0, r.bottom() + 6.0, r.w + 20.0, 18.0), n, 11.0, Weight::Regular, th.label2(), Align::Center);
         }
+
+        // Search & Stories Section (revealed when scrolling down)
+        let section_y = base_y + 290.0;
+        cx.text(area.cx() - 320.0, section_y, "Recommended by Pocket", 16.0, Weight::Bold, th.label());
+
+        let stories = [
+            ("seL4 Microkernel Principles in Modern Operating Systems", "Formal verification and capability-based security architectures.", "systems.org · 5 min read"),
+            ("Rust in the Kernel: Safe Memory Management without Garbage Collection", "Zero-cost abstractions and memory safety for bare-metal kernels.", "rust-lang.org · 8 min read"),
+            ("Hardware Memory Budgets: Running Modern Workloads on 100 MB RAM", "Optimizing data structures, paging, and software renderers for constrained hardware.", "embedded.org · 12 min read"),
+        ];
+
+        for (i, (title, desc, meta)) in stories.iter().enumerate() {
+            let card_r = Rect::new(area.cx() - 320.0, section_y + 16.0 + i as f32 * 105.0, 640.0, 92.0);
+            let h = cx.hit(id2(0xB2, i as u32), card_r);
+            let hv = cx.anim(id2(0xB3, i as u32), if h.hovered { 1.0 } else { 0.0 });
+            let r_draw = card_r.inset(-hv * 1.5);
+            cx.cv.fill_rrect(r_draw, 12.0, th.pick(Color::rgba(255, 255, 255, 180), Color::rgba(30, 36, 52, 180)));
+            cx.cv.stroke_rrect(r_draw, 12.0, 1.0, th.separator());
+            cx.text(card_r.x + 18.0, card_r.y + 26.0, title, 14.0, Weight::Semibold, th.label());
+            cx.text(card_r.x + 18.0, card_r.y + 50.0, desc, 12.0, Weight::Regular, th.label2());
+            cx.text(card_r.x + 18.0, card_r.y + 74.0, meta, 11.0, Weight::Regular, th.pick(Color::hex(0x0A84FF), Color::hex(0x5E5CE6)));
+        }
+
+        // Draw scrollbar if scrollable
+        if total_h > content_r.h {
+            let track_h = content_r.h - 16.0;
+            let thumb_h = (content_r.h / total_h * track_h).max(24.0);
+            let thumb_y = content_r.y + 8.0 + (self.scroll.y / (total_h - content_r.h)) * (track_h - thumb_h);
+            let thumb_r = Rect::new(area.w - 10.0, thumb_y, 4.0, thumb_h);
+            cx.cv.fill_rrect(thumb_r, 2.0, th.separator().fade(0.8));
+        }
+
+        cx.cv.pop_clip();
+
         title_bar(cx, area, "");
         cx.glass_icon_button("bback", Rect::new(84.0, 10.0, 34.0, 34.0), Icon::ChevL, true);
         cx.glass_icon_button("bfwd", Rect::new(124.0, 10.0, 34.0, 34.0), Icon::ChevR, false);
