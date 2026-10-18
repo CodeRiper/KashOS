@@ -37,6 +37,7 @@ This table records every security, isolation, and architectural claim made about
 
 ## Audit History & Milestones
 
+- **2026-10-18 (Task F-02 Passed)**: Integrated 32-bit protected-mode CPUID feature gating in `boot.S` before touching EFER or paging registers. Validated clean failure refusal messages on VGA text (`0xB8000`) and serial COM1 (`0x3F8`) across unsupported architectures (`-cpu qemu32` for 32-bit Long Mode refusal; `-cpu pentium3` for SSE2 refusal) with zero triple-faults or reset loops.
 - **2026-10-18 (Task F-13 Passed)**: Purged simulated device strings ("RootHub-USB3", "HID Keyboard", "HID Optical Mouse") from `XhciController::init`. Discovered USB controllers now honestly report driver not implemented, while T0 input is reliably powered by the fully operational PS/2 driver.
 - **2026-10-18 (Task F-11 & F-12 Passed)**: Cleansed ISO builder (`make_iso.py`) of placeholder Ed25519 signatures (`PQ_VERIFIED`), decorative unread files (`/etc/security.conf`), and fake application capsules referencing non-existent ELFs. Synchronized `manifest.toml` with `VERSION` and implemented features. Purged unbacked checkmarks from `shell.rs` and aligned capsule manager with Phase U userland reality.
 - **2026-10-18 (Task F-10 Passed)**: Renamed `formal_invariants.rs` to `capability_property_tests.rs`. Demoted claims to honest property-based unit testing (E1/E2). Removed unbacked "formal/machine-checked" claims from docs until real Kani/Verus proof harnesses are implemented in `proofs/` (Phase 10).

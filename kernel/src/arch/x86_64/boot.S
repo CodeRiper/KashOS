@@ -108,6 +108,44 @@ _start:
 
     mov   esp, _boot_stack_top
 
+    /* == Hardware Feature Checks (Task F-02 / Rule 17) ==
+     * Verify CPUID, MSR, PAE, APIC, SSE2, Long Mode, and NX before touching EFER. */
+    pushfd
+    pop   eax
+    mov   ecx, eax
+    xor   eax, 0x00200000
+    push  eax
+    popfd
+    pushfd
+    pop   eax
+    push  ecx
+    popfd
+    xor   eax, ecx
+    jz    _cpu_missing_cpuid
+
+    mov   eax, 1
+    cpuid
+    test  edx, 0x00000020     /* bit 5: MSR */
+    jz    _cpu_missing_msr
+    test  edx, 0x00000040     /* bit 6: PAE */
+    jz    _cpu_missing_pae
+    test  edx, 0x00000200     /* bit 9: APIC */
+    jz    _cpu_missing_apic
+    test  edx, 0x04000000     /* bit 26: SSE2 */
+    jz    _cpu_missing_sse2
+
+    mov   eax, 0x80000000
+    cpuid
+    cmp   eax, 0x80000001
+    jb    _cpu_missing_longmode
+
+    mov   eax, 0x80000001
+    cpuid
+    test  edx, 0x20000000     /* bit 29: Long Mode */
+    jz    _cpu_missing_longmode
+    test  edx, 0x00100000     /* bit 20: No-Execute (NX) */
+    jz    _cpu_missing_nx
+
     lgdt  [_gdt64_ptr]
 
     mov   eax, cr4
@@ -157,16 +195,7 @@ _fill_pd3:
     lea   eax, [_boot_pml4]
     mov   cr3, eax
 
-    /* EFER: LME (bit 8, long mode enable) and NXE (bit 11, no-execute
-     * enable). NXE must be on before any page table that actually sets a
-     * leaf's NX bit (bit 63) becomes active, or that bit is architecturally
-     * reserved/ignored and every page stays executable regardless — see
-     * kernel::mmu, which builds the real NX-respecting table this kernel
-     * switches to shortly after Rust starts. The provisional identity map
-     * this file builds never sets NX on anything, so turning NXE on here,
-     * before that map is even active, changes nothing about it — this is
-     * simply the earliest, simplest place to guarantee NXE is on in time
-     * for later. */
+    /* EFER: LME (bit 8, long mode enable) and NXE (bit 11, no-execute enable) */
     mov   ecx, 0xC0000080
     rdmsr
     or    eax, 0x901          /* SCE (bit 0) + LME (bit 8) + NXE (bit 11) */
@@ -180,9 +209,80 @@ _fill_pd3:
     ljmpl $0x08, $_start64
     .intel_syntax noprefix
 
+_cpu_missing_cpuid:
+    lea   esi, [_str_err_cpuid]
+    jmp   _boot_refusal_halt
+
+_cpu_missing_msr:
+    lea   esi, [_str_err_msr]
+    jmp   _boot_refusal_halt
+
+_cpu_missing_pae:
+    lea   esi, [_str_err_pae]
+    jmp   _boot_refusal_halt
+
+_cpu_missing_apic:
+    lea   esi, [_str_err_apic]
+    jmp   _boot_refusal_halt
+
+_cpu_missing_sse2:
+    lea   esi, [_str_err_sse2]
+    jmp   _boot_refusal_halt
+
+_cpu_missing_longmode:
+    lea   esi, [_str_err_longmode]
+    jmp   _boot_refusal_halt
+
+_cpu_missing_nx:
+    lea   esi, [_str_err_nx]
+    jmp   _boot_refusal_halt
+
+_boot_refusal_halt:
+    mov   edi, 0x000B8000
+    mov   ah, 0x4F
+
+_refusal_loop:
+    lodsb
+    test  al, al
+    jz    _refusal_done
+    mov   [edi], ax
+    add   edi, 2
+    mov   bl, al
+_wait_serial:
+    mov   dx, 0x3FD
+    in    al, dx
+    test  al, 0x20
+    jz    _wait_serial
+    mov   al, bl
+    mov   dx, 0x3F8
+    out   dx, al
+    jmp   _refusal_loop
+
+_refusal_done:
+_refusal_hang:
+    cli
+    hlt
+    jmp   _refusal_hang
+
 _boot32_hang:
     hlt
     jmp   _boot32_hang
+
+.section .rodata.boot_err, "a"
+_str_err_cpuid:
+    .asciz "\r\n[KashOS Boot Error] CPU lacks CPUID support. KashOS requires an x86_64 CPU with NX. System halted.\r\n"
+_str_err_msr:
+    .asciz "\r\n[KashOS Boot Error] CPU lacks MSR support. KashOS requires an x86_64 CPU with NX. System halted.\r\n"
+_str_err_pae:
+    .asciz "\r\n[KashOS Boot Error] CPU lacks PAE support. KashOS requires an x86_64 CPU with NX. System halted.\r\n"
+_str_err_apic:
+    .asciz "\r\n[KashOS Boot Error] CPU lacks on-chip APIC. KashOS requires an x86_64 CPU with NX. System halted.\r\n"
+_str_err_sse2:
+    .asciz "\r\n[KashOS Boot Error] CPU lacks SSE2 support. KashOS requires an x86_64 CPU with NX. System halted.\r\n"
+_str_err_longmode:
+    .asciz "\r\n[KashOS Boot Error] This CPU lacks 64-bit Long Mode (32-bit CPU detected). KashOS requires x86_64 with NX. System halted.\r\n"
+_str_err_nx:
+    .asciz "\r\n[KashOS Boot Error] This CPU lacks No-Execute (NX) page protection. KashOS requires x86_64 with NX. System halted.\r\n"
 
 /* -- 64-bit entry -- */
 .section .text
