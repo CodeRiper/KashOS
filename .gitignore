@@ -25,3 +25,9 @@ kash_drive.img
 Thumbs.db
 .DS_Store
 
+# Shipped ISO build directory binaries
+isodir/boot/kash-kernel
+isodir/boot/*.bin
+isodir/boot/*.elf
+
+

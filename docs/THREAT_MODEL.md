@@ -1,6 +1,6 @@
 # KashOS Threat Model
 
-This document defines the official threat model, security perimeter, and explicit trust assumptions for **KashOS**, adhering to the 10 Non-Negotiable Rules in [`docs/KASHOS_BUILD_GUIDE.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/KASHOS_BUILD_GUIDE.md).
+This document defines the official threat model, security perimeter, and explicit trust assumptions for **KashOS**, adhering to the 20 Non-Negotiable Rules in [`docs/KASHOS_BUILD_GUIDE.md`](KASHOS_BUILD_GUIDE.md).
 
 ---
 
@@ -18,10 +18,10 @@ This document defines the official threat model, security perimeter, and explici
 
 | Attacker / Threat Vector | In Scope | Primary Defense Mechanism | Residual Risk / Limitations |
 | :--- | :---: | :--- | :--- |
-| **Remote Network Attacker** | **Yes** | Network stack (`smoltcp`) isolated in its own user-mode service (`sys-net`); default-deny firewall; no ambient network authority for applications. | Bugs in `smoltcp` or NIC driver compromise only `sys-net`, not kernel memory or vault keys. |
+| **Remote Network Attacker** | **Yes** | Network stack isolated in its own user-mode service (`sys-net`); default-deny firewall; no ambient network authority for applications. | Bugs in net stack or NIC driver compromise only `sys-net`, not kernel memory or vault keys. |
 | **Malicious Application or File** | **Yes** | Per-app capability spaces; disposable execution compartments (`disp-vm`) with volatile RAM scratchpads; zero shared memory without explicit capability grant. | Applications with legitimate file write capability can still corrupt permitted files. |
-| **Malicious USB / PCIe Device** | **Yes** | Hardware IOMMU DMA remapping per device (`Bus:Device.Function`); USB stack isolated in user-mode `sys-usb`; strict USB device class allow-listing. | Devices on legacy hardware without IOMMU or with broken ACPI DMAR tables cannot be protected against bus-master DMA attacks. |
-| **Physical Thief (Powered Off)** | **Yes** | Full-disk AEAD encryption (`kvault`), Argon2id password hashing, TPM 2.0 sealed keys, and measured boot chain. | Passwords with low entropy remain vulnerable to offline dictionary attack if TPM rate limiting is bypassed. |
+| **Malicious USB / PCIe Device** | **Yes** | Hardware IOMMU DMA remapping per device (`Bus:Device.Function`); USB stack isolated in user-mode `sys-usb`; strict USB device class allow-listing. | Devices on legacy hardware without IOMMU or with broken ACPI DMAR tables cannot be protected against bus-master DMA attacks (falls back to bounce buffers, documented as weaker). |
+| **Physical Thief (Powered Off)** | **Yes** | Full-disk AEAD encryption (`kvault`), Argon2id password hashing, TPM 2.0 sealed keys, and measured boot chain. | Passwords with low entropy remain vulnerable to offline dictionary attack if TPM rate limiting is absent or bypassed. |
 | **Evil Maid (Boot Tampering)** | **Partly** | UEFI Secure Boot, TPM PCR extension across boot stages, cryptographic signature verification of kernel and init images. | Requires authentic hardware platform with uncompromised UEFI firmware and physical Secure Boot keys. |
 | **Cold-Boot / DMA with Machine On** | **Partly** | Hardware IOMMU blocks external DMA; volatile RAM scrubbing on screen lock; master encryption key zeroization upon lock or duress trigger. | Physical RAM chip freezing attacks within seconds of power-off before memory decay occurs. |
 | **Compromised Hypervisor / Firmware / Hardware Backdoors** | **No** | **Out of scope.** KashOS explicitly assumes the CPU silicon, hardware microcode, and lowest-level platform firmware execute correctly according to architectural specifications. | Hardware trojans or hypervisor introspection cannot be mitigated by guest OS software. |
@@ -29,8 +29,24 @@ This document defines the official threat model, security perimeter, and explici
 
 ---
 
-## 3. Honest Security Principles
+## 3. Tier 0 (T0 Baseline) Fallbacks & Honest Degradation Modes
 
-1. **No Unproven Marketing**: No security claim is published in documentation or emitted at boot unless backed by a test, a fuzzing run, or a machine-checked proof recorded in [`docs/CLAIMS.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/CLAIMS.md).
+On legacy T0 hardware (2006-2009 Core 2 class laptops, 1 core, 1 GiB RAM, BIOS, no TPM, no IOMMU, no RDRAND):
+
+1. **No RDRAND/RDSEED Entropy Fallback**:
+   - Entropy is harvested from CPU jitter (TSC delta variances around cache/memory loops), PS/2 keyboard/mouse interrupt timing, RTC, and an encrypted random seed persisted between boots.
+   - Master key generation strictly fails closed (`Err(NotEnoughEntropy)`) if the conservative entropy estimator is below 256 bits, requiring interactive keystroke timing input.
+2. **No TPM 2.0 Fallback**:
+   - TPM status is reported as `NotAvailable`. Key sealing falls back to user passphrase-only Argon2id KEK derivation. No software TPM emulation is ever passed off as real hardware sealing.
+3. **No IOMMU Fallback**:
+   - When ACPI DMAR is absent, translation is marked `NotAvailable`. Drivers run with isolated kernel-allocated bounce buffers at fixed addresses; documented honestly as weaker protection against malicious bus masters.
+4. **No AES-NI Fallback**:
+   - XChaCha20-Poly1305 remains the default cipher for all storage and IPC cryptography, avoiding cache-timing vulnerabilities in software AES.
+
+---
+
+## 4. Honest Security Principles
+
+1. **No Unproven Marketing**: No security claim is published in documentation or emitted at boot unless backed by a test, a fuzzing run, or a machine-checked proof recorded in [`docs/CLAIMS.md`](CLAIMS.md).
 2. **Fail Closed**: If essential hardware security features (IOMMU, hardware RNG, TPM) are absent, the OS explicitly reports the absence, disables dependent functionality, and does not pretend protection exists.
 3. **Auditability**: Every `unsafe` block must be accompanied by a `// SAFETY:` rationale documenting the exact invariant required and upheld.

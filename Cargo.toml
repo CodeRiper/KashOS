@@ -4,11 +4,15 @@ members = ["kcore", "kvault", "khal", "knet", "kpaging", "kipc", "kscheduler", "
 
 [profile.release]
 opt-level = 2
-debug = true
+debug = false
+strip = "symbols"
+panic = "abort"
 overflow-checks = true
 
 [profile.kernel]
 inherits = "release"
 opt-level = "s"         # size-optimise kernel binary
+debug = false
+strip = "symbols"
 panic = "abort"
 overflow-checks = true
