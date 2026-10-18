@@ -13,42 +13,63 @@ def create_release_zip():
     critical_files = [
         "kash-os.iso",
         "README.md",
+        "SECURITY.md",
+        "CONTRIBUTING.md",
+        "TESTING.md",
+        "ARCHITECTURAL_SECURITY_REPORT.md",
+        "CRITIQUE_AND_VERIFICATION_REPORT.md",
+        "LOW_HARDWARE_VM_TEST.md",
+        "VIRTUALBOX_GUIDE.md",
+        "VIRTUALBOX_OPTIMIZATION_GUIDE.md",
         "docs/CLAIMS.md",
         "docs/THREAT_MODEL.md",
         "docs/KASHOS_BUILD_GUIDE.md",
         "docs/ARCHITECTURAL_SECURITY_REPORT.md",
+        "desktop.png",
+        "vbox_kashos_desktop.png",
         "qemu_phase10_screen.png",
         "qemu_phase9_screen.png",
         "run_kashos_interactive.bat",
         "run_kashos_interactive.ps1",
+        "Launch_KashOS.bat",
+        "Run-KashOS-QEMU-LowMemory.bat",
+        "launch_virtualbox.bat",
+        "rust-toolchain.toml",
+        "build_iso.sh",
         "isodir/boot/kash-kernel",
         "target/x86_64-unknown-none/release/kernel",
     ]
 
-    # Directories to recursively include
+    # Directories to recursively include (all 12 workspace crates + tooling)
     code_dirs = [
         "docs",
         "kernel",
         "kcore",
         "kpaging",
-        "knet",
-        "kvault",
-        "khal",
         "kscheduler",
+        "kipc",
+        "kvault",
+        "knet",
+        "kblock",
+        "kboot",
+        "khal",
+        "kheap",
         "kash-ui",
         "scripts",
         "isodir",
+        ".cargo",
+        ".github",
     ]
 
     # Files/extensions to ignore
-    ignored_extensions = {".ppm", ".log", ".tmp"}
+    ignored_extensions = {".ppm", ".log", ".tmp", ".img"}
     ignored_dirs = {"target", ".git", ".gemini", ".system_generated"}
 
     seen = set()
     count = 0
     with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         # Add root project files
-        for root_file in ["Cargo.toml", "Cargo.lock", "Makefile"]:
+        for root_file in ["Cargo.toml", "Cargo.lock", "Makefile", ".gitignore"]:
             if os.path.exists(root_file) and root_file not in seen:
                 zf.write(root_file, root_file)
                 seen.add(root_file)

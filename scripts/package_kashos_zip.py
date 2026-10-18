@@ -11,7 +11,7 @@ def package_zip(output_zip="kash os.zip"):
     }
     exclude_files = {
         'kash os.zip', 'KashOS_Complete_Source.zip', 'KashOS_Source_Release.zip',
-        'kash_drive.img', 'bios_test.ppm', 'test_screen.ppm'
+        'KashOS_v0.1.0_Complete_Release.zip', 'kash_drive.img', 'bios_test.ppm', 'test_screen.ppm'
     }
 
     base_dir = os.path.abspath(".")
