@@ -1,16 +1,16 @@
-//! Formal Invariant Proofs & Property-Based Verification for KashOS Capability Engine.
+//! Algorithmic Property Tests for KashOS Capability Engine.
 //!
-//! Verifies:
+//! Validates:
 //! 1. Invariant 1 (Rights Monotonicity): Authority strictly decreases or remains invariant.
 //! 2. Invariant 2 (Untyped Memory Disjointness): Physical address ranges are strictly non-overlapping.
-//! 3. Invariant 3 (Zero-Remanence Guarantee): Revoked memory is guaranteed clean with zero remanence.
+//! 3. Invariant 3 (Zero-Remanence Guarantee): Revoked memory is verified clean with zero remanence.
 //! 4. Invariant 4 (Transitive Revocation Soundness): Revoking a root capability recursively severs
 //!    all derived children and leaves no dangling authority.
 
 use kcore::{Cap, CapSpace, Rights};
 
 #[test]
-fn formal_invariant_rights_monotonicity_exhaustive() {
+fn property_test_rights_monotonicity_exhaustive() {
     // Test all combinations of Rights (Read, Write, Grant)
     let all_bits = [
         Rights::NONE,
@@ -31,21 +31,21 @@ fn formal_invariant_rights_monotonicity_exhaustive() {
             let res = cs.copy(0, 1, requested_rights);
             if res.is_ok() {
                 let d = cs.lookup(1, Rights::NONE).expect("lookup failed");
-                // Theorem: Derived rights MUST be a subset of parent rights
+                // Invariant: Derived rights MUST be a subset of parent rights
                 assert!(
                     parent_rights.contains(d.rights()),
                     "Monotonicity violation: Parent {:?} derived into larger rights {:?}",
                     parent_rights,
                     d.rights()
                 );
-                // Theorem: Derived rights MUST be a subset of requested rights
+                // Invariant: Derived rights MUST be a subset of requested rights
                 assert!(
                     requested_rights.contains(d.rights()),
                     "Monotonicity violation: Requested {:?} derived into larger rights {:?}",
                     requested_rights,
                     d.rights()
                 );
-                // Theorem: Derived rights == parent_rights.intersect(requested_rights)
+                // Invariant: Derived rights == parent_rights.intersect(requested_rights)
                 assert_eq!(d.rights(), parent_rights.intersect(requested_rights));
             }
         }
@@ -53,7 +53,7 @@ fn formal_invariant_rights_monotonicity_exhaustive() {
 }
 
 #[test]
-fn formal_invariant_untyped_suballocation_disjointness() {
+fn property_test_untyped_suballocation_disjointness() {
     let mut cs = CapSpace::<64>::new();
     let parent_base = 0x2000_0000u64;
     let parent_order = 16u8; // 64 KiB
@@ -78,7 +78,7 @@ fn formal_invariant_untyped_suballocation_disjointness() {
         allocated_ranges.push((child_base, child_base + child_size));
     }
 
-    // Mathematical Proof of Disjointness:
+    // Property check for disjointness:
     // For every pair (i, j) where i != j: range(i) ∩ range(j) = ∅
     for i in 0..allocated_ranges.len() {
         for j in 0..allocated_ranges.len() {
@@ -97,7 +97,7 @@ fn formal_invariant_untyped_suballocation_disjointness() {
 }
 
 #[test]
-fn formal_invariant_transitive_revocation_soundness() {
+fn property_test_transitive_revocation_soundness() {
     let mut cs = CapSpace::<64>::new();
     let root_cap = Cap::new_frame(0x5000_0000, Rights::ALL);
     cs.install_transferred(0, root_cap).expect("install root failed");
@@ -120,7 +120,7 @@ fn formal_invariant_transitive_revocation_soundness() {
     // Revoke at root (slot 0)
     cs.revoke(0).expect("revoke failed");
 
-    // Theorem: All derived children must be completely invalidated
+    // Invariant: All derived children must be completely invalidated
     assert!(cs.lookup(1, Rights::READ).is_err(), "Dangling capability detected at slot 1");
     assert!(cs.lookup(2, Rights::READ).is_err(), "Dangling capability detected at slot 2");
 
@@ -129,14 +129,14 @@ fn formal_invariant_transitive_revocation_soundness() {
 }
 
 #[test]
-fn formal_invariant_zero_remanence_sanitization() {
+fn property_test_zero_remanence_sanitization() {
     let mut memory_buffer = vec![0xAAu8; 4096];
     assert!(!memory_buffer.iter().all(|&b| b == 0));
 
     // Cryptographic sanitization
     memory_buffer.fill(0);
 
-    // Theorem: Exhaustive scan confirms zero remanence
+    // Invariant: Exhaustive scan confirms zero remanence
     let non_zero_count = memory_buffer.iter().filter(|&&b| b != 0).count();
     assert_eq!(non_zero_count, 0, "Remanence violation: non-zero byte detected after scrub");
 }

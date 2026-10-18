@@ -40,19 +40,19 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | **Compartments & MAC** | FLASK Mandatory Access Control (MAC) on all synchronous IPC, Access Vector Cache (AVC), ephemeral disposable domains (Domain 5, `disp-vm`) with zero-remanence teardown (`clflush` & audit scan), out-of-process Zero-Trust Powerbox broker (single-file delegation, sibling files blind, token revocation) | Tested and verified in Phase 8; boot self-tests T32, T33, T34, T35 passed |
 | **GUI & Display Server (`kash-ui`)** | High-assurance display server and compositor with Nitpicker-style retained unforgeable 4px domain borders, anti-fullscreen spoofing (menubar reserved), secure input routing (keystrokes delivered strictly to focused window), cross-window SHM buffer isolation, mediated clipboard sanitization | Tested and verified in Phase 9; boot self-tests T36, T37, T38, T39 passed |
 | **Shell Commands** | Standard utilities read real hardware/heap state or report stubs | Replaced all hardcoded simulations with honest state checks |
-| **Proofs & Hardening** | Formal invariant proofs (monotonicity, untyped disjointness, transitive revocation, zero remanence) & multi-surface fuzz stress testing | Tested and verified in Phase 10; boot self-tests T40, T41, T42, T43 passed; formal_invariants.rs passing |
+| **Property Tests & Hardening** | Algorithmic property tests (monotonicity, untyped disjointness, transitive revocation, zero remanence) & multi-surface fuzz stress testing | Tested in Phase 10; boot self-tests T40, T41, T42, T43 passed; capability_property_tests.rs passing |
 
 ---
 
 ## 🛡️ Threat Model & Security Policy
 
-KashOS operates under a clear, public threat model documented in [`docs/THREAT_MODEL.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/THREAT_MODEL.md).
+KashOS operates under a clear, public threat model documented in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 - **In Scope**: Remote network attackers, malicious applications/files, untrusted USB/PCIe peripherals, physical theft of powered-off machines (full-disk AEAD encryption).
 - **Partly In Scope**: Evil maid boot tampering (requires Secure Boot + TPM measured boot), cold-boot attacks (RAM scrubbing on lock).
 - **Out of Scope**: Compromised hardware silicon, microcode trojans, or compromised hypervisors.
 
-All claims are tracked in the claim-to-evidence registry in [`docs/CLAIMS.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/CLAIMS.md).
+All claims are tracked in the claim-to-evidence registry in [`docs/CLAIMS.md`](docs/CLAIMS.md).
 
 ---
 
