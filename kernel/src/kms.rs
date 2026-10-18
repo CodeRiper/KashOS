@@ -26,6 +26,7 @@ pub enum KmsError {
     TpmDeviceError,
     DerivationFailed,
     KeyVerificationFailed,
+    NotEnoughEntropy,
 }
 
 pub struct KeyManagementService {
@@ -61,7 +62,7 @@ impl KeyManagementService {
 
         match unseal_res {
             Ok(len) if len == MASTER_KEY_LEN => {
-                crate::kprintln!("[kms] ✓ Successfully unsealed Master Vault Key from TPM 2.0 hardware PCR policy");
+                crate::kprintln!("[kms] Successfully unsealed Master Vault Key from TPM 2.0 hardware PCR policy");
                 self.master_key = Some(Zeroizing::new(unsealed));
                 self.tpm_sealed.store(true, Ordering::Relaxed);
                 self.session_locked.store(false, Ordering::Relaxed);
@@ -77,13 +78,16 @@ impl KeyManagementService {
 
         // Attempt 2: Generate fresh master key from CSPRNG and seal to TPM 2.0
         let mut raw_key = [0u8; MASTER_KEY_LEN];
-        crate::csprng::fill_random_bytes(&mut raw_key);
+        if let Err(e) = crate::csprng::fill_random_bytes(&mut raw_key) {
+            crate::kprintln!("[kms] [FAIL-CLOSED] Refusing to generate master key: insufficient physical entropy ({:?})", e);
+            return Err(KmsError::NotEnoughEntropy);
+        }
 
         // Standard PCR mask: PCR 4 (Kernel Code) | PCR 7 (Secure Boot Policy) = (1 << 4) | (1 << 7) = 0x90
         let pcr_mask = (1 << kboot::PCR_KERNEL_CODE) | (1 << kboot::PCR_SECURE_BOOT_POLICY);
         match tpm::seal_key(pcr_mask, &raw_key) {
             Ok(h) => {
-                crate::kprintln!("[kms] ✓ Master Vault Key sealed to TPM 2.0 composite PCR policy (PCR 4 & 7, handle {:#x})", h);
+                crate::kprintln!("[kms] Master Vault Key sealed to TPM 2.0 composite PCR policy (PCR 4 & 7, handle {:#x})", h);
                 self.sealed_handle.store(h, Ordering::Relaxed);
                 self.tpm_sealed.store(true, Ordering::Relaxed);
             }
@@ -94,7 +98,7 @@ impl KeyManagementService {
 
         self.master_key = Some(Zeroizing::new(raw_key));
         self.session_locked.store(false, Ordering::Relaxed);
-        crate::kprintln!("[kms] ✓ KMS online and active");
+        crate::kprintln!("[kms] KMS online and active");
         Ok(())
     }
 

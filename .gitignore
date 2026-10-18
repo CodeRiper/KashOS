@@ -30,4 +30,8 @@ isodir/boot/kash-kernel
 isodir/boot/*.bin
 isodir/boot/*.elf
 
+# Python artifacts
+__pycache__/
+*.pyc
+
 

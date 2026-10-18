@@ -299,6 +299,7 @@ impl Ps2Controller {
 
             let is_mouse = (status & PS2_STATUS_MOUSE_DATA) != 0;
             let data = unsafe { Self::inb(PS2_DATA_PORT) };
+            crate::entropy::add_interrupt_entropy(if is_mouse { 12 } else { 1 }, data, crate::arch::rdtsc());
 
             if is_mouse {
                 // Byte 0 of a standard PS/2 mouse packet MUST have bit 3 (0x08) set to 1.

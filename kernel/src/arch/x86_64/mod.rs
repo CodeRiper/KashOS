@@ -366,9 +366,21 @@ pub fn irq_eoi() {
     apic::eoi();
 }
 
-/// Read hardware entropy. Used by kvault at init and by the kernel PRNG.
+/// Read hardware or physical entropy. Used by kvault at init and by the kernel PRNG.
 pub fn hw_entropy(buf: &mut [u8]) -> bool {
-    cpuid::fill_entropy(buf)
+    if cpuid::fill_entropy(buf) {
+        return true;
+    }
+    // Fallback for T0: extract from multi-source physical entropy pool if verified >= 256 bits
+    if crate::entropy::is_cryptographically_secure() {
+        let mut seed = [0u8; 32];
+        if crate::entropy::extract_seed(&mut seed).is_ok() {
+            let take = buf.len().min(32);
+            buf[..take].copy_from_slice(&seed[..take]);
+            return true;
+        }
+    }
+    false
 }
 
 /// Initialise all x86-64 hardware: UART → GDT → IDT → APIC → FPU/SSE → Clock.

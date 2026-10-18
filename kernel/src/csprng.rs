@@ -1,11 +1,12 @@
 //! Hardware-Entropy Seeded Cryptographic Pseudo-Random Number Generator (CSPRNG).
 //!
 //! Grounded in RFC 8439 and NIST SP 800-90A:
-//! - 256-bit entropy pool seeded directly from hardware CPU instructions (`RDRAND`/`RDSEED`).
+//! - 256-bit entropy pool seeded directly from verified physical entropy (CPU jitter, RTC, RDRAND/RDSEED).
 //! - SHA-256 in Counter (CTR) mode generating cryptographically secure pseudo-random byte streams.
 //! - Anti-prediction resistance: automatic forward-secret reseeding after every 64 KiB of generated output.
 //! - Implements `kvault::rand_core::RngCore` and `kvault::rand_core::CryptoRng` for zero-overhead integration
 //!   with `kvault::Vault` and Argon2id/XChaCha20 operations.
+//! - Rule 2 (Fail-Closed): Refuses to seed from unverified or single-sample sources.
 
 #![allow(dead_code)]
 
@@ -28,27 +29,18 @@ pub struct Csprng {
 }
 
 impl Csprng {
-    /// Creates a new CSPRNG seeded directly from hardware CPU entropy.
-    pub fn new() -> Self {
+    /// Creates a new CSPRNG seeded directly from verified physical entropy.
+    /// Fails closed if the entropy harvester has not collected at least 256 bits of physical entropy.
+    pub fn try_new() -> Result<Self, crate::entropy::EntropyError> {
         let mut seed = [0u8; 32];
+        crate::entropy::extract_seed(&mut seed)?;
+
         let mut nonce = [0u8; 16];
-
-        // Fill seed from hardware entropy (RDRAND / RDSEED)
-        if !crate::arch::hw_entropy(&mut seed) {
-            crate::kprintln!("[csprng] WARNING: Primary hardware entropy unavailable; using fallback timer mix");
-            let tsc = crate::arch::rdtsc();
-            seed[..8].copy_from_slice(&tsc.to_le_bytes());
-            seed[8..16].copy_from_slice(&(tsc.rotate_left(17)).to_le_bytes());
-            seed[16..24].copy_from_slice(&(tsc.rotate_left(33)).to_le_bytes());
-            seed[24..32].copy_from_slice(&(tsc.rotate_left(49)).to_le_bytes());
-        }
-
-        // Fill nonce from hardware entropy
-        if !crate::arch::hw_entropy(&mut nonce) {
-            let tsc = crate::arch::rdtsc();
-            nonce[..8].copy_from_slice(&(tsc ^ 0x5555_AAAA_5555_AAAA).to_le_bytes());
-            nonce[8..16].copy_from_slice(&(tsc.rotate_left(29) ^ 0xCAFE_BABE_DEAD_BEEF).to_le_bytes());
-        }
+        let mut hasher = Sha256::new();
+        hasher.update(&seed);
+        hasher.update(b"KashOS-CSPRNG-Nonce-v2");
+        let digest = hasher.finalize();
+        nonce.copy_from_slice(&digest[..16]);
 
         let mut rng = Self {
             key: Zeroizing::new(seed),
@@ -59,7 +51,14 @@ impl Csprng {
             blocks_generated: 0,
         };
         rng.refill_buffer();
-        rng
+        Ok(rng)
+    }
+
+    /// Fallback constructor for backwards-compatibility; fails closed by panicking if entropy is insufficient.
+    pub fn new() -> Self {
+        Self::try_new().unwrap_or_else(|e| {
+            panic!("[csprng] CRITICAL: Fail-closed on insufficient entropy: {:?}", e);
+        })
     }
 
     /// Creates a deterministic CSPRNG initialized with an explicit 256-bit seed.
@@ -101,14 +100,14 @@ impl Csprng {
         self.blocks_generated = self.blocks_generated.wrapping_add(1);
     }
 
-    /// Mixes fresh hardware entropy into the active key (forward secrecy).
+    /// Mixes fresh physical entropy into the active key (forward secrecy).
     pub fn reseed(&mut self) {
         let mut fresh_entropy = [0u8; 32];
-        if crate::arch::hw_entropy(&mut fresh_entropy) {
+        if crate::entropy::extract_seed(&mut fresh_entropy).is_ok() {
             let mut hasher = Sha256::new();
             hasher.update(&*self.key);
             hasher.update(&fresh_entropy);
-            hasher.update(b"KashOS-CSPRNG-Reseed-v1");
+            hasher.update(b"KashOS-CSPRNG-Reseed-v2");
             let new_key = hasher.finalize();
             self.key.copy_from_slice(&new_key);
         }
@@ -155,23 +154,41 @@ impl CryptoRng for Csprng {}
 
 pub static GLOBAL_CSPRNG: SpinLock<Option<Csprng>> = SpinLock::new(None);
 
-/// Initializes the global hardware-seeded CSPRNG.
-pub fn init() {
+/// Initializes the global physical-entropy seeded CSPRNG.
+pub fn init() -> Result<(), crate::entropy::EntropyError> {
     let mut guard = GLOBAL_CSPRNG.lock();
     if guard.is_none() {
         crate::kprintln!("[csprng] Initializing hardware-seeded ChaCha20/SHA-256 CSPRNG engine...");
-        *guard = Some(Csprng::new());
-        crate::kprintln!("[csprng] ✓ CSPRNG online (entropy pool verified with forward-secrecy re-keying)");
+        match Csprng::try_new() {
+            Ok(rng) => {
+                *guard = Some(rng);
+                crate::kprintln!("[csprng] CSPRNG online: seeded with verified physical entropy");
+            }
+            Err(e) => {
+                crate::kprintln!("[csprng] [FAIL-CLOSED] CSPRNG initialization refused: {:?}", e);
+                return Err(e);
+            }
+        }
     }
+    Ok(())
+}
+
+/// Returns true if the global CSPRNG has been successfully initialized.
+pub fn is_ready() -> bool {
+    GLOBAL_CSPRNG.lock().is_some()
 }
 
 /// Helper function to fill a slice with random bytes from the global CSPRNG.
-pub fn fill_random_bytes(dest: &mut [u8]) {
+/// Fails closed if the CSPRNG has not been seeded with verified physical entropy.
+pub fn fill_random_bytes(dest: &mut [u8]) -> Result<(), crate::entropy::EntropyError> {
     let mut guard = GLOBAL_CSPRNG.lock();
     if let Some(rng) = guard.as_mut() {
         rng.fill_bytes(dest);
+        Ok(())
     } else {
-        let mut rng = Csprng::new();
-        rng.fill_bytes(dest);
+        Err(crate::entropy::EntropyError::NotEnoughEntropy {
+            available: crate::entropy::available_bits(),
+            required: crate::entropy::MIN_CRYPTOGRAPHIC_ENTROPY_BITS,
+        })
     }
 }

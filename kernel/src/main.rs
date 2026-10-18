@@ -76,6 +76,8 @@ pub mod sync;
 pub mod task;
 mod shell;
 pub mod csprng;
+#[allow(unsafe_code)]
+pub mod entropy;
 pub mod kms;
 #[allow(unsafe_code)]
 pub mod vfs;
@@ -202,16 +204,20 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
 
     print_progress_bar(65, "Applying available kernel memory and key handling...");
 
-    // ── Step 5: Network and privacy configuration banner ─────────────────────
+    // ── Step 5: Initialize physical entropy harvester & network/privacy banner ──
     let mut entropy_seed = 0u64;
-    let mut buf = [0u8; 8];
-    if arch::hw_entropy(&mut buf) {
-        entropy_seed = u64::from_le_bytes(buf);
-        status::update(|s| s.hw_entropy = crate::status::ComponentStatus::Real);
-    } else {
-        kprintln!("[entropy] ERROR: Hardware RDRAND/RDSEED/virtio-rng unavailable (Rule R2: Fail-Closed).");
-        kprintln!("[entropy] Refusing to seed cryptographic keys from insecure TSC timer.");
-        status::update(|s| s.hw_entropy = crate::status::ComponentStatus::NotAvailable);
+    match entropy::init() {
+        Ok(_) => {
+            let mut seed_buf = [0u8; 32];
+            if entropy::extract_seed(&mut seed_buf).is_ok() {
+                let mut seed_bytes = [0u8; 8];
+                seed_bytes.copy_from_slice(&seed_buf[..8]);
+                entropy_seed = u64::from_le_bytes(seed_bytes);
+            }
+        }
+        Err(e) => {
+            kprintln!("[entropy] WARNING: Physical entropy harvester yielded insufficient bits: {:?}", e);
+        }
     }
     kash::print_network_config(entropy_seed);
     kash::print_privacy_config();
@@ -231,13 +237,13 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
     services.print();
 
     print_progress_bar(80, "Mounting kvault-fs authenticated storage & schemes...");
-    csprng::init();
+    let _ = csprng::init();
     arch::init_vtd();
     arch::init_tpm();
     arch::init_input();
     arch::init_nic();
     blockdev::init();
-    kms::init();
+    let _ = kms::init();
 
     // Mount persistent kvault root filesystem
     if let Ok(master_key) = kms::KMS.lock().get_master_key() {
