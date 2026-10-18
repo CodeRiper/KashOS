@@ -445,16 +445,12 @@ impl XhciController {
     }
 
     pub fn init(&mut self) -> Result<(), &'static str> {
-        self.is_running = true;
-        self.connected_devices.push(String::from("RootHub-USB3 (xHCI Protocol 3.0)"));
-        self.connected_devices.push(String::from("HID Keyboard (Boot Interface Protocol)"));
-        self.connected_devices.push(String::from("HID Optical Mouse (Relative Motion 1000DPI)"));
-
+        self.is_running = false;
         crate::kprintln!(
-            "[xhci] USB 3.0 Host Controller @ MMIO {:#010x}: ACTIVE ({} ports, {} slots)",
-            self.mmio_base, self.max_ports, self.max_slots
+            "[xhci] USB host controller found @ MMIO {:#010x}, driver not implemented (PS/2 active)",
+            self.mmio_base
         );
-        Ok(())
+        Err("USB host controller found, driver not implemented")
     }
 
     pub fn decode_hid_keyboard_report(&self, report: &[u8; 8]) -> Option<InputEvent> {
