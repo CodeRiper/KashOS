@@ -1,5 +1,6 @@
 @echo off
 title KashOS v0.1.0 Interactive Workstation Launcher
+cd /d "%~dp0"
 cls
 echo ======================================================================
 echo           KASH-OS v0.1.0 HIGH-ASSURANCE WORKSTATION LAUNCHER
@@ -7,13 +8,19 @@ echo ======================================================================
 echo.
 echo [*] Checking KashOS kernel and ISO images...
 if not exist "isodir\boot\kash-kernel" (
-    echo [-] Error: isodir\boot\kash-kernel not found. Run 'cargo build --release -p kernel' first.
+    echo [-] Error: isodir\boot\kash-kernel not found. Run 'cargo build --release -p kernel --target x86_64-unknown-none' first.
     pause
     exit /b 1
 )
 
-echo [+] Kernel Binary: isodir\boot\kash-kernel
-echo [+] ISO Image:     kash-os.iso
+set "QEMU_BIN=qemu-system-x86_64"
+if defined QEMU_PATH if exist "%QEMU_PATH%" set "QEMU_BIN=%QEMU_PATH%"
+if not defined QEMU_PATH if exist "%USERPROFILE%\qemu\qemu-system-x86_64.exe" set "QEMU_BIN=%USERPROFILE%\qemu\qemu-system-x86_64.exe"
+if not defined QEMU_PATH if exist "C:\Program Files\qemu\qemu-system-x86_64.exe" set "QEMU_BIN=C:\Program Files\qemu\qemu-system-x86_64.exe"
+
+echo [+] Kernel Binary: %~dp0isodir\boot\kash-kernel
+echo [+] ISO Image:     %~dp0kash-os.iso
+echo [+] QEMU Binary:   %QEMU_BIN%
 echo.
 echo [*] System Configuration:
 echo     - CPU:          4 vCPUs (Multi-core SMP)
@@ -31,17 +38,17 @@ echo.
 echo [!] Starting KashOS Workstation in QEMU...
 echo.
 
-qemu-system-x86_64 ^
+"%QEMU_BIN%" ^
     -accel whpx,kernel-irqchip=off ^
     -accel tcg,thread=multi ^
     -cpu max ^
     -smp 4 ^
     -m 1024M ^
     -vga std ^
-    -kernel isodir/boot/kash-kernel ^
+    -kernel "%~dp0isodir\boot\kash-kernel" ^
     -device e1000,netdev=net0 ^
     -netdev user,id=net0 ^
-    -serial file:kash_serial.log
+    -serial file:"%~dp0kash_serial.log"
 
 echo.
 echo [!] KashOS session ended. Serial log saved to 'kash_serial.log'.
