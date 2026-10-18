@@ -57,68 +57,25 @@ def create_kash_iso(output_iso="kash-os.iso", kernel_bin="target/x86_64-unknown-
     # Add El Torito Catalog pointing to /BOOT/BOOT.BIN;1
     iso.add_eltorito('/BOOT/BOOT.BIN;1', bootcatfile='/BOOT/BOOT.CAT;1', media_name='noemul')
 
-    # 4. System Manifest & Ed25519 Detached Signature
-    print("[+] Injecting System Manifest & Ed25519 detached signature...")
-    manifest_content = b"""[system]
+    # 4. System Manifest (Honest metadata consumed by system status)
+    print("[+] Injecting System Manifest...")
+    version_str = "0.1.0"
+    if os.path.exists("VERSION"):
+        with open("VERSION", "r", encoding="utf-8") as vf:
+            version_str = vf.read().strip()
+
+    manifest_content = f"""[system]
 os_name = "KashOS"
-version = "0.2.0"
+version = "{version_str}"
 architecture = "x86_64"
-security_profile = "high_assurance_graphene_hardened"
+security_profile = "capability_microkernel"
 
 [storage]
 vault_filesystem = "kvault-fs"
-encryption = "Argon2id (m=256MiB, t=12, p=1) + XChaCha20-Poly1305 / XTS-AES-256"
-dispersal_stripes = 4000
+encryption = "Argon2id + XChaCha20-Poly1305"
 blinded_superblocks = true
-
-[security]
-cold_boot_defense = "TRESOR (CPU DR0-DR3 key staging)"
-firmware_wipe = "TCG MOR (Model stub)"
-inactivity_auto_reboot = "18h default (BFU transition)"
-sandboxing = "kcore CDT + OpenBSD pledge/unveil"
-"""
+""".encode("utf-8")
     iso.add_fp(io.BytesIO(manifest_content), len(manifest_content), '/MANIFEST.TOML;1', rr_name='manifest.toml', joliet_path='/manifest.toml')
-
-    signature_content = b"ED25519:KASH_KERNEL_AUTHENTIC_BUILD_SIGNATURE_OK_2026_PQ_VERIFIED"
-    iso.add_fp(io.BytesIO(signature_content), len(signature_content), '/MANIFEST.SIG;1', rr_name='manifest.sig', joliet_path='/manifest.sig')
-
-    # 5. Security & Network Configuration Files
-    print("[+] Adding /etc/security.conf and /etc/tor/torrc...")
-    sec_conf = b"""# KashOS System Security Configuration
-TRESOR_STORAGE=CPU_DEBUG_REGISTERS
-MEMORY_SCRUB_ON_REVOKE=ENABLED
-HARDENED_MALLOC_ZERO_ON_FREE=ENABLED
-USB_CHARGE_ONLY_ON_LOCK=ENABLED
-TOR_FAIL_CLOSED_KILLSWITCH=ENABLED
-FLASK_MAC_MODE=ENFORCING
-"""
-    iso.add_fp(io.BytesIO(sec_conf), len(sec_conf), '/ETC/SECURITY.CNF;1', rr_name='security.conf', joliet_path='/etc/security.conf')
-
-    # 6. Pre-Packaged Application Capsules (.kapp)
-    print("[+] Packaging Capability Application Capsules (.kapp)...")
-    capsules = [
-        ("org.system.editor.kapp", "C/Musl Text Editor", "c", "bin/editor.elf"),
-        ("org.science.matrix.kapp", "C++20 Matrix Solver", "cpp", "bin/solver.elf"),
-        ("org.python.analyzer.kapp", "Python 3.12 Sandboxed Analyzer", "python", "bin/main.py"),
-        ("org.enterprise.payroll.kapp", "Java 21 JVM Bytecode Application", "java", "bin/payroll.jar"),
-        ("org.tor.browser.kapp", "Disposable Ephemeral Tor Browser", "rust", "bin/browser.elf"),
-    ]
-
-    for cap_id, name, runtime, entrypoint in capsules:
-        cap_dir = f"/KAPPS/{cap_id.upper().replace('.', '_')}"
-        iso.add_directory(cap_dir, rr_name=cap_id, joliet_path=f"/kapps/{cap_id}")
-        cap_manifest = f"""[application]
-name = "{name}"
-id = "{cap_id}"
-runtime = "{runtime}"
-entrypoint = "{entrypoint}"
-
-[security]
-pledge = ["stdio", "rpath", "wpath"]
-unveil = ["bin:rx", "lib:r", "data:rwc"]
-""".encode('utf-8')
-        manifest_filename = f"{cap_dir}/MANIFEST.TOML;1"
-        iso.add_fp(io.BytesIO(cap_manifest), len(cap_manifest), manifest_filename, rr_name='manifest.toml', joliet_path=f"/kapps/{cap_id}/manifest.toml")
 
     # 7. Write ISO File
     print(f"[+] Writing bootable image to '{output_iso}'...")

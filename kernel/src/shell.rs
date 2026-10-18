@@ -441,21 +441,21 @@ impl KashShell {
                             let mut instance = KappInstance::new(manifest, pid);
                             kprintln!("[kctl] Verifying Ed25519 signature for '{}'...", instance.manifest.id);
                             if let Err(e) = instance.verify_signature() {
-                                kprintln!("[kctl] ✗ Signature verification failed: {}", e);
+                                kprintln!("[kctl] Signature verification failed: {}", e);
                                 return;
                             }
-                            kprintln!("[kctl] ✓ Ed25519 signature VALID. Digest matched.");
+                            kprintln!("[kctl] Ed25519 signature verified for '{}'.", instance.manifest.id);
                             kprintln!("[kctl] Synthesizing scoped VFS layout at '{}'...", instance.scoped_vfs_root);
                             kprintln!("  /bin  -> Read-Only, Execute");
                             kprintln!("  /lib  -> Read-Only");
                             kprintln!("  /data -> Read-Write, Scoped Isolated Storage");
                             kprintln!("  /logs -> Append-Only");
-                            kprintln!("[kctl] Enforcing OpenBSD pledge bitmask: 0x{:X}", instance.manifest.pledge_flags);
+                            kprintln!("[kctl] Enforcing pledge bitmask: 0x{:X}", instance.manifest.pledge_flags);
                             if let Err(e) = instance.launch(&mut self.flask) {
-                                kprintln!("[kctl] ✗ FLASK MAC blocked launch: {}", e);
+                                kprintln!("[kctl] FLASK MAC blocked launch: {}", e);
                                 return;
                             }
-                            kprintln!("[kctl] ✓ Capsule '{}' (PID {}) running successfully!", instance.manifest.name, instance.pid);
+                            kprintln!("[kctl] Capsule '{}' (PID {}) started.", instance.manifest.name, instance.pid);
                         } else {
                             kprintln!("kctl: bundle '{}' not found. Type 'kctl list'.", id);
                         }
@@ -470,16 +470,19 @@ impl KashShell {
                             manifest.disposable = true;
                             let pid = self.capsule_mgr.allocate_pid();
                             let mut instance = KappInstance::new(manifest, pid);
-                            let _ = instance.verify_signature();
-                            kprintln!("[disp.kapp] Spawning Qubes-style ephemeral RAM-only session PID {}...", instance.pid);
-                            kprintln!("[disp.kapp] Allocating 4 MB volatile copy-on-write RAM scratchpad...");
-                            if let Err(e) = instance.launch(&mut self.flask) {
-                                kprintln!("[disp.kapp] ✗ Launch failed: {}", e);
+                            if let Err(e) = instance.verify_signature() {
+                                kprintln!("[disp.kapp] Signature verification failed: {}", e);
                                 return;
                             }
-                            kprintln!("[disp.kapp] Session active. Performing ephemeral isolated operations...");
+                            kprintln!("[disp.kapp] Spawning ephemeral RAM session PID {}...", instance.pid);
+                            kprintln!("[disp.kapp] Allocating volatile copy-on-write RAM scratchpad...");
+                            if let Err(e) = instance.launch(&mut self.flask) {
+                                kprintln!("[disp.kapp] Launch failed: {}", e);
+                                return;
+                            }
+                            kprintln!("[disp.kapp] Session active.");
                             instance.terminate();
-                            kprintln!("[disp.kapp] ✓ Session completed. Host persistent storage remains 100% pristine!");
+                            kprintln!("[disp.kapp] Ephemeral session terminated.");
                         } else {
                             kprintln!("kctl: bundle '{}' not found.", id);
                         }

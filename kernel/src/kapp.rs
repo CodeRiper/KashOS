@@ -159,102 +159,18 @@ pub struct CapsuleManager {
 
 impl CapsuleManager {
     pub fn new() -> Self {
-        let mut mgr = Self {
+        Self {
             installed_bundles: Vec::new(),
             next_pid: 200,
-        };
-        mgr.seed_default_capsules();
-        mgr
-    }
-
-    fn seed_default_capsules(&mut self) {
-        // 1. C Runtime Capsule
-        self.installed_bundles.push(KappManifest {
-            name: String::from("Text Editor (C/Musl)"),
-            id: String::from("org.system.editor"),
-            version: String::from("1.4.0"),
-            runtime: String::from("c"),
-            entrypoint: String::from("bin/editor.elf"),
-            domain: TrustDomain::StandardApp,
-            window_type: String::from("gui"),
-            disposable: false,
-            pledge_flags: 0x07, // stdio, rpath, wpath
-            network_allowed: false,
-            mic_mode: String::from("deny"),
-            cam_mode: String::from("deny"),
-            clipboard_mode: String::from("paste_only"),
-        });
-
-        // 2. C++ Runtime Capsule
-        self.installed_bundles.push(KappManifest {
-            name: String::from("Math Kernel (C++20)"),
-            id: String::from("org.science.matrix"),
-            version: String::from("2.1.0"),
-            runtime: String::from("cpp"),
-            entrypoint: String::from("bin/solver.elf"),
-            domain: TrustDomain::StandardApp,
-            window_type: String::from("cli"),
-            disposable: false,
-            pledge_flags: 0x01, // stdio
-            network_allowed: false,
-            mic_mode: String::from("deny"),
-            cam_mode: String::from("deny"),
-            clipboard_mode: String::from("deny"),
-        });
-
-        // 3. Python Runtime Capsule
-        self.installed_bundles.push(KappManifest {
-            name: String::from("Data Analyzer (Python 3.12)"),
-            id: String::from("org.python.analyzer"),
-            version: String::from("3.12.2"),
-            runtime: String::from("python"),
-            entrypoint: String::from("bin/main.py"),
-            domain: TrustDomain::StandardApp,
-            window_type: String::from("cli"),
-            disposable: false,
-            pledge_flags: 0x07, // stdio, rpath, wpath
-            network_allowed: false,
-            mic_mode: String::from("deny"),
-            cam_mode: String::from("deny"),
-            clipboard_mode: String::from("deny"),
-        });
-
-        // 4. Java Runtime Capsule
-        self.installed_bundles.push(KappManifest {
-            name: String::from("Enterprise Core (Java 21)"),
-            id: String::from("org.enterprise.payroll"),
-            version: String::from("4.0.0"),
-            runtime: String::from("java"),
-            entrypoint: String::from("bin/payroll.jar"),
-            domain: TrustDomain::StandardApp,
-            window_type: String::from("gui"),
-            disposable: false,
-            pledge_flags: 0x07,
-            network_allowed: false,
-            mic_mode: String::from("deny"),
-            cam_mode: String::from("deny"),
-            clipboard_mode: String::from("paste_only"),
-        });
-
-        // 5. Sandboxed Web Browser (Disposable Capsule / Qubes-style)
-        self.installed_bundles.push(KappManifest {
-            name: String::from("Ephemeral Browser (Rust/Tor)"),
-            id: String::from("org.tor.browser"),
-            version: String::from("13.0.5"),
-            runtime: String::from("rust"),
-            entrypoint: String::from("bin/browser.elf"),
-            domain: TrustDomain::Disposable,
-            window_type: String::from("gui"),
-            disposable: true,
-            pledge_flags: 0x17, // stdio, rpath, wpath, inet
-            network_allowed: true,
-            mic_mode: String::from("ask"),
-            cam_mode: String::from("ask"),
-            clipboard_mode: String::from("paste_only"),
-        });
+        }
     }
 
     pub fn list_bundles(&self) {
+        if self.installed_bundles.is_empty() {
+            crate::kprintln!("[kapp] No pre-packaged userland capsules installed (/kapps is empty).");
+            crate::kprintln!("[kapp] Userland ELF execution is scheduled for Phase U.");
+            return;
+        }
         crate::kprintln!("┌────────────────────────────────────────────────────────────────────────┐");
         crate::kprintln!("│           INSTALLED CAPABILITY APPLICATION CAPSULES (.kapp)            │");
         crate::kprintln!("├───────────────────────┬──────────┬──────────┬───────────┬──────────────┤");
@@ -262,11 +178,11 @@ impl CapsuleManager {
         crate::kprintln!("├───────────────────────┼──────────┼──────────┼───────────┼──────────────┤");
         for b in &self.installed_bundles {
             let mode = if b.disposable { "Disposable" } else { "Persistent" };
-            let net = if b.network_allowed { "Tor-Gateway" } else { "Blocked (NoNet)" };
+            let net = if b.network_allowed { "NetDomain" } else { "Blocked (NoNet)" };
             crate::kprintln!("│ {:<21} │ {:<8} │ {:<8} │ {:<9} │ {:<12} │",
                 b.name, b.id, b.runtime, mode, net);
         }
-        crate::kprintln!("└───────────────────────┴──────────┴──────────┴───────────┴──────────────┘");
+        crate::kprintln!("└────────────────────────────────────────────────────────────────────────┘");
     }
 
     pub fn find_bundle(&self, id: &str) -> Option<KappManifest> {
