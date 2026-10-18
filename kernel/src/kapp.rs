@@ -159,8 +159,106 @@ pub struct CapsuleManager {
 
 impl CapsuleManager {
     pub fn new() -> Self {
+        let mut bundles = Vec::new();
+
+        bundles.push(KappManifest {
+            name: String::from("coreutils"),
+            id: String::from("org.gnu.coreutils"),
+            version: String::from("8.32"),
+            runtime: String::from("rust"),
+            entrypoint: String::from("/bin/coreutils"),
+            domain: TrustDomain::CoreSystem,
+            window_type: String::from("cli"),
+            disposable: false,
+            pledge_flags: 0x0003, // stdio, rpath
+            network_allowed: false,
+            mic_mode: String::from("deny"),
+            cam_mode: String::from("deny"),
+            clipboard_mode: String::from("deny"),
+        });
+
+        bundles.push(KappManifest {
+            name: String::from("elinks"),
+            id: String::from("org.elinks.browser"),
+            version: String::from("0.17"),
+            runtime: String::from("rust"),
+            entrypoint: String::from("/bin/elinks"),
+            domain: TrustDomain::EphemeralSandbox,
+            window_type: String::from("cli"),
+            disposable: false,
+            pledge_flags: 0x000F, // stdio, rpath, inet, dns
+            network_allowed: true,
+            mic_mode: String::from("deny"),
+            cam_mode: String::from("deny"),
+            clipboard_mode: String::from("read"),
+        });
+
+        bundles.push(KappManifest {
+            name: String::from("dillo"),
+            id: String::from("org.dillo.browser"),
+            version: String::from("3.1.1"),
+            runtime: String::from("rust"),
+            entrypoint: String::from("/bin/dillo"),
+            domain: TrustDomain::EphemeralSandbox,
+            window_type: String::from("gui"),
+            disposable: false,
+            pledge_flags: 0x001F, // stdio, rpath, wpath, inet, dns
+            network_allowed: true,
+            mic_mode: String::from("deny"),
+            cam_mode: String::from("deny"),
+            clipboard_mode: String::from("read"),
+        });
+
+        bundles.push(KappManifest {
+            name: String::from("ladybird"),
+            id: String::from("org.ladybird.browser"),
+            version: String::from("1.0.0"),
+            runtime: String::from("rust"),
+            entrypoint: String::from("/bin/ladybird"),
+            domain: TrustDomain::EphemeralSandbox,
+            window_type: String::from("gui"),
+            disposable: false,
+            pledge_flags: 0x001F, // stdio, rpath, wpath, inet, dns
+            network_allowed: true,
+            mic_mode: String::from("deny"),
+            cam_mode: String::from("deny"),
+            clipboard_mode: String::from("read"),
+        });
+
+        bundles.push(KappManifest {
+            name: String::from("tor"),
+            id: String::from("org.torproject.tor"),
+            version: String::from("0.4.8"),
+            runtime: String::from("rust"),
+            entrypoint: String::from("/bin/tor"),
+            domain: TrustDomain::CoreSystem,
+            window_type: String::from("cli"),
+            disposable: false,
+            pledge_flags: 0x000B, // stdio, inet, dns
+            network_allowed: true,
+            mic_mode: String::from("deny"),
+            cam_mode: String::from("deny"),
+            clipboard_mode: String::from("deny"),
+        });
+
+        bundles.push(KappManifest {
+            name: String::from("nmap"),
+            id: String::from("org.nmap.scanner"),
+            version: String::from("7.94"),
+            runtime: String::from("rust"),
+            entrypoint: String::from("/bin/nmap"),
+            domain: TrustDomain::EphemeralSandbox,
+            window_type: String::from("cli"),
+            disposable: false,
+            pledge_flags: 0x001B, // stdio, inet, raw
+            network_allowed: true,
+            mic_mode: String::from("deny"),
+            cam_mode: String::from("deny"),
+            clipboard_mode: String::from("deny"),
+        });
+
         Self {
-            installed_bundles: Vec::new(),
+            installed_bundles: bundles,
             next_pid: 200,
         }
     }
@@ -168,7 +266,6 @@ impl CapsuleManager {
     pub fn list_bundles(&self) {
         if self.installed_bundles.is_empty() {
             crate::kprintln!("[kapp] No pre-packaged userland capsules installed (/kapps is empty).");
-            crate::kprintln!("[kapp] Userland ELF execution is scheduled for Phase U.");
             return;
         }
         crate::kprintln!("┌────────────────────────────────────────────────────────────────────────┐");
@@ -187,11 +284,26 @@ impl CapsuleManager {
 
     pub fn find_bundle(&self, id: &str) -> Option<KappManifest> {
         for b in &self.installed_bundles {
-            if b.id == id || b.name.to_lowercase().contains(&id.to_lowercase()) {
+            if b.id == id || b.name.to_lowercase() == id.to_lowercase() || b.id.contains(id) {
                 return Some(b.clone());
             }
         }
         None
+    }
+
+    pub fn register_bundle(&mut self, manifest: KappManifest) {
+        self.installed_bundles.retain(|b| b.id != manifest.id && b.name != manifest.name);
+        self.installed_bundles.push(manifest);
+    }
+
+    pub fn remove_bundle(&mut self, id: &str) -> bool {
+        let prev_len = self.installed_bundles.len();
+        self.installed_bundles.retain(|b| b.id != id && b.name != id);
+        self.installed_bundles.len() < prev_len
+    }
+
+    pub fn get_bundles(&self) -> &[KappManifest] {
+        &self.installed_bundles
     }
 
     pub fn allocate_pid(&mut self) -> u64 {
