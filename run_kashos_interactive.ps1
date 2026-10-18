@@ -26,6 +26,7 @@ Write-Host "[!] Launching KashOS GUI window..." -ForegroundColor Cyan
     -m 1024M `
     -vga std `
     -kernel isodir/boot/kash-kernel `
+    -drive file=kash_vault.img,format=raw,if=ide,index=0,media=disk `
     -device e1000,netdev=net0 `
     -netdev user,id=net0 `
     -serial file:kash_serial.log

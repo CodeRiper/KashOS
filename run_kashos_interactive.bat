@@ -46,6 +46,7 @@ echo.
     -m 1024M ^
     -vga std ^
     -kernel "%~dp0isodir\boot\kash-kernel" ^
+    -drive file="%~dp0kash_vault.img",format=raw,if=ide,index=0,media=disk ^
     -device e1000,netdev=net0 ^
     -netdev user,id=net0 ^
     -serial file:"%~dp0kash_serial.log"
