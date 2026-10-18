@@ -338,7 +338,6 @@ pub fn trash_icon_t(cv: &mut Canvas, r: Rect, full: bool, dark: bool) {
     let lt = if dark { 0.55 } else { 1.0 };
     if dark { tile_ex(cv, r, Color::hex(0x4C5260), Color::hex(0x14171D), lt); } else { tile_ex(cv, r, Color::hex(0xEEF1F7), Color::hex(0x98A1B3), lt); }
     let s = r.w / 64.0;
-    let lt = if dark { 0.55 } else { 1.0 };
     let gr = Rect::new(r.x + 12.0 * s, r.y + 11.0 * s, 40.0 * s, 40.0 * s);
     if !dark { draw_icon(cv, Icon::Trash, gr.offset(0.0, 1.2 * s), Color::rgba(255, 255, 255, 170)); }
     for (k, a) in [(0.8f32, 28u8), (1.8, 18), (3.0, 10)] { draw_icon(cv, Icon::Trash, gr.offset(0.0, k * s), Color::rgba(0, 0, 0, if dark { a * 3 } else { a })); }

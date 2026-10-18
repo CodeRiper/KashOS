@@ -28,7 +28,7 @@ pub struct Input {
     pub right: bool,
 }
 
-#[inline] fn is_focus_changed(w: &Window) -> bool { !w.focus.settled() }
+#[inline] #[allow(dead_code)] fn is_focus_changed(w: &Window) -> bool { !w.focus.settled() }
 
 fn make_app(k: AppKind) -> Box<dyn App> {
     match k {
@@ -60,6 +60,7 @@ struct Window {
     focus: Spring,
     light_down: Option<usize>,
     light_hover: Spring,
+    #[allow(dead_code)]
     last_click_t: f32,
     // ── retained-composite cache ──
     was_hot: bool,
@@ -899,7 +900,7 @@ impl Desktop {
         io.mouse = mouse; io.pressed = pressed; io.released = released; io.hot = true; io.wheel = inp.wheel; io.focused = false;
         let mut cursor = CursorShape::Arrow;
         let mut over = false;
-        let mut bar_event = BarEvent::None;
+        let bar_event;
         {
             let this = &mut *self;
             // Dock (under the menubar so popups can overlap)
@@ -921,7 +922,7 @@ impl Desktop {
                 this.cc.update_draw(&mut cx, screen_r);
             }
             {
-                let mut cx = Ctx { cv: &mut this.screen, fonts: &mut this.fonts, scratch: &mut this.scratch, th: &th, io: &io, anims: &mut this.anims, sys: &mut this.sys, cmds: &mut this.cmds,
+                let cx = Ctx { cv: &mut this.screen, fonts: &mut this.fonts, scratch: &mut this.scratch, th: &th, io: &io, anims: &mut this.anims, sys: &mut this.sys, cmds: &mut this.cmds,
                     bounds: screen_r, cursor: &mut cursor, over_widget: &mut over };
                 let mut sio = io.clone(); sio.keys = keys.clone();
                 let mut cx2 = Ctx { cv: cx.cv, fonts: cx.fonts, scratch: cx.scratch, th: cx.th, io: &sio, anims: cx.anims, sys: cx.sys, cmds: cx.cmds, bounds: screen_r, cursor: cx.cursor, over_widget: cx.over_widget };

@@ -11,7 +11,6 @@ use crate::registry::*;
 use crate::text::*;
 use crate::ui::*;
 use crate::apps::settings::Settings;
-use crate::apps::privacy::ps_control;
 
 impl Settings {
     pub(crate) fn opt(&mut self, cx: &mut Ctx, g: &mut Group, _key: usize, label: &str, _sub: &str) {

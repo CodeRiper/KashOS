@@ -11,6 +11,7 @@ use crate::theme::*;
 use crate::ui::*;
 
 #[derive(Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum Style { Normal, Dim, Ok, Warn, Accent, Prompt }
 
 pub struct Terminal {

@@ -17,6 +17,7 @@ use crate::process::{PROCESS_CSPACES, PROCESS_TABLE, ProcessState, MAX_PROCESSES
 use crate::sync::TicketSpinLock;
 use crate::task::{current_tid, SCHEDULER, THREADS};
 use kcore::{Cap, CapKind, Rights};
+pub use kipc::{ChannelError, RingChannel};
 
 pub const MAX_ENDPOINTS: usize = 64;
 pub const MAX_IPC_WORDS: usize = 8; // 64 bytes fast payload

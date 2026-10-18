@@ -8,7 +8,6 @@ use crate::color::*;
 use crate::geom::*;
 use crate::icons::*;
 use crate::mathf::*;
-use crate::registry::*;
 use crate::text::*;
 use crate::theme::*;
 use crate::ui::*;
@@ -35,6 +34,7 @@ impl Row {
     fn sep() -> Row { Row { label: String::new(), act: None, check: false, sep: true, danger: false } }
     fn h(&self) -> f32 { if self.sep { 11.0 } else if self.act.is_none() { 30.0 } else { 30.0 } }
 }
+#[allow(dead_code)]
 struct Menu { id: u32, rows: Vec<Row>, t: Spring, open: bool, ax: f32, press: Option<usize>, rect: Rect }
 
 struct Entry { name: String, kind: FileKind, size: u64, date: String, prog: Option<f32> }

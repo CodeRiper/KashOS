@@ -4,7 +4,6 @@ use alloc::vec::Vec;
 use crate::anim::*;
 use crate::color::*;
 use crate::geom::*;
-use crate::gfx::*;
 use crate::icons::*;
 use crate::text::*;
 use crate::theme::*;
