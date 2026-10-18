@@ -36,6 +36,7 @@ pub mod arch;
 pub mod blockdev;
 #[allow(unsafe_code)]
 pub mod cap;
+pub mod browser;
 #[allow(unsafe_code)]
 pub mod dde;
 pub mod display;
