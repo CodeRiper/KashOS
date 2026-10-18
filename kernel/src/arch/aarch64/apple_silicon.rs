@@ -7,7 +7,6 @@
 //!    via direct system register operations and AIC MMIO registers.
 //! 4. 16 KiB Page Geometry: Configuration for Apple Silicon Stage 1 MMU translation.
 
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::string::String;

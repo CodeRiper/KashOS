@@ -319,5 +319,5 @@ pub fn init() {
     crate::status::update(|s| {
         s.flask_mac = crate::status::ComponentStatus::Real;
     });
-    crate::kprintln!("[flask] ✓ FLASK Mandatory Access Control (MAC) active: Enforcing mode, AVC initialized");
+    crate::kprintln!("[flask] FLASK Mandatory Access Control (MAC) active: Enforcing mode, AVC initialized");
 }

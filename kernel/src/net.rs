@@ -8,7 +8,6 @@
 //! - Circular SPSC lock-free packet queues for hardware NIC (Intel e1000 / VirtIO) and loopback IPC transport.
 
 #![forbid(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::boxed::Box;
@@ -218,11 +217,11 @@ pub fn init() {
 
         let mac = service.identity.current_mac;
         crate::kprintln!(
-            "[net] ✓ Network service active: Locally-Administered MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            "[net] Network service active: Locally-Administered MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             mac.0[0], mac.0[1], mac.0[2], mac.0[3], mac.0[4], mac.0[5]
         );
-        crate::kprintln!("[net] ✓ Default-deny firewall armed (Telnet/FTP dropped, fingerprint normalized)");
-        crate::kprintln!("[net] ✓ Fail-closed kill switch armed (Tor/WireGuard anonymity gateway integration)");
+        crate::kprintln!("[net] Default-deny firewall armed (Telnet/FTP dropped, fingerprint normalized)");
+        crate::kprintln!("[net] Fail-closed kill switch armed (Tor/WireGuard anonymity gateway integration)");
 
         crate::status::update(|s| {
             s.nic_e1000 = crate::status::ComponentStatus::Real;

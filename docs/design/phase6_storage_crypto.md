@@ -7,7 +7,7 @@
 - *KashOS: make it real, secure and fast (agent build guide)* (Oct 17, 2026)
 - *KashOS Architectural Blueprint* (Pages 10–14: Authenticated Vault Storage, Anti-Forensics, and KMS)
 - TCG PC Client Specific Platform TPM Profile (PTP) Specification Version 2.0
-- RFC 9106: Argon2 Memory-Hard Function for Password Hashing and Proof-of-Work Applications
+- RFC 9106: Argon2 Memory-Hard Function for Password Hashing (IETF RFC specification)
 - RFC 8439: ChaCha20 and Poly1305 for IETF Protocols
 
 ---

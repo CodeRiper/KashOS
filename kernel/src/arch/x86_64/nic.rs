@@ -9,7 +9,6 @@
 //!    and the smoltcp TCP/IP stack with zero heap allocation and zero mutex locks.
 
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::boxed::Box;

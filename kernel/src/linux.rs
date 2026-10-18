@@ -9,7 +9,6 @@
 //! - Hardware isolation: zero direct port I/O, zero raw MMIO, zero ambient authority.
 //! - Sandboxed fault containment: binary crashes (SIGSEGV/illegal instruction)
 //!   are contained within the sandbox and cannot cause a microkernel panic.
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::string::String;

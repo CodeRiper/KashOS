@@ -18,7 +18,6 @@
 //!   and metadata) delivered strictly to the focused surface.
 
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::string::String;
@@ -295,7 +294,7 @@ pub fn init() {
         s.wayland_compositor = crate::status::ComponentStatus::Real;
         s.liquid_glass_gui = crate::status::ComponentStatus::Real;
     });
-    crate::kprintln!("[display] ✓ Display Server & Compositor active: Nitpicker domain borders & secure input routing enforced");
+    crate::kprintln!("[display] Display Server & Compositor active: Nitpicker domain borders & secure input routing enforced");
 }
 
 pub fn create_surface(

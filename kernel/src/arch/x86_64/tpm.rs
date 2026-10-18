@@ -13,7 +13,6 @@
 //! 4. Anti-Evil Maid key sealing & fail-closed protection (`TPM2_Seal` / `TPM2_Unseal`):
 //!    - Binds secret disk keys to exact composite PCR digests.
 //!    - Unsealing fails closed upon any 1-byte tamper in measured stages.
-#![allow(dead_code)]
 
 use sha2::{Digest, Sha256};
 use crate::sync::TicketSpinLock;

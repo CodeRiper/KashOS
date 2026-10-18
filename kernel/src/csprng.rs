@@ -8,7 +8,6 @@
 //!   with `kvault::Vault` and Argon2id/XChaCha20 operations.
 //! - Rule 2 (Fail-Closed): Refuses to seed from unverified or single-sample sources.
 
-#![allow(dead_code)]
 
 extern crate alloc;
 use sha2::{Digest, Sha256};

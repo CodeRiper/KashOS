@@ -8,7 +8,6 @@
 //! - Zero-Allocation Boot Initramfs Parsers: POSIX UStar TarFS and SVR4 CPIO newc.
 //! - Anti-Forensic Deletion: Every unlinked block is synchronously zeroed via kblock.
 
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::string::String;
@@ -342,7 +341,7 @@ impl RootVaultFs {
         let open_res = Vault::open(dev, &mut rng, master_key);
         let mut vault = match open_res {
             Ok(OpenOutcome::Unlocked(v)) => {
-                crate::kprintln!("[vfs] ✓ Existing kvault root volume unlocked successfully");
+                crate::kprintln!("[vfs] Existing kvault root volume unlocked successfully");
                 v
             }
             Ok(OpenOutcome::Duress(_)) => {
@@ -359,7 +358,7 @@ impl RootVaultFs {
 
                 match Vault::open(fmt_dev, &mut rng, master_key) {
                     Ok(OpenOutcome::Unlocked(v)) => {
-                        crate::kprintln!("[vfs] ✓ Freshly formatted kvault root volume opened successfully");
+                        crate::kprintln!("[vfs] Freshly formatted kvault root volume opened successfully");
                         v
                     }
                     _ => return Err(VfsError::CorruptFilesystem),
@@ -392,7 +391,7 @@ impl RootVaultFs {
         }
 
         let free_blks = vault.free_blocks();
-        crate::kprintln!("[vfs] ✓ Persistent root filesystem mounted at '/' ({} free blocks, {} KiB available)",
+        crate::kprintln!("[vfs] Persistent root filesystem mounted at '/' ({} free blocks, {} KiB available)",
                          free_blks, free_blks * 4);
 
         self.vault = Some(vault);

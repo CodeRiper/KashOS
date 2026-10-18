@@ -9,7 +9,6 @@
 //!   and adjacent write request coalescing).
 //! - Deterministic hardware-level block zeroing (`deterministic_zero_lba`).
 
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::boxed::Box;
@@ -99,7 +98,7 @@ pub fn init() {
         let mut ide = IdeChannel::new_primary_master();
         let driver: Box<dyn PersistentBlockDriver> = match ide.probe() {
             Ok(sectors) => {
-                crate::kprintln!("[kblock] ✓ Legacy PATA/IDE Master detected at Port 0x1F0 ({} sectors, {} MiB)",
+                crate::kprintln!("[kblock] Legacy PATA/IDE Master detected at Port 0x1F0 ({} sectors, {} MiB)",
                                  sectors, (sectors * 512) / (1024 * 1024));
                 Box::new(ide)
             }

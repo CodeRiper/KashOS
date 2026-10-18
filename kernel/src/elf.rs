@@ -585,7 +585,7 @@ impl DebianPackageSandbox {
             total_memory_footprint: 0x10000,
         };
         let (initial_rsp, stack_bytes) = mock_elf.build_linux_user_stack(&argv, &envp, 0x7fff_ffff_f000);
-        crate::kprintln!("[deb] ✓ Initial stack synthesized: {} bytes, initial RSP={:#x}", stack_bytes.len(), initial_rsp);
-        crate::kprintln!("[deb] ✓ Linux futex and io_uring rings ready in sandboxed container.");
+        crate::kprintln!("[deb] Initial stack synthesized: {} bytes, initial RSP={:#x}", stack_bytes.len(), initial_rsp);
+        crate::kprintln!("[deb] Linux futex and io_uring rings ready in sandboxed container.");
     }
 }

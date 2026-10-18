@@ -9,7 +9,6 @@
 //!   verifies zero-remanence (0 bytes retained).
 
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -123,7 +122,7 @@ impl DisposableDomain {
         self.scratchpad.shrink_to_fit();
 
         crate::kprintln!(
-            "[disp-vm] ✓ Domain #{} teardown complete: {} bytes zeroed, remanence: {}",
+            "[disp-vm] Domain #{} teardown complete: {} bytes zeroed, remanence: {}",
             self.domain_id, total_bytes, if remanence { "FAILED" } else { "ZERO (CLEAN)" }
         );
 

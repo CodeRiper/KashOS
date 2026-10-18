@@ -132,9 +132,9 @@ Phase 9: GUI & Display Server [COMPLETED]
   ├── Secure input routing (keystrokes delivered strictly to focused window)
   └── Nitpicker-style unforgeable 4px domain borders and anti-fullscreen spoofing
 
-Phase 10: Hardening & Verification [COMPLETED]
+Phase 10: Hardening & Testing [REOPENED]
   ├── Multi-surface fuzzing of syscalls, ELF loader, IPC, and network parsers (T41, T42, T43)
-  └── Machine-checked formal invariant proofs for capability core & zero remanence (T40)
+  └── Property tests for capability core & zero remanence (T40)
 ```
 
 ---
@@ -198,7 +198,7 @@ qemu-system-x86_64 -cdrom kash-os.iso -m 2048M -smp 4 -vga std -serial stdio
 7. **Real GUI settings**: Every setting in the GUI must be backed by a real service API.
 8. **Phase gates**: Do not start phase $N+1$ until phase $N$ acceptance tests pass in CI and in QEMU.
 9. **Minimise unsafe**: Every `unsafe` block requires a `// SAFETY:` comment stating the invariant.
-10. **Honest verification**: Never write "verified", "proven", or "mathematically" unless a machine-checked proof runs in CI.
+10. **Honest verification**: Never write "verified", "proven", or "mathematically" unless a machine-checked proof (located in proofs/) runs in CI.
 
 ---
 

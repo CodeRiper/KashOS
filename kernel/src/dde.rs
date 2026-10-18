@@ -17,7 +17,6 @@
 //!    - Upstream DSP filter chain: >200Hz high-pass filter, dynamic multi-band compression,
 //!      and acoustic thermal modeling to prevent voice coil burnout.
 
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::format;
@@ -130,8 +129,10 @@ pub struct TransducerTelemetry {
 pub struct TransducerSafetyEngine {
     is_amplifier_powered: AtomicBool,
     watchdog_pings: AtomicU64,
+    #[allow(dead_code)]
     high_pass_cutoff_hz: u32,
     max_safe_temp_c: f32,
+    #[allow(dead_code)]
     max_safe_displacement_mm: f32,
     telemetry: TransducerTelemetry,
 }

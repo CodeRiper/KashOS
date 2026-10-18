@@ -11,7 +11,6 @@
 //!    - Upon user confirmation, a single, unforgeable capability token is minted for that exact file.
 //!    - Parent directories and sibling files remain 100% blind and invisible to the application.
 
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::format;
@@ -238,7 +237,7 @@ pub fn init() {
     crate::status::update(|s| {
         s.zero_trust_powerbox = crate::status::ComponentStatus::Real;
     });
-    crate::kprintln!("[powerbox] ✓ Out-of-process Powerbox broker active: Zero Ambient Authority enforced");
+    crate::kprintln!("[powerbox] Out-of-process Powerbox broker active: Zero Ambient Authority enforced");
 }
 
 pub fn request_access(

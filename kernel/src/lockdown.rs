@@ -22,7 +22,6 @@
 //! 6. Memory Hardening & Anti-Exploit Defenses:
 //!    - Aggressive randomized guard pages, zero-on-free memory scrubbing, and immediate crash-on-detect.
 
-#![allow(dead_code)]
 
 use core::sync::atomic::{AtomicBool, Ordering};
 

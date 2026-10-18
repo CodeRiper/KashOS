@@ -7,7 +7,6 @@
 //! Tier 3: Core services         — anonymity gateway, packet filter, telemetry, keymgr
 //! Tier 4: Driver subsystem      — sDDF native drivers + Linux DDE + Transducer Safety
 //! Tier 5: Execution enclaves    — Debian Package Sandbox, offensive VM, comms VM
-#![allow(dead_code)]
 
 use khal::{DeviceClass, DeviceInfo, Platform};
 use knet::{FilterTable, FilterRule};
@@ -94,7 +93,9 @@ pub struct DriverMap {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DriverStatus {
     Native,     // native sDDF Rust driver
+    #[allow(dead_code)]
     DriverVM,   // isolated Linux Driver VM (IOMMU confined)
+    #[allow(dead_code)]
     ActiveDde,  // Linux Device Driver Emulation (DDE)
     Absent,     // hardware not present
 }
@@ -139,7 +140,11 @@ impl DriverMap {
 // ── Tier 5: Execution enclaves ────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EnclaveState { Running, Stopped }
+pub enum EnclaveState {
+    #[allow(dead_code)]
+    Running,
+    Stopped,
+}
 
 pub struct EnclaveMap {
     pub debian_box: EnclaveState, // Hermetic Debian Package Sandbox

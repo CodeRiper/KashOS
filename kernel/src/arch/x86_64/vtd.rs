@@ -8,7 +8,6 @@
 //! 4. Hardware Fault Recording & anti-DMA attack containment.
 
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::format;

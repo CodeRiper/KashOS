@@ -14,7 +14,6 @@
 //!   `KASH-EVT {"t": <ts>, "src": "kernel", "ev": "entropy", "bits": <bits>, "sources": [...]}`
 
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use sha2::{Digest, Sha256};

@@ -15,7 +15,6 @@
 //!    - Sibling processes and the microkernel remain 100% operational.
 
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::format;
@@ -222,7 +221,7 @@ impl DriverSupervisor {
             let _ = Self::provision_driver_cspace(new_pid, kind);
 
             crate::kprintln!(
-                "[supervisor] ✓ Driver service '{}' safely restarted as PID {} (restart #{}) with clean CSpace and recycled Untyped quota.",
+                "[supervisor] Driver service '{}' safely restarted as PID {} (restart #{}) with clean CSpace and recycled Untyped quota.",
                 name, new_pid, restart_count
             );
 

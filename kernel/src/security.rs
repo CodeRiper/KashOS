@@ -11,7 +11,6 @@
 //! - Speculative execution mitigations: IBRS, STIBP, SSBD, Retpoline, and L1D flushing.
 //! - Emergency Nuke / Duress self-destruction: zeroize keys, scrub RAM, halt CPU.
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 use core::sync::atomic::{compiler_fence, AtomicU64, Ordering};
 use crate::kprintln;
@@ -74,9 +73,11 @@ pub enum UsbPortState {
     /// Data lines logically disconnected; power delivery only (battery charging mode).
     ChargeOnlyLocked,
     /// Port completely disabled.
+    #[allow(dead_code)]
     Disabled,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsbDeviceClass {
     MassStorage,
@@ -90,6 +91,7 @@ pub enum UsbDeviceClass {
 pub struct UsbPortGate {
     pub state: UsbPortState,
     pub is_locked: bool,
+    #[allow(dead_code)]
     pub blocked_badusb_attempts: u32,
 }
 
@@ -116,12 +118,14 @@ impl UsbPortGate {
     }
 
     /// Invoked upon successful primary credential verification.
+    #[allow(dead_code)]
     pub fn on_screen_unlock(&mut self) {
         self.is_locked = false;
         self.state = UsbPortState::ConnectedDataAllowed;
     }
 
     /// Inspects device descriptors and blocks suspicious composite devices (e.g. BadUSB).
+    #[allow(dead_code)]
     pub fn evaluate_device(&mut self, dev_class: UsbDeviceClass) -> bool {
         // While locked, absolutely no new peripheral data is accepted
         if self.is_locked {
@@ -137,51 +141,13 @@ impl UsbPortGate {
     }
 }
 
-// ── IOMMU / DMA Attack Containment (Anti-Thunderclap / PCIe DMA Defense) ─────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IommuDomainPolicy {
-    Isolated,
-    StagingBufferOnly,
-    Blocked,
-}
-
-pub struct IommuController {
-    pub enabled: bool,
-    pub dma_remapping: bool,
-    pub interrupt_remapping: bool,
-    pub active_domains: usize,
-}
-
-impl IommuController {
-    pub const fn new() -> Self {
-        Self {
-            enabled: true,
-            dma_remapping: true,
-            interrupt_remapping: true,
-            active_domains: 4, // sys-net, sys-usb, sys-storage, sys-gpu
-        }
-    }
-
-    /// Validates whether a device is authorized to perform DMA into a target physical memory range.
-    pub fn check_dma_access(&self, _device_id: u16, target_paddr: u64, len: usize) -> bool {
-        // In KashOS, devices can NEVER DMA into kernel text, rodata, or capability structures.
-        // All DMA is constrained to staging buffers allocated within user-space driver schemes.
-        let end_paddr = target_paddr.saturating_add(len as u64);
-        let kernel_end = crate::arch::kernel_end();
-        if target_paddr < kernel_end || end_paddr < target_paddr {
-            return false; // Access blocked by IOMMU
-        }
-        true
-    }
-}
-
 // ── Speculative Execution & Side-Channel Defense ─────────────────────────────
 
 pub struct SpeculativeMitigations;
 
 impl SpeculativeMitigations {
     pub const IA32_SPEC_CTRL: u32 = 0x48;
+    #[allow(dead_code)]
     pub const IA32_FLUSH_CMD: u32 = 0x10B;
 
     /// Enables hardware speculative execution barriers if CPU supports them.
@@ -204,6 +170,7 @@ impl SpeculativeMitigations {
     }
 
     /// Flushes the L1 Data cache on security boundary domain transitions.
+    #[allow(dead_code)]
     pub fn flush_l1d() {
         #[cfg(target_arch = "x86_64")]
         unsafe {
@@ -320,7 +287,7 @@ impl AutoRebootManager {
 
         self.current_state = EncryptionProfileState::BeforeFirstUnlock;
         self.auto_reboot_triggered = true;
-        kprintln!("[graphene-opsec] ✓ TRESOR keys purged. Device locked in BFU state.");
+        kprintln!("[graphene-opsec] TRESOR keys purged. Device locked in BFU state.");
     }
 }
 

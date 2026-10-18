@@ -6,7 +6,6 @@
 //!    Command Ring, Event Ring, Slot Context, and standard HID report decoder.
 
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::string::String;

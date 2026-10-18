@@ -36,7 +36,7 @@ pub fn selftest() {
     if (c - 8.5).abs() > 0.001 {
         panic!("FPU/SSE self-test failed: computation mismatch");
     }
-    crate::kprintln!("[fpu] ✓ SSE/SSE2 enabled and verified: CR0(EM=0,MP=1) CR4(OSFXSR=1,OSXMMEXCPT=1)");
+    crate::kprintln!("[fpu] SSE/SSE2 enabled: CR0(EM=0,MP=1) CR4(OSFXSR=1,OSXMMEXCPT=1)");
 }
 
 /// 512-byte aligned buffer for saving/restoring FPU/MMX/SSE/XMM state via `fxsave64`/`fxrstor64`.

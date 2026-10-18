@@ -1,26 +1,26 @@
-# Phase 10: Hardening & Verification — Architectural Specification
+# Phase 10: Hardening & Testing — Architectural Specification
 
 **Author**: Akash <akash.official.j@gmail.com>  
-**Status**: Completed (Verified Live in QEMU)  
+**Status**: Reopened for Stage E (formal proofs not done / deferred to `proofs/`)  
 **Date**: October 2026  
 
 ---
 
 ## 1. Executive Summary & Problem Statement
 
-Phase 10 is the culminating milestone of the KashOS Roadmap from *"KashOS: make it real, secure and fast (agent build guide)"*:
+Phase 10 is part of the Stage E roadmap:
 > **Rule 4 & Rule 10 Enforcement**:
-> - Never write "verified", "proven" or "mathematically" unless a machine-checked proof or formal invariant property is present and tested in CI.
+> - Never write "verified", "proven" or "mathematically" unless a machine-checked proof (located in `proofs/`) is present and tested in CI.
 > - High-assurance systems must undergo continuous automated fuzzing across every external attack surface: Syscalls, ELF loader, IPC channels, Network packet filters, and Storage encryption parsers.
 
 Phase 10 delivers:
-1. **Mathematical Invariant Verification**: Machine-checked formal invariant models proving capability monotonicity, non-duplicability of untyped memory, transitive revocation soundness, and zero-remanence memory clearing.
+1. **Algorithmic Property Invariant Testing**: Property test models checking capability monotonicity, non-duplicability of untyped memory, transitive revocation soundness, and zero-remanence memory clearing (machine-checked proofs in `proofs/` not done).
 2. **Multi-Surface Fuzzing Harness**: Automated fuzz testing stress suites exercising malformed inputs across all critical attack surfaces:
    - Syscall dispatcher with out-of-bounds pointers, kernel addresses, and SMAP violations.
    - ELF64 parser with corrupted headers, truncated segments, and invalid entry points.
    - Network stack with malformed Ethernet/IP/TCP packets, corrupted SNI strings, and invalid ports.
    - Fail-closed kill switch with zero unencrypted bytes leaked.
-3. **Acceptance Gates (T40 – T43)**: Live hardware verification in QEMU with zero kernel panics and 100% fail-closed containment.
+3. **Acceptance Gates (T40 – T43)**: In-kernel test verification with zero kernel panics and fail-closed containment.
 
 ---
 
@@ -49,14 +49,14 @@ All CPU cache lines spanning the range are explicitly evicted using `clflush` an
 
 ## 3. Acceptance Gates & Live QEMU Results (T40 – T43)
 
-- **T40: Formal Invariant & Capability Rights Monotonicity Gate**:
-  - `[selftest] ✓ T40 Formal Invariant & Capability Rights Monotonicity Gate: machine-checked monotonicity verified across 64 permutations, untyped memory disjointness confirmed, transitive revocation soundness proven`
+- **T40: Capability Property Tests & Rights Monotonicity Gate**:
+  - `[selftest] PASS: T40 Formal Invariant & Capability Rights Monotonicity Gate: property monotonicity tested across 64 permutations, untyped memory disjointness confirmed (proofs/ not done)`
 - **T41: ELF64 Loader Malformed Image Fuzz Gate**:
-  - `[selftest] ✓ T41 ELF64 Loader Malformed Image Fuzz Gate: 1,000 mutated/corrupted ELF binaries safely rejected (bad magic, wild phoff, integer overflows, W|X violations), 100% fail-closed with zero microkernel panics`
+  - `[selftest] PASS: T41 ELF64 Loader Malformed Image Fuzz Gate: 1,000 mutated/corrupted ELF binaries safely rejected (bad magic, wild phoff, integer overflows, W|X violations), fail-closed with zero microkernel panics`
 - **T42: Syscall Boundary Hardening & Negative Pointer Fuzz Gate**:
-  - `[selftest] ✓ T42 Syscall Boundary Hardening & Negative Pointer Fuzz Gate: 10,000 hostile syscall vectors tested (null ptrs, kernel space >0xFFFF_8000_0000_0000, overflow lengths), 0 faults, strict fail-closed rejection`
+  - `[selftest] PASS: T42 Syscall Boundary Hardening & Negative Pointer Fuzz Gate: 10,000 hostile syscall vectors tested (null ptrs, kernel space >0xFFFF_8000_0000_0000, overflow lengths), 0 faults, strict fail-closed rejection`
 - **T43: Network Packet & Protocol Parser Fuzz Gate**:
-  - `[selftest] ✓ T43 Network Packet & Protocol Parser Fuzz Gate: 1,000 malformed frames, cyclic headers, and corrupt SNI domains safely filtered, fail-closed kill-switch verified, 0 unencrypted bytes leaked`
+  - `[selftest] PASS: T43 Network Packet & Protocol Parser Fuzz Gate: 1,000 malformed frames, cyclic headers, and corrupt SNI domains safely filtered, fail-closed kill-switch verified, 0 unencrypted bytes leaked`
 
-All 43 acceptance gates (T1–T43) and all 10 roadmap phases are now 100% complete and hardware-verified.
+Note: All 10 phases from v1 roadmap are marked REOPENED under Build Guide v2. Acceptance gates are tracked via `docs/CLAIMS.md`.
 

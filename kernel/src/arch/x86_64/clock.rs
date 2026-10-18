@@ -126,7 +126,7 @@ pub fn calibrate_tsc() {
 
         TSC_HZ.store(hz, Ordering::SeqCst);
         LAST_TSC.store(crate::arch::rdtsc(), Ordering::SeqCst);
-        crate::kprintln!("[clock] ✓ TSC calibrated against PIT: {} MHz ({} Hz)", hz / 1_000_000, hz);
+        crate::kprintln!("[clock] TSC calibrated against PIT: {} MHz ({} Hz)", hz / 1_000_000, hz);
     }
 }
 

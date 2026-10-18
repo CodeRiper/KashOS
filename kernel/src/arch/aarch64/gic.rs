@@ -2,7 +2,6 @@
 //! Used on QEMU virt, Raspberry Pi 4, and most modern ARM64 SoCs.
 //! QEMU virt GICv3 defaults: Distributor @ 0x08000000, Redistributor @ 0x080A0000.
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 // GICv3 Distributor (GICD) register offsets
 const GICD_CTLR:       u64 = 0x000;

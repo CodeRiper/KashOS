@@ -47,6 +47,6 @@ On legacy T0 hardware (2006-2009 Core 2 class laptops, 1 core, 1 GiB RAM, BIOS, 
 
 ## 4. Honest Security Principles
 
-1. **No Unproven Marketing**: No security claim is published in documentation or emitted at boot unless backed by a test, a fuzzing run, or a machine-checked proof recorded in [`docs/CLAIMS.md`](CLAIMS.md).
+1. **No Unproven Marketing**: No security claim is published in documentation or emitted at boot unless backed by a test, a fuzzing run, or a machine-checked proof (located in `proofs/`) recorded in [`docs/CLAIMS.md`](CLAIMS.md).
 2. **Fail Closed**: If essential hardware security features (IOMMU, hardware RNG, TPM) are absent, the OS explicitly reports the absence, disables dependent functionality, and does not pretend protection exists.
 3. **Auditability**: Every `unsafe` block must be accompanied by a `// SAFETY:` rationale documenting the exact invariant required and upheld.

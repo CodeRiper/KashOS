@@ -373,10 +373,10 @@ impl KashShell {
             }
 
             "fault-test" => {
-                kprintln!("[test] Simulating unexpected firmware fault / segfault in Wi-Fi driver...");
-                self.wifi_driver.handle_driver_fault("Hardware DMA buffer corruption (simulated fault)");
-                kprintln!("[test] ✓ Verification: Microkernel continues running without panic!");
-                kprintln!("[test] ✓ Verification: Other sandboxed processes remain undisturbed!");
+                kprintln!("[test] Driver fault containment test: triggering Wi-Fi supervisor fault handler...");
+                self.wifi_driver.handle_driver_fault("Hardware DMA buffer corruption (fault test)");
+                kprintln!("[test] Status: Microkernel continues running without panic.");
+                kprintln!("[test] Status: Other sandboxed processes remain undisturbed.");
             }
 
             "ports" => {
@@ -522,8 +522,8 @@ impl KashShell {
                             self.compositor.clipboard.set_text("CONFIDENTIAL_TOKEN_2026\x00<malicious_script>");
                             if let Some(target) = self.compositor.windows.iter().find(|w| w.id == wid) {
                                 match self.compositor.clipboard.paste_to_window(target) {
-                                    Some(clean) => kprintln!("[kctl] ✓ Clipboard delivered sanitized UTF-8 to Window {}: '{}'", wid, clean),
-                                    None => kprintln!("[kctl] ✗ Clipboard paste REJECTED: Window {} is not focused!", wid),
+                                    Some(clean) => kprintln!("[kctl] Clipboard delivered sanitized UTF-8 to Window {}: '{}'", wid, clean),
+                                    None => kprintln!("[kctl] Clipboard paste REJECTED: Window {} is not focused!", wid),
                                 }
                             } else {
                                 kprintln!("kctl: window ID {} not found.", wid);
@@ -542,7 +542,7 @@ impl KashShell {
                         kprintln!("  Video Solid Black YUV: Y={:?}, U={:?}, V={:?}", y, u, v);
                         let accel = SyntheticPeripheralServer::read_clean_accelerometer();
                         kprintln!("  Sensor Blanking Baseline: Accel={:?} m/s^2", accel);
-                        kprintln!("[synth-media] ✓ Privacy Preserved: Hardware probing completely blinded!");
+                        kprintln!("[synth-media] Privacy Preserved: Hardware probing blinded.");
                     }
                     other => {
                         kprintln!("kctl: unknown subcommand '{}'. Type 'kctl help'.", other);
@@ -1071,20 +1071,20 @@ impl KashShell {
                     kprintln!("[powerbox] Sandboxed client requesting access to '{}'...", path);
                     match crate::powerbox::request_file(path, perms) {
                         Some(token) => {
-                            kprintln!("[powerbox] ✓ Access GRANTED by Out-of-Process Trusted File Picker:");
+                            kprintln!("[powerbox] Access GRANTED by Out-of-Process Trusted File Picker:");
                             kprintln!("  Token ID   : {:#x}", token.id);
                             kprintln!("  Path       : {}", token.path);
                             kprintln!("  Permissions: {:?}", token.permission);
                             kprintln!("  Target VFS : Inode {}", token.vfs_inode);
                         }
                         None => {
-                            kprintln!("[powerbox] ✗ Access DENIED by User File Picker.");
+                            kprintln!("[powerbox] Access DENIED by User File Picker.");
                         }
                     }
                 } else if parts.len() > 2 && parts[1] == "revoke" {
                     if let Ok(id) = parts[2].parse::<u64>() {
                         crate::powerbox::revoke_token(id);
-                        kprintln!("[powerbox] ✓ Attenuated capability token {:#x} REVOKED.", id);
+                        kprintln!("[powerbox] Attenuated capability token {:#x} REVOKED.", id);
                     } else {
                         kprintln!("Usage: 'powerbox revoke <token_id>'");
                     }
@@ -1104,12 +1104,7 @@ impl KashShell {
                 kprintln!("\n+==============================================================+");
                 kprintln!("|     APPLE SILICON TRANSDUCER SAFETY ENGINE (speakersafetyd)  |");
                 kprintln!("+==============================================================+");
-                crate::dde::SpeakerSafetyEngine::audit();
-                kprintln!("+--------------------------------------------------------------+");
-                kprintln!("| Simulating Audio Frame Processing through DSP Filter...      |");
-                let mut pcm_frame = [0.15f32; 64];
-                crate::dde::SpeakerSafetyEngine::process_audio_frame(&mut pcm_frame);
-                kprintln!("| Filter Status : V/ISENSE telemetry within thermal safety envelope|");
+                kprintln!("| Status: NotAvailable (Apple Silicon TAS2764 hardware not detected)|");
                 kprintln!("+==============================================================+\n");
             }
 
@@ -1169,7 +1164,7 @@ impl KashShell {
             kprintln!("  [err] Insufficient disk capacity for partition layout (< 1 MiB)!");
             return;
         }
-        kprintln!("  [stage-1] ✓ Hardware probed successfully. Controller online.");
+        kprintln!("  [stage-1] Hardware probed successfully. Controller online.");
 
         // ── Stage 2: Partition Scheme Layout (1 MiB Alignment) ──
         kprintln!("\n[stage-2] ─── Partition Scheme Layout (1 MiB Alignment) ─────────");
@@ -1211,7 +1206,7 @@ impl KashShell {
         mbr[511] = 0xAA;
 
         match crate::blockdev::write_sectors(0, &mbr) {
-            Ok(_) => kprintln!("  [stage-2] ✓ MBR sector 0 committed to physical media with magic 0xAA55."),
+            Ok(_) => kprintln!("  [stage-2] MBR sector 0 committed to physical media with magic 0xAA55."),
             Err(_) => {
                 kprintln!("  [err] Failed to write MBR sector 0!");
                 return;
@@ -1224,7 +1219,7 @@ impl KashShell {
         kprintln!("    Slot A [Sovereign Key] : Argon2id (m=256MiB, t=12, p=1), HKDF-SHA256 (Primary Master)");
         kprintln!("    Slot B [Duress Decoy]  : Anti-Whip Plausible Deniability Trigger");
         kprintln!("  Key material staged into TRESOR CPU Debug Registers (DR0-DR3).");
-        kprintln!("  [stage-3] ✓ Cold-boot resistant key encapsulation initialized.");
+        kprintln!("  [stage-3] Cold-boot resistant key encapsulation initialized.");
 
         // ── Stage 4: Anti-Forensic Disk Sanitization (ChaCha20 Stream Noise) ──
         kprintln!("\n[stage-4] ─── Anti-Forensic Disk Sanitization ───────────────────");
@@ -1239,7 +1234,7 @@ impl KashShell {
             let _ = crate::blockdev::write_sectors(lba, &noise_sector);
         }
         let _ = crate::blockdev::flush_cache();
-        kprintln!("  [stage-4] ✓ Unallocated disk sectors sanitized to uniform 7.999 bits/byte entropy.");
+        kprintln!("  [stage-4] Unallocated disk sectors sanitized to uniform 7.999 bits/byte entropy.");
 
         // ── Stage 5: Dual Workspace Formatting (kvault-fs VaultIndex) ──
         kprintln!("\n[stage-5] ─── Dual Workspace Formatting (kvault-fs) ─────────────");
@@ -1248,14 +1243,14 @@ impl KashShell {
         root_inode_buf[0..16].copy_from_slice(b"KASHOFS_VAULT_01");
         root_inode_buf[16..24].copy_from_slice(&1u64.to_le_bytes()); // Badge = 0x01
         let _ = crate::blockdev::write_sectors(p2_start_lba as u64, &root_inode_buf);
-        kprintln!("  [stage-5] ✓ Encrypted Vault Merkle Tree Root established at LBA {}.", p2_start_lba);
+        kprintln!("  [stage-5] Encrypted Vault Merkle Tree Root established at LBA {}.", p2_start_lba);
 
         // ── Stage 6: Payload & Bootloader Commit ──
         kprintln!("\n[stage-6] ─── Payload & Bootloader Commit ───────────────────────");
         kprintln!("  Committing Multiboot2 stage-1 and stage-2 microkernel binary payload...");
         kprintln!("  Unpacking hermetic initramfs capability capsule environment...");
         let _ = crate::blockdev::flush_cache();
-        kprintln!("  [stage-6] ✓ Microkernel payload synced and committed to persistent disk.");
+        kprintln!("  [stage-6] Microkernel payload synced and committed to persistent disk.");
 
         // ── Stage 7: Cryptographic Audit & Verification ──
         kprintln!("\n[stage-7] ─── Cryptographic Audit & Verification ────────────────");
@@ -1269,7 +1264,7 @@ impl KashShell {
         kprintln!("  [audit] System verified for bare-metal hardware execution.");
         kprintln!();
         kprintln!("╔══════════════════════════════════════════════════════════════════════╗");
-        kprintln!("║   ✓ KASH-OS INSTALLATION COMPLETE: PERSISTENT STORAGE READY          ║");
+        kprintln!("║   KASH-OS INSTALLATION COMPLETE: PERSISTENT STORAGE READY            ║");
         kprintln!("╠══════════════════════════════════════════════════════════════════════╣");
         kprintln!("║ Reboot without Live ISO to launch directly from installed media.     ║");
         kprintln!("║ Enter Primary Passphrase for Sovereign Vault, or Duress for Decoy.   ║");

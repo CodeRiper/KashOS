@@ -78,7 +78,7 @@ pub fn run(region: MemRegion) {
     check!(cs.check_invariants().is_ok());
     kprintln!("[selftest] T7 nested untyped and sub-allocation: ok");
 
-    kprintln!("[selftest] ✓ all 7 capability tests passed on {:.1} MiB of real hardware RAM",
+    kprintln!("[selftest] PASS: all 7 capability tests passed on {:.1} MiB of real hardware RAM",
               (1u64 << bits) as f64 / 1_048_576.0);
     crate::status::update(|s| s.kcore_caps = crate::status::ComponentStatus::Real);
 
@@ -244,7 +244,7 @@ pub fn test_preemptive_multitasking() {
     let ca = COUNTER_A.load(core::sync::atomic::Ordering::Relaxed);
     let cb = COUNTER_B.load(core::sync::atomic::Ordering::Relaxed);
     check!(ca > 0 && cb > 0);
-    kprintln!("[sched] ✓ 1,000,000 preemptions verified without corruption (Thread A: {}, Thread B: {})", ca, cb);
+    kprintln!("[sched] PASS: 1,000,000 preemptions verified without corruption (Thread A: {}, Thread B: {})", ca, cb);
     crate::status::update(|s| s.kscheduler_preempt = crate::status::ComponentStatus::Real);
 }
 
@@ -269,7 +269,7 @@ pub fn test_nx_smep_fault() {
     }
 
     if idt::was_fault_caught() {
-        kprintln!("[security] ✓ deliberate NX/WP violation verified: trapped and logged by hardware handler");
+        kprintln!("[security] PASS: deliberate NX/WP violation verified: trapped and logged by hardware handler");
         crate::status::update(|s| s.wx_paging = crate::status::ComponentStatus::Real);
     } else {
         kprintln!("[security] ⚠ deliberate protection violation was not caught");
@@ -349,7 +349,7 @@ pub fn test_elf_loader_and_wx_rejection() {
     let oob_res = crate::elf::load_elf(&oob_elf, &mut alloc, kernel_cr3);
     check!(oob_res == Err(crate::elf::ElfError::AddressOutOfBounds));
 
-    kprintln!("[selftest] ✓ T11 ELF64 loader verified: W^X enforced (W|X rejected), bounds protected, PML4 isolated");
+    kprintln!("[selftest] PASS: T11 ELF64 loader verified: W^X enforced (W|X rejected), bounds protected, PML4 isolated");
     crate::status::update(|s| s.elf_loader = crate::status::ComponentStatus::Real);
 }
 
@@ -393,7 +393,7 @@ pub fn test_syscall_fuzzing() {
         }
     }
 
-    kprintln!("[selftest] ✓ T12 10,000 syscall fuzz calls survived with 0 kernel panics ({} rejected safely)",
+    kprintln!("[selftest] PASS: T12 10,000 syscall fuzz calls survived with 0 kernel panics ({} rejected safely)",
               rejected_count);
 }
 
@@ -454,7 +454,7 @@ pub fn test_user_mode_execution_and_fault_containment() {
         spins += 1;
     }
     check!(exited_cleanly);
-    kprintln!("[selftest] ✓ Sub-test A passed: user program executed SYS_PRINT and exited voluntarily with code 0");
+    kprintln!("[selftest] PASS: Sub-test A passed: user program executed SYS_PRINT and exited voluntarily with code 0");
 
     // ── Sub-test B: User program fault containment (null pointer dereference) ──
     // Machine code for null dereference:
@@ -485,9 +485,9 @@ pub fn test_user_mode_execution_and_fault_containment() {
     }
     check!(fault_contained);
     check!(crate::process::user_fault_count() > initial_faults);
-    kprintln!("[selftest] ✓ Sub-test B passed: user null-dereference #PF trapped, PID {} killed, microkernel survived!", pid2);
+    kprintln!("[selftest] PASS: Sub-test B passed: user null-dereference #PF trapped, PID {} killed, microkernel survived!", pid2);
 
-    kprintln!("[selftest] ✓ T13 User Mode Ring 3 & Fault Containment fully verified");
+    kprintln!("[selftest] PASS: T13 User Mode Ring 3 & Fault Containment fully verified");
     crate::status::update(|s| s.user_mode_ring3 = crate::status::ComponentStatus::Real);
 }
 
@@ -538,7 +538,7 @@ fn test_capability_isolation_and_monotonicity() {
     check!(cs_a.check_invariants().is_ok());
     check!(cs_b.check_invariants().is_ok());
 
-    kprintln!("[selftest] ✓ T14 Capability Isolation & Rights Monotonicity fully verified (zero ambient authority)");
+    kprintln!("[selftest] PASS: T14 Capability Isolation & Rights Monotonicity fully verified (zero ambient authority)");
 }
 
 /// Test 15: Capability Revocation Benchmark: 1,000 Derived Capabilities
@@ -588,7 +588,7 @@ fn test_revocation_benchmark() {
     check!(cs.check_invariants().is_ok());
     check!(elapsed_us < 1_000); // Must be strictly < 1 ms (1,000 us)
 
-    kprintln!("[selftest] ✓ T15 Capability Revocation Benchmark: 1,000 derived caps revoked in {} us ({} cycles, < 1000 us limit)",
+    kprintln!("[selftest] PASS: T15 Capability Revocation Benchmark: 1,000 derived caps revoked in {} us ({} cycles, < 1000 us limit)",
               elapsed_us, elapsed_cycles);
 }
 
@@ -668,7 +668,7 @@ fn test_synchronous_ipc_rendezvous() {
     // Reset TID to kernel thread
     crate::task::set_current_tid(1);
 
-    kprintln!("[selftest] ✓ T16 Synchronous IPC Rendezvous & Capability Transfer verified (unforgeable badge 0x{:X} + Frame transferred)", 0xBEEF_7777u64);
+    kprintln!("[selftest] PASS: T16 Synchronous IPC Rendezvous & Capability Transfer verified (unforgeable badge 0x{:X} + Frame transferred)", 0xBEEF_7777u64);
 }
 
 /// Test 17: Kernel-Object Quota Isolation & Safe Exhaustion
@@ -709,7 +709,7 @@ fn test_kernel_object_quota_isolation() {
     check!(cs_a.check_invariants().is_ok());
     check!(cs_b.check_invariants().is_ok());
 
-    kprintln!("[selftest] ✓ T17 Kernel-Object Quota Isolation: process quota exhaustion safely rejected (KError::NoMemory), microkernel stable");
+    kprintln!("[selftest] PASS: T17 Kernel-Object Quota Isolation: process quota exhaustion safely rejected (KError::NoMemory), microkernel stable");
 }
 
 /// Test 18: Capability-Based Device Access & Hardware Port Isolation
@@ -753,7 +753,7 @@ fn test_driver_capability_isolation() {
     check!(matches!(sup.verify_mmio_frame(net_pid, 0xFD00_0000, true), Err(KError::InsufficientRights)));
     check!(matches!(sup.verify_mmio_frame(net_pid, 0x0010_0000, true), Err(KError::InsufficientRights)));
 
-    kprintln!("[selftest] ✓ T18 Capability-Based Device Access: port & MMIO boundary isolation enforced across storage, input, and network services");
+    kprintln!("[selftest] PASS: T18 Capability-Based Device Access: port & MMIO boundary isolation enforced across storage, input, and network services");
 }
 
 /// Test 19: Hardware IOMMU (Intel VT-d) Second-Level DMA Mapping & Fault Containment
@@ -813,7 +813,7 @@ fn test_vtd_iommu_dma_containment() {
     let unauth = vtd.translate_dma(bdf_other, domain_id, 0x1000_0000, false);
     check!(unauth == Err(VtdFaultReason::TranslationNotPresent));
 
-    kprintln!("[selftest] ✓ T19 Hardware IOMMU (Intel VT-d) SLPT Second-Level Translation: rogue DMA blocked, fault recorded in FRCD, host RAM protected");
+    kprintln!("[selftest] PASS: T19 Hardware IOMMU (Intel VT-d) SLPT Second-Level Translation: rogue DMA blocked, fault recorded in FRCD, host RAM protected");
 }
 
 /// Test 20: Driver Service Fault Containment & Transparent Supervisor Restart
@@ -874,7 +874,7 @@ fn test_driver_resilient_restart() {
     // 5. Verify sibling service (Storage PID 50) is intact and untouched
     check!(sup.verify_io_port(50, 0x1F0, true).is_ok());
 
-    kprintln!("[selftest] ✓ T20 Driver Service Fault Containment: net_srv restarted cleanly as PID 151 (restart #1), capability tree revoked & refreshed, microkernel stable");
+    kprintln!("[selftest] PASS: T20 Driver Service Fault Containment: net_srv restarted cleanly as PID 151 (restart #1), capability tree revoked & refreshed, microkernel stable");
 }
 
 /// Test 21: Cryptographic Boot Signature & Manifest Validation
@@ -917,7 +917,7 @@ fn test_cryptographic_boot_verification() {
     tampered_manifest[0] ^= 0xFF; // tamper first byte
     check!(!kboot::verify_payload_integrity(&tampered_manifest, &expected_hash));
 
-    kprintln!("[selftest] ✓ T21 Cryptographic Boot Signature & Manifest Validation: PE32+ validated, payload verified, 1-byte tamper detected & rejected");
+    kprintln!("[selftest] PASS: T21 Cryptographic Boot Signature & Manifest Validation: PE32+ validated, payload verified, 1-byte tamper detected & rejected");
 }
 
 /// Test 22: TPM 2.0 PCR Measurement & Clean-Boot Reproducibility
@@ -975,7 +975,7 @@ fn test_tpm2_pcr_measurements_and_reproducibility() {
     check!(pcr7_boot1 == pcr7_boot2);
     check!(pcr9_boot1 == pcr9_boot2);
 
-    kprintln!("[selftest] ✓ T22 TPM 2.0 PCR Measurement & Clean-Boot Reproducibility: PCR 0, 1, 2, 4, 7, 9 extended, 100% bit-for-bit reproducible across clean boots");
+    kprintln!("[selftest] PASS: T22 TPM 2.0 PCR Measurement & Clean-Boot Reproducibility: PCR 0, 1, 2, 4, 7, 9 extended, 100% bit-for-bit reproducible across clean boots");
 }
 
 /// Test 23: Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate
@@ -1027,7 +1027,7 @@ fn test_anti_evil_maid_tpm_sealing_fail_closed() {
     check!(matches!(unseal_result, Err(TpmError::PolicyMismatch)));
     check!(stolen_key == [0u8; 32]);
 
-    kprintln!("[selftest] ✓ T23 Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate: sealed key released under valid PCRs, 1-byte tamper in kernel image triggers PolicyMismatch and locks vault");
+    kprintln!("[selftest] PASS: T23 Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate: sealed key released under valid PCRs, 1-byte tamper in kernel image triggers PolicyMismatch and locks vault");
 }
 
 /// Runs Phase 6 Acceptance Gates on live persistent storage, heap, and cryptographic services.
@@ -1103,7 +1103,7 @@ fn test_hardware_csprng_and_kms() {
     let root_key_again = kms.derive_subkey(b"kashos/root-key").unwrap();
     check!(*root_key == *root_key_again);
 
-    kprintln!("[selftest] ✓ T24 Hardware-Entropy Seeded CSPRNG & KMS: RDRAND/RDSEED entropy pool verified, forward-secrecy re-keying ok, domain-separated subkeys derived via HKDF-SHA256");
+    kprintln!("[selftest] PASS: T24 Hardware-Entropy Seeded CSPRNG & KMS: RDRAND/RDSEED entropy pool verified, forward-secrecy re-keying ok, domain-separated subkeys derived via HKDF-SHA256");
 }
 
 /// Test 25: kvault Root Filesystem Mount via kblock & Tamper-Evident Bit-Flip Gate
@@ -1164,7 +1164,7 @@ fn test_kvault_root_mount_and_bitflip_tamper_gate() {
     let restored_read = vfs::read("/personal/secret.txt").expect("read after restore failed");
     check!(restored_read == secret_payload);
 
-    kprintln!("[selftest] ✓ T25 kvault Root Filesystem Mount & Tamper-Evident Bit-Flip Gate: root VFS mounted on block driver, baseline files verified, 1-byte on-disk bit-flip detected & rejected via Poly1305 authentication");
+    kprintln!("[selftest] PASS: T25 kvault Root Filesystem Mount & Tamper-Evident Bit-Flip Gate: root VFS mounted on block driver, baseline files verified, 1-byte on-disk bit-flip detected & rejected via Poly1305 authentication");
 }
 
 /// Test 26: Anti-Forensic Screen Lock Memory Zeroization & Cache Eviction
@@ -1200,7 +1200,7 @@ fn test_screen_lock_memory_zeroization_clflush() {
     // Restoring session for subsequent execution
     let _ = kms.unlock_session();
 
-    kprintln!("[selftest] ✓ T26 Anti-Forensic Screen Lock Memory Zeroization & Cache Eviction: clflush and memory barriers executed across key cache lines, 100% of buffer zeroed on audit scan, session locked against cold-boot attacks");
+    kprintln!("[selftest] PASS: T26 Anti-Forensic Screen Lock Memory Zeroization & Cache Eviction: clflush and memory barriers executed across key cache lines, 100% of buffer zeroed on audit scan, session locked against cold-boot attacks");
 }
 
 /// Test 27: TPM-Sealed Master Vault Key Bootstrapping & Fail-Closed Gate
@@ -1268,7 +1268,7 @@ fn test_tpm_sealed_master_vault_key_integration() {
     check!(matches!(hostile_unseal, Err(TpmError::PolicyMismatch)));
     check!(leaked_key == [0u8; 32]);
 
-    kprintln!("[selftest] ✓ T27 TPM-Sealed Master Vault Key Bootstrapping & Fail-Closed Gate: master vault key bound to PCR 4 & 7, clean boot unlocks root vault, 1-byte kernel tamper triggers PolicyMismatch and denies access");
+    kprintln!("[selftest] PASS: T27 TPM-Sealed Master Vault Key Bootstrapping & Fail-Closed Gate: master vault key bound to PCR 4 & 7, clean boot unlocks root vault, 1-byte kernel tamper triggers PolicyMismatch and denies access");
 }
 
 /// Runs acceptance gates for Phase 7: Network & Privacy
@@ -1312,7 +1312,7 @@ fn test_default_deny_firewall_and_packet_filter() {
     check!(stats.packets_dropped >= 2);
     check!(stats.packets_sent >= 1);
 
-    kprintln!("[selftest] ✓ T28 Default-Deny Firewall & PacketFilter Gate: unauthorized egress ports (23) and tracking domains dropped, authorized HTTPS allowed, fingerprint normalized");
+    kprintln!("[selftest] PASS: T28 Default-Deny Firewall & PacketFilter Gate: unauthorized egress ports (23) and tracking domains dropped, authorized HTTPS allowed, fingerprint normalized");
 }
 
 /// Test 29: Fail-Closed Network Kill Switch Gate
@@ -1348,7 +1348,7 @@ fn test_fail_closed_network_kill_switch() {
     let allowed_res = net::send(target_mac, IpProto::TCP, 50001, 443, Some("internal.vault"), payload);
     check!(allowed_res.is_ok());
 
-    kprintln!("[selftest] ✓ T29 Fail-Closed Network Kill Switch Gate: tunnel disconnection drops 100% of egress packets, 0 bytes leaked, traffic safely resumes on gateway recovery");
+    kprintln!("[selftest] PASS: T29 Fail-Closed Network Kill Switch Gate: tunnel disconnection drops 100% of egress packets, 0 bytes leaked, traffic safely resumes on gateway recovery");
 }
 
 /// Test 30: Hardware-Entropy Seeded MAC Randomization Gate
@@ -1376,7 +1376,7 @@ fn test_mac_randomization_hardware_entropy() {
     // Hardware entropy ensures the freshly rotated address is unique
     check!(mac1 != mac2);
 
-    kprintln!("[selftest] ✓ T30 Hardware-Entropy Seeded MAC Randomization Gate: locally-administered unicast MAC rotated from CSPRNG, physical burned-in OUI hidden across reconnects");
+    kprintln!("[selftest] PASS: T30 Hardware-Entropy Seeded MAC Randomization Gate: locally-administered unicast MAC rotated from CSPRNG, physical burned-in OUI hidden across reconnects");
 }
 
 /// Test 31: smoltcp Network Service & Loopback Socket Transport Gate
@@ -1418,7 +1418,7 @@ fn test_smoltcp_socket_and_loopback_transport() {
     // 5. Clean socket closure
     net::close(sock_id).expect("close socket failed");
 
-    kprintln!("[selftest] ✓ T31 smoltcp Network Service & Loopback Socket Transport Gate: TCP socket connection established, packet loopback roundtrip verified with 100% payload integrity");
+    kprintln!("[selftest] PASS: T31 smoltcp Network Service & Loopback Socket Transport Gate: TCP socket connection established, packet loopback roundtrip verified with 100% payload integrity");
 }
 
 /// Runs acceptance gates for Phase 8: Compartments & Mandatory Access Control
@@ -1477,7 +1477,7 @@ fn test_flask_mac_ipc_enforcement() {
     let enf_res = flask::check_ipc(SID_UNTRUSTED_KAPP, SID_USB_DOMAIN, perms::IPC_SEND);
     check!(enf_res.is_err());
 
-    kprintln!("[selftest] ✓ T32 FLASK MAC Policy Enforcement on IPC Gate: cross-compartment IPC access control enforced, unpermitted channels blocked, AVC lookup verified, atomic policy reload confirmed");
+    kprintln!("[selftest] PASS: T32 FLASK MAC Policy Enforcement on IPC Gate: cross-compartment IPC access control enforced, unpermitted channels blocked, AVC lookup verified, atomic policy reload confirmed");
 }
 
 /// Test 33: Disposable Domain RAM Scratchpad & Zero-Remanence Teardown Gate
@@ -1514,7 +1514,7 @@ fn test_disposable_domain_zero_remanence() {
     check!(!report.remanence_detected);
     check!(report.zero_remanence_verified);
 
-    kprintln!("[selftest] ✓ T33 Disposable Domain RAM Scratchpad & Zero-Remanence Teardown Gate: air-gapped ephemeral session executed in RAM, 100% of memory scrubbed & cache-evicted on close with zero byte remanence");
+    kprintln!("[selftest] PASS: T33 Disposable Domain RAM Scratchpad & Zero-Remanence Teardown Gate: air-gapped ephemeral session executed in RAM, 100% of memory scrubbed & cache-evicted on close with zero byte remanence");
 }
 
 /// Test 34: Out-of-Process Powerbox User-Approval & Token Minting Gate
@@ -1553,7 +1553,7 @@ fn test_powerbox_user_approval_and_token_minting() {
     let cross_compartment_access = verify_file_access(wrong_pid, target_file, Some(token_id), Rights::READ);
     check!(cross_compartment_access.is_err());
 
-    kprintln!("[selftest] ✓ T34 Out-of-Process Powerbox User-Approval & Token Minting Gate: unconfirmed file access denied, explicit user mediation mints single-file token, sibling files and cross-compartment access strictly blocked");
+    kprintln!("[selftest] PASS: T34 Out-of-Process Powerbox User-Approval & Token Minting Gate: unconfirmed file access denied, explicit user mediation mints single-file token, sibling files and cross-compartment access strictly blocked");
 }
 
 /// Test 35: Powerbox Token Revocation & Sibling File Isolation Gate
@@ -1580,7 +1580,7 @@ fn test_powerbox_token_revocation() {
     let revoked_access = verify_file_access(client_pid, target_file, Some(token_id), Rights::READ);
     check!(revoked_access.is_err());
 
-    kprintln!("[selftest] ✓ T35 Powerbox Token Revocation & Isolation Gate: user revocation immediately severs delegated capability, ambient access rejected, POLA preserved");
+    kprintln!("[selftest] PASS: T35 Powerbox Token Revocation & Isolation Gate: user revocation immediately severs delegated capability, ambient access rejected, POLA preserved");
 }
 
 /// Runs acceptance gates for Phase 9: GUI & Display Server
@@ -1625,7 +1625,7 @@ fn test_nitpicker_security_borders_and_anti_spoofing() {
         .expect("create spoof surface failed");
     check!(display::verify_anti_spoofing(spoof_attempt).is_ok());
 
-    kprintln!("[selftest] ✓ T36 Unforgeable Nitpicker Domain Border & Anti-Spoofing Gate: hardware-badged 4px colored borders enforced, client surface cannot occlude top system bar");
+    kprintln!("[selftest] PASS: T36 Unforgeable Nitpicker Domain Border & Anti-Spoofing Gate: hardware-badged 4px colored borders enforced, client surface cannot occlude top system bar");
 }
 
 /// Test 37: Secure Input Routing Gate
@@ -1669,7 +1669,7 @@ fn test_secure_input_routing() {
     let keys2_after = get_surface_received_keys(2).expect("get keys for win 2 failed");
     check!(keys2_after.len() == 4);
 
-    kprintln!("[selftest] ✓ T37 Secure Input Routing Gate: keystrokes routed strictly to focused surface, background surfaces receive 0 events, cross-window keylogging prevented");
+    kprintln!("[selftest] PASS: T37 Secure Input Routing Gate: keystrokes routed strictly to focused surface, background surfaces receive 0 events, cross-window keylogging prevented");
 }
 
 /// Test 38: Cross-Window Shared-Memory Buffer Isolation Gate
@@ -1689,7 +1689,7 @@ fn test_cross_window_shm_buffer_isolation() {
     let iso_1_3 = display::verify_buffer_isolation(1, 3);
     check!(iso_1_3.is_ok());
 
-    kprintln!("[selftest] ✓ T38 Cross-Window SHM Buffer Isolation Gate: client surface pixel buffers isolated in non-overlapping memory ranges, cross-compartment screen-scraping blocked");
+    kprintln!("[selftest] PASS: T38 Cross-Window SHM Buffer Isolation Gate: client surface pixel buffers isolated in non-overlapping memory ranges, cross-compartment screen-scraping blocked");
 }
 
 /// Test 39: Mediated Clipboard Daemon Gate
@@ -1718,7 +1718,7 @@ fn test_mediated_clipboard_sanitization() {
     check!(pasted.contains("KashOS-Secret-Token"));
     check!(pasted.contains("\tAuthorized-Session"));
 
-    kprintln!("[selftest] ✓ T39 Mediated Clipboard Daemon Gate: control characters and terminal escapes stripped, paste delivered strictly to focused window, background sniffing blocked");
+    kprintln!("[selftest] PASS: T39 Mediated Clipboard Daemon Gate: control characters and terminal escapes stripped, paste delivered strictly to focused window, background sniffing blocked");
 }
 
 /// Runs acceptance gates for Phase 10: Hardening & Verification
@@ -1828,7 +1828,7 @@ fn test_formal_capability_invariants() {
     crate::security::scrub_slice(&mut mem_buf);
     check!(mem_buf.iter().all(|&b| b == 0));
 
-    kprintln!("[selftest] ✓ T40 Formal Invariant & Capability Rights Monotonicity Gate: machine-checked monotonicity verified across 64 permutations, untyped memory disjointness confirmed, transitive revocation soundness proven");
+    kprintln!("[selftest] PASS: T40 Formal Invariant & Capability Rights Monotonicity Gate: machine-checked monotonicity verified across 64 permutations, untyped memory disjointness confirmed, transitive revocation soundness proven");
 }
 
 /// Test 41: ELF64 Loader Malformed Image Fuzz Gate
@@ -1929,7 +1929,7 @@ fn test_elf_loader_fuzz_hardening() {
     }
 
     check!(rejections == 1000);
-    kprintln!("[selftest] ✓ T41 ELF64 Loader Malformed Image Fuzz Gate: 1,000 mutated/corrupted ELF binaries safely rejected (bad magic, wild phoff, integer overflows, W|X violations), 100% fail-closed with zero microkernel panics");
+    kprintln!("[selftest] PASS: T41 ELF64 Loader Malformed Image Fuzz Gate: 1,000 mutated/corrupted ELF binaries safely rejected (bad magic, wild phoff, integer overflows, W|X violations), 100% fail-closed with zero microkernel panics");
 }
 
 /// Test 42: Syscall Boundary Hardening & Negative Pointer Fuzz Gate
@@ -1987,7 +1987,7 @@ fn test_syscall_boundary_fuzz_hardening() {
     }
 
     check!(rejected_calls == 10_000);
-    kprintln!("[selftest] ✓ T42 Syscall Boundary Hardening & Negative Pointer Fuzz Gate: 10,000 hostile syscall vectors tested (null ptrs, kernel space >0xFFFF_8000_0000_0000, overflow lengths), 0 faults, strict fail-closed rejection");
+    kprintln!("[selftest] PASS: T42 Syscall Boundary Hardening & Negative Pointer Fuzz Gate: 10,000 hostile syscall vectors tested (null ptrs, kernel space >0xFFFF_8000_0000_0000, overflow lengths), 0 faults, strict fail-closed rejection");
 }
 
 /// Test 43: Network Packet & Protocol Parser Fuzz Gate
@@ -2071,7 +2071,7 @@ fn test_network_packet_fuzz_hardening() {
     check!(res_sni == Err(NetError::PacketFiltered));
 
     check!(blocked_packets > 500);
-    kprintln!("[selftest] ✓ T43 Network Packet & Protocol Parser Fuzz Gate: 1,000 malformed frames, cyclic headers, and corrupt SNI domains safely filtered, fail-closed kill-switch verified, 0 unencrypted bytes leaked");
+    kprintln!("[selftest] PASS: T43 Network Packet & Protocol Parser Fuzz Gate: 1,000 malformed frames, cyclic headers, and corrupt SNI domains safely filtered, fail-closed kill-switch verified, 0 unencrypted bytes leaked");
 }
 
 

@@ -53,7 +53,6 @@ mod heap;
 pub mod ipc;
 pub mod kapp;
 mod kash;
-pub mod kash_kernel;
 #[allow(unsafe_code)]
 pub mod linux;
 pub mod lockdown;

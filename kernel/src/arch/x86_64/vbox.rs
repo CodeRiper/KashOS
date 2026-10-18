@@ -9,7 +9,6 @@
 //! 6. VirtualBox ACPI Clean Poweroff: Hardware power management via port 0x4004 / 0x604.
 
 #![allow(unsafe_code)]
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::format;
@@ -70,6 +69,7 @@ unsafe fn inw(port: u16) -> u16 {
     val
 }
 
+#[allow(dead_code)]
 #[inline(always)]
 unsafe fn outl(port: u16, val: u32) {
     unsafe {
@@ -82,6 +82,7 @@ unsafe fn outl(port: u16, val: u32) {
     }
 }
 
+#[allow(dead_code)]
 #[inline(always)]
 unsafe fn inl(port: u16) -> u32 {
     let val: u32;
@@ -175,6 +176,7 @@ const ATA_PRIMARY_COMMAND:      u16 = 0x1F7;
 const ATA_CMD_IDENTIFY:         u8 = 0xEC;
 const ATA_CMD_IDENTIFY_PACKET:  u8 = 0xA1;
 const ATA_CMD_READ_SECTORS:     u8 = 0x20;
+#[allow(dead_code)]
 const ATA_CMD_WRITE_SECTORS:    u8 = 0x30;
 
 const ATA_STATUS_BSY:           u8 = 0x80;

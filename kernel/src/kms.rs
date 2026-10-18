@@ -8,7 +8,6 @@
 //!   and explicit CPU cache line flushing (`clflush`).
 //! - Verification scan to audit that 100% of key material is expunged from RAM and cache.
 
-#![allow(dead_code)]
 
 extern crate alloc;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -126,7 +125,7 @@ impl KeyManagementService {
             crate::security::scrub_slice(&mut *key);
         }
         self.session_locked.store(true, Ordering::SeqCst);
-        crate::kprintln!("[kms] ✓ Volatile keys purged via clflush and memory fences");
+        crate::kprintln!("[kms] Volatile keys purged via clflush and memory fences");
     }
 
     /// Unlocks session by querying TPM 2.0 unseal with live PCR verification.
@@ -140,7 +139,7 @@ impl KeyManagementService {
             Ok(len) if len == MASTER_KEY_LEN => {
                 self.master_key = Some(Zeroizing::new(unsealed));
                 self.session_locked.store(false, Ordering::SeqCst);
-                crate::kprintln!("[kms] ✓ Session unlocked via live TPM 2.0 PCR policy verification");
+                crate::kprintln!("[kms] Session unlocked via live TPM 2.0 PCR policy verification");
                 Ok(())
             }
             Err(TpmError::PolicyMismatch) => {

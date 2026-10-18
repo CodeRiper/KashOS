@@ -11,7 +11,6 @@
 //! Provides fault-isolated user-space driver daemons (Tier 4).
 //! When a driver encounters an unexpected crash or fault, the microkernel isolates
 //! the blast radius, prevents any kernel panic, and transparently restarts the driver.
-#![allow(dead_code)]
 
 extern crate alloc;
 use alloc::boxed::Box;
