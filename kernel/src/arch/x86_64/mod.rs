@@ -22,7 +22,7 @@ pub mod acpi;
 pub mod smp;
 pub mod tpm;
 
-pub use pci::{scan_bus as scan_pci, PciDevice};
+pub use pci::{scan_bus as scan_pci, PciDevice, find_ahci, find_nic, find_audio};
 pub use vbox::{probe_environment as probe_vbox, VirtualBoxProfile, VBoxBgaDisplay, VBoxAtaDriver, AtaDriveInfo};
 pub use vtd::{init as init_vtd, get_iommu_status, IntelVtdUnit, PcieAcsVerifier};
 pub use tpm::{init as init_tpm, get_tpm_status, Tpm2Device, TpmError};

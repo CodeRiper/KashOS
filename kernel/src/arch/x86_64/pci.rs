@@ -154,6 +154,10 @@ pub struct PciDevice {
     pub irq_line: u8,
     pub bar0: u32,
     pub bar1: u32,
+    pub bar2: u32,
+    pub bar3: u32,
+    pub bar4: u32,
+    pub bar5: u32,
 }
 
 impl PciDevice {
@@ -179,11 +183,16 @@ impl PciDevice {
             (0x8086, 0x7111) => String::from("82371AB/EB/MB PIIX4 IDE Controller"),
             (0x8086, 0x7113) => String::from("82371AB/EB/MB PIIX4 ACPI / Power Management"),
             (0x8086, 0x100E) => String::from("82540EM Gigabit Ethernet Controller (e1000)"),
+            (0x8086, 0x1004) => String::from("82543GC Gigabit Ethernet Controller (e1000)"),
+            (0x8086, 0x100F) => String::from("82545EM Gigabit Ethernet Controller (e1000)"),
+            (0x8086, 0x10D3) => String::from("82574L Gigabit Ethernet Controller (e1000e)"),
             (0x8086, 0x29C0) => String::from("82G33/G31/P35/P31 Express DRAM Controller (Q35)"),
             (0x8086, 0x2918) => String::from("82801IB (ICH9) LPC Interface Controller"),
             (0x8086, 0x2922) => String::from("82801IR/IO/IH (ICH9R/DO/DH) 6 port SATA Controller [AHCI]"),
+            (0x8086, 0x2668) => String::from("82801FB/FBM/FR/FW/FRW High Definition Audio Controller"),
             (0x8086, 0x2934) => String::from("82801I (ICH9 Family) USB UHCI Controller #1"),
             (0x8086, 0x293A) => String::from("82801I (ICH9 Family) USB2 EHCI Controller #1"),
+            (0x10EC, 0x8139) => String::from("RTL-8139/8139C/8139C+ Fast Ethernet NIC"),
             (0x1234, 0x1111) => String::from("QEMU Standard VGA Graphics Adapter"),
             (0x80EE, 0xBEEF) => String::from("VirtualBox Graphics Adapter"),
             (0x80EE, 0xCAFE) => String::from("VirtualBox Guest Additions Device"),
@@ -217,6 +226,87 @@ impl PciDevice {
             _ => "Unknown Class",
         }
     }
+
+    /// Returns the physical memory base address if the BAR is Memory-mapped.
+    pub fn bar_mem_address(&self, bar_idx: usize) -> Option<u64> {
+        let val = match bar_idx {
+            0 => self.bar0,
+            1 => self.bar1,
+            2 => self.bar2,
+            3 => self.bar3,
+            4 => self.bar4,
+            5 => self.bar5,
+            _ => return None,
+        };
+        // Bit 0: 0 = Memory Space, 1 = I/O Space
+        if (val & 1) == 0 {
+            let paddr = (val & 0xFFFF_FFF0) as u64;
+            if paddr != 0 {
+                return Some(paddr);
+            }
+        }
+        None
+    }
+
+    /// Returns the I/O port base if the BAR is I/O-mapped.
+    pub fn bar_io_port(&self, bar_idx: usize) -> Option<u16> {
+        let val = match bar_idx {
+            0 => self.bar0,
+            1 => self.bar1,
+            2 => self.bar2,
+            3 => self.bar3,
+            4 => self.bar4,
+            5 => self.bar5,
+            _ => return None,
+        };
+        // Bit 0: 1 = I/O Space
+        if (val & 1) == 1 {
+            let port = (val & 0xFFFC) as u16;
+            if port != 0 {
+                return Some(port);
+            }
+        }
+        None
+    }
+
+    /// Enables Bus Master (bit 2), Memory Space (bit 1), and I/O Space (bit 0) in PCI Command register.
+    pub fn enable_bus_mastering(&self) {
+        enable_bus_master(self.bus, self.slot, self.func);
+    }
+
+    pub fn is_ahci_sata(&self) -> bool {
+        self.class_id == 0x01 && self.subclass_id == 0x06
+    }
+
+    pub fn is_nvme(&self) -> bool {
+        self.class_id == 0x01 && self.subclass_id == 0x08
+    }
+
+    pub fn is_e1000(&self) -> bool {
+        self.vendor_id == 0x8086 && matches!(self.device_id, 0x100E | 0x1004 | 0x100F | 0x10D3 | 0x1539 | 0x10EA | 0x10EF | 0x10F5 | 0x1502 | 0x1503)
+    }
+
+    pub fn is_rtl8139(&self) -> bool {
+        self.vendor_id == 0x10EC && self.device_id == 0x8139
+    }
+
+    pub fn is_virtio_net(&self) -> bool {
+        self.vendor_id == 0x1AF4 && (self.device_id == 0x1000 || self.device_id == 0x1041)
+    }
+
+    pub fn is_virtio_blk(&self) -> bool {
+        self.vendor_id == 0x1AF4 && (self.device_id == 0x1001 || self.device_id == 0x1042)
+    }
+
+    pub fn is_hda_audio(&self) -> bool {
+        self.class_id == 0x04 && self.subclass_id == 0x03
+    }
+}
+
+/// Enables Bus Mastering and MMIO/IO spaces for a PCI device.
+pub fn enable_bus_master(bus: u8, slot: u8, func: u8) {
+    let cmd = unsafe { pci_read_u16(bus, slot, func, 0x04) };
+    unsafe { pci_write_u16(bus, slot, func, 0x04, cmd | 0x0007) };
 }
 
 /// Scans PCI buses 0..8, slots 0..32, functions 0..8 and returns all active devices.
@@ -246,6 +336,10 @@ pub fn scan_bus() -> Vec<PciDevice> {
                 let irq_line = unsafe { pci_read_u8(bus, slot, func, 0x3C) };
                 let bar0 = unsafe { pci_read_u32(bus, slot, func, 0x10) };
                 let bar1 = unsafe { pci_read_u32(bus, slot, func, 0x14) };
+                let bar2 = unsafe { pci_read_u32(bus, slot, func, 0x18) };
+                let bar3 = unsafe { pci_read_u32(bus, slot, func, 0x1C) };
+                let bar4 = unsafe { pci_read_u32(bus, slot, func, 0x20) };
+                let bar5 = unsafe { pci_read_u32(bus, slot, func, 0x24) };
 
                 devices.push(PciDevice {
                     bus,
@@ -259,12 +353,31 @@ pub fn scan_bus() -> Vec<PciDevice> {
                     irq_line,
                     bar0,
                     bar1,
+                    bar2,
+                    bar3,
+                    bar4,
+                    bar5,
                 });
             }
         }
     }
 
     devices
+}
+
+/// Finds the first AHCI SATA controller if present.
+pub fn find_ahci() -> Option<PciDevice> {
+    scan_bus().into_iter().find(|d| d.is_ahci_sata())
+}
+
+/// Finds the first supported Network Interface Card (e1000, VirtIO, RTL8139).
+pub fn find_nic() -> Option<PciDevice> {
+    scan_bus().into_iter().find(|d| d.is_e1000() || d.is_virtio_net() || d.is_rtl8139())
+}
+
+/// Finds the first Intel HDA audio controller if present.
+pub fn find_audio() -> Option<PciDevice> {
+    scan_bus().into_iter().find(|d| d.is_hda_audio())
 }
 
 /// Finds the BAR0 physical address of the primary display controller

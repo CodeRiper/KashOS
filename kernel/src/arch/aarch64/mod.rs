@@ -348,6 +348,18 @@ pub fn scan_pci() -> alloc::vec::Vec<PciDevice> {
     alloc::vec::Vec::new()
 }
 
+pub fn find_ahci() -> Option<PciDevice> {
+    None
+}
+
+pub fn find_nic() -> Option<PciDevice> {
+    None
+}
+
+pub fn find_audio() -> Option<PciDevice> {
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct AtaDriveInfo {
     pub drive_index: u8,

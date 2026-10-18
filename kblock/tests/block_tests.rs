@@ -132,3 +132,51 @@ fn kblock_scheduler_read_write_zero_roundtrip() {
     sched.driver.read_sectors(10, 1, &mut read_buf).expect("read after zero failed");
     assert_eq!(read_buf, [0u8; 512]);
 }
+
+#[test]
+fn ahci_controller_fis_serialization_and_metadata() {
+    use kblock::ahci::{AhciController, FisRegH2D, ATA_CMD_READ_DMA_EXT};
+
+    let mut controller = AhciController::new(0);
+    assert_eq!(controller.capacity_sectors(), 16_777_216);
+    assert_eq!(controller.driver_name(), "SATA AHCI PCIe Controller (FIS DMA)");
+    assert_eq!(controller.probe(), Err(BlockError::DeviceNotFound));
+
+    // Test FisRegH2D serialization for 48-bit LBA read
+    let mut fis = FisRegH2D::default();
+    fis.fis_type = 0x27;
+    fis.pmport_c = 1 << 7;
+    fis.command = ATA_CMD_READ_DMA_EXT;
+    fis.device = 1 << 6;
+    fis.lba0 = 0x12;
+    fis.lba1 = 0x34;
+    fis.lba2 = 0x56;
+    fis.lba3 = 0x78;
+    fis.lba4 = 0x9A;
+    fis.lba5 = 0xBC;
+    fis.count_low = 8;
+    fis.count_high = 0;
+
+    let mut buf = [0u8; 64];
+    fis.write_to_bytes(&mut buf);
+    assert_eq!(buf[0], 0x27); // FIS type
+    assert_eq!(buf[1], 0x80); // Command bit
+    assert_eq!(buf[2], ATA_CMD_READ_DMA_EXT);
+    assert_eq!(buf[4], 0x12); // LBA0
+    assert_eq!(buf[5], 0x34); // LBA1
+    assert_eq!(buf[6], 0x56); // LBA2
+    assert_eq!(buf[7], 0x40); // Device LBA
+    assert_eq!(buf[8], 0x78); // LBA3
+    assert_eq!(buf[9], 0x9A); // LBA4
+    assert_eq!(buf[10], 0xBC); // LBA5
+    assert_eq!(buf[12], 8);    // Sector count low
+}
+
+#[test]
+fn virtio_block_device_metadata_and_capabilities() {
+    use kblock::virtio_blk::VirtioBlockDevice;
+
+    let vblk = VirtioBlockDevice::new(0x1000);
+    assert_eq!(vblk.capacity_sectors(), 2_097_152);
+    assert_eq!(vblk.driver_name(), "VirtIO-Block Paravirtualized Disk (OASIS v1.0)");
+}

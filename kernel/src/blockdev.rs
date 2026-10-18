@@ -92,20 +92,63 @@ static SCHEDULER: SpinLock<Option<KBlockScheduler>> = SpinLock::new(None);
 pub fn init() {
     let mut sched_lock = SCHEDULER.lock();
     if sched_lock.is_none() {
-        crate::kprintln!("[kblock] Probing physical disk controllers (PATA/IDE, VirtIO, AHCI)...");
-
-        // Attempt 1: Probe physical PATA/IDE controller on ports 0x1F0/0x3F6
-        let mut ide = IdeChannel::new_primary_master();
-        let driver: Box<dyn PersistentBlockDriver> = match ide.probe() {
-            Ok(sectors) => {
-                crate::kprintln!("[kblock] Legacy PATA/IDE Master detected at Port 0x1F0 ({} sectors, {} MiB)",
-                                 sectors, (sectors * 512) / (1024 * 1024));
-                Box::new(ide)
+        // Storage probe order: AHCI (SATA) -> VirtIO-Block -> Legacy PATA/IDE -> Volatile RAM
+        let driver: Box<dyn PersistentBlockDriver> = {
+            // Attempt 1: Probe PCI for SATA AHCI Controller (inspired by Redox OS ahcid)
+            if let Some(ahci_dev) = crate::arch::find_ahci() {
+                if let Some(abar) = ahci_dev.bar_mem_address(5) {
+                    ahci_dev.enable_bus_mastering();
+                    let mut ahci = kblock::AhciController::new(abar);
+                    if let Ok(sectors) = ahci.probe() {
+                        crate::kprintln!("[kblock] SATA AHCI Controller active at MMIO {:#x} ({} sectors, {} MiB)",
+                                         abar, sectors, (sectors * 512) / (1024 * 1024));
+                        Some(Box::new(ahci) as Box<dyn PersistentBlockDriver>)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
             }
-            Err(_) => {
-                crate::kprintln!("[kblock] no physical PATA controller detected; using a volatile in-memory staging backend");
+            .or_else(|| {
+                // Attempt 2: Probe PCI for VirtIO-Block device
+                let pci_devs = crate::arch::scan_pci();
+                if let Some(vblk_dev) = pci_devs.into_iter().find(|d| d.is_virtio_blk()) {
+                    if let Some(io_base) = vblk_dev.bar_io_port(0) {
+                        vblk_dev.enable_bus_mastering();
+                        let mut vblk = kblock::VirtioBlockDevice::new(io_base);
+                        if vblk.init_device().is_ok() {
+                            crate::kprintln!("[kblock] VirtIO-Block device active at I/O Port {:#x} ({} sectors, {} MiB)",
+                                             io_base, vblk.capacity_sectors, (vblk.capacity_sectors * 512) / (1024 * 1024));
+                            Some(Box::new(vblk) as Box<dyn PersistentBlockDriver>)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                // Attempt 3: Probe physical PATA/IDE controller on ports 0x1F0/0x3F6 (Core 2 Duo / vintage PC)
+                let mut ide = IdeChannel::new_primary_master();
+                match ide.probe() {
+                    Ok(sectors) => {
+                        crate::kprintln!("[kblock] Legacy PATA/IDE Master detected at Port 0x1F0 ({} sectors, {} MiB)",
+                                         sectors, (sectors * 512) / (1024 * 1024));
+                        Some(Box::new(ide) as Box<dyn PersistentBlockDriver>)
+                    }
+                    Err(_) => None,
+                }
+            })
+            .unwrap_or_else(|| {
+                crate::kprintln!("[kblock] No physical PATA/AHCI controller detected; using volatile in-memory staging backend");
                 Box::new(FallbackRamDriver::new(DEFAULT_SECTORS))
-            }
+            })
         };
 
         crate::kprintln!("[kblock] Initializing C-LOOK Elevator Scheduler (64-entry request ring)...");

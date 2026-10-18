@@ -21,6 +21,9 @@ pub struct CpuFeatures {
     pub has_stibp:   bool,  // Single Thread Indirect Branch Predictor
     pub has_l1d_flush: bool, // IA32_FLUSH_CMD (L1D cache flush)
     pub has_ssbd:    bool,  // Speculative Store Bypass Disable
+    pub has_apic:    bool,  // On-chip Local APIC present (CPUID.01H:EDX[9])
+    pub has_tsc:     bool,  // Time Stamp Counter present (CPUID.01H:EDX[4])
+    pub has_invariant_tsc: bool, // Invariant TSC across P/C-states (CPUID.80000007H:EDX[8])
     pub max_phys_bits: u8,
     pub max_virt_bits: u8,
 }
@@ -33,7 +36,8 @@ impl Default for CpuFeatures {
             has_nx: false, has_rdrand: false, has_rdseed: false, has_vmx: false,
             has_smep: false, has_smap: false, has_umip: false, has_tme: false, has_fsgsbase: false,
             has_pcid: false, has_ibrs: false, has_stibp: false, has_l1d_flush: false,
-            has_ssbd: false, max_phys_bits: 0, max_virt_bits: 0,
+            has_ssbd: false, has_apic: false, has_tsc: false, has_invariant_tsc: false,
+            max_phys_bits: 0, max_virt_bits: 0,
         }
     }
 }
@@ -71,10 +75,12 @@ pub fn detect() -> CpuFeatures {
     }
 
     // Standard features (leaf 1)
-    let (_, _, ecx1, _edx1) = cpuid(1, 0);
+    let (_, _, ecx1, edx1) = cpuid(1, 0);
     f.has_rdrand    = ecx1 & (1 << 30) != 0;
     f.has_vmx       = ecx1 & (1 << 5)  != 0;
     f.has_pcid      = ecx1 & (1 << 17) != 0;
+    f.has_tsc       = edx1 & (1 << 4)  != 0; // Time Stamp Counter
+    f.has_apic      = edx1 & (1 << 9)  != 0; // On-chip APIC Hardware
 
     // Extended features (leaf 7, sub 0)
     let (_, ebx7, ecx7, edx7) = cpuid(7, 0);
@@ -89,23 +95,38 @@ pub fn detect() -> CpuFeatures {
     f.has_l1d_flush = edx7 & (1 << 28) != 0; // IA32_FLUSH_CMD
     f.has_ssbd      = edx7 & (1 << 31) != 0; // SSBD
 
+    // Extended CPUID limit
+    let (max_ext, _, _, _) = cpuid(0x8000_0000, 0);
+
     // Extended CPUID (leaf 0x80000001) — NX bit
-    let (_, _, _, edx_ext) = cpuid(0x8000_0001, 0);
-    f.has_nx        = edx_ext & (1 << 20) != 0;
+    if max_ext >= 0x8000_0001 {
+        let (_, _, _, edx_ext) = cpuid(0x8000_0001, 0);
+        f.has_nx = edx_ext & (1 << 20) != 0;
+    }
+
+    // Invariant TSC (leaf 0x80000007, EDX bit 8)
+    if max_ext >= 0x8000_0007 {
+        let (_, _, _, edx_pm) = cpuid(0x8000_0007, 0);
+        f.has_invariant_tsc = edx_pm & (1 << 8) != 0;
+    }
 
     // Address size (leaf 0x80000008)
-    let (eax_as, _, _, _) = cpuid(0x8000_0008, 0);
-    f.max_phys_bits = (eax_as & 0xFF) as u8;
-    f.max_virt_bits = ((eax_as >> 8) & 0xFF) as u8;
+    if max_ext >= 0x8000_0008 {
+        let (eax_as, _, _, _) = cpuid(0x8000_0008, 0);
+        f.max_phys_bits = (eax_as & 0xFF) as u8;
+        f.max_virt_bits = ((eax_as >> 8) & 0xFF) as u8;
+    }
 
     // CPU brand string (leaves 0x80000002..0x80000004)
-    for i in 0..3u32 {
-        let (a, b, c, d) = cpuid(0x8000_0002 + i, 0);
-        let off = i as usize * 16;
-        f.brand[off..off+4].copy_from_slice(&a.to_le_bytes());
-        f.brand[off+4..off+8].copy_from_slice(&b.to_le_bytes());
-        f.brand[off+8..off+12].copy_from_slice(&c.to_le_bytes());
-        f.brand[off+12..off+16].copy_from_slice(&d.to_le_bytes());
+    if max_ext >= 0x8000_0004 {
+        for i in 0..3u32 {
+            let (a, b, c, d) = cpuid(0x8000_0002 + i, 0);
+            let off = i as usize * 16;
+            f.brand[off..off+4].copy_from_slice(&a.to_le_bytes());
+            f.brand[off+4..off+8].copy_from_slice(&b.to_le_bytes());
+            f.brand[off+8..off+12].copy_from_slice(&c.to_le_bytes());
+            f.brand[off+12..off+16].copy_from_slice(&d.to_le_bytes());
+        }
     }
 
     f

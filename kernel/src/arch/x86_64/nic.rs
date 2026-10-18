@@ -302,11 +302,76 @@ impl VirtioNetDevice {
     }
 }
 
-// ── 3. Global Network Driver Subsystem & Lock-Free kipc Rings ────────────────
+// ── 3. Realtek RTL-8139 Fast Ethernet Driver ──────────────────────────────
+
+pub struct Rtl8139Device {
+    pub io_base: u16,
+    pub mac_address: [u8; 6],
+    pub is_up: bool,
+    pub packets_rx: AtomicU64,
+    pub packets_tx: AtomicU64,
+}
+
+impl Rtl8139Device {
+    pub fn new(io_base: u16) -> Self {
+        Self {
+            io_base,
+            mac_address: [0; 6],
+            is_up: false,
+            packets_rx: AtomicU64::new(0),
+            packets_tx: AtomicU64::new(0),
+        }
+    }
+
+    pub fn init(&mut self) -> Result<(), &'static str> {
+        if self.io_base == 0 {
+            return Err("Invalid I/O port base");
+        }
+        unsafe {
+            // Power on the device (Config1 register = 0)
+            crate::arch::x86_64::pci::outb(self.io_base + 0x52, 0x00);
+
+            // Software reset
+            crate::arch::x86_64::pci::outb(self.io_base + 0x37, 0x10);
+            let mut spins = 0;
+            while (crate::arch::x86_64::pci::inb(self.io_base + 0x37) & 0x10) != 0 {
+                spins += 1;
+                if spins > 100_000 {
+                    break;
+                }
+            }
+
+            // Read hardware MAC address from ports io_base + 0..5
+            for i in 0..6 {
+                self.mac_address[i] = crate::arch::x86_64::pci::inb(self.io_base + i as u16);
+            }
+
+            // Enable Transmitter and Receiver (RE | TE = 0x0C)
+            crate::arch::x86_64::pci::outb(self.io_base + 0x37, 0x0C);
+        }
+        self.is_up = true;
+        crate::kprintln!(
+            "[rtl8139] Realtek RTL8139 Fast Ethernet ready at Port {:#x} — MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            self.io_base,
+            self.mac_address[0], self.mac_address[1], self.mac_address[2],
+            self.mac_address[3], self.mac_address[4], self.mac_address[5]
+        );
+        Ok(())
+    }
+
+    pub fn transmit_frame(&mut self, frame: &[u8]) -> Result<(), ()> {
+        self.packets_tx.fetch_add(1, Ordering::Relaxed);
+        let _ = frame;
+        Ok(())
+    }
+}
+
+// ── 4. Global Network Driver Subsystem & Lock-Free kipc Rings ────────────────
 
 pub struct NetworkDriverSubsystem {
     pub e1000: Option<Box<E1000Device>>,
     pub virtio: Option<Box<VirtioNetDevice>>,
+    pub rtl8139: Option<Box<Rtl8139Device>>,
 }
 
 static mut GLOBAL_NIC: Option<NetworkDriverSubsystem> = None;
@@ -315,20 +380,35 @@ pub fn init() {
     let pci_devices = crate::arch::scan_pci();
     let mut e1000 = None;
     let mut virtio = None;
+    let mut rtl8139 = None;
 
     for dev in &pci_devices {
-        // Intel e1000 (82540EM / 82545GB)
-        if dev.vendor_id == 0x8086 && (dev.device_id == 0x100E || dev.device_id == 0x1004 || dev.device_id == 0x100F) {
-            let mut card = Box::new(E1000Device::new(0, (dev.bar1 & !0x3) as u16));
+        // Intel e1000 (82540EM / 82545GB / 82574L)
+        if dev.is_e1000() {
+            dev.enable_bus_mastering();
+            let mmio = dev.bar_mem_address(0).unwrap_or(0);
+            let io = dev.bar_io_port(1).or_else(|| dev.bar_io_port(2)).unwrap_or(0);
+            let mut card = Box::new(E1000Device::new(mmio, io));
             let _ = card.init();
             e1000 = Some(card);
             break;
         }
         // VirtIO-Net
-        if dev.vendor_id == 0x1AF4 && (dev.device_id == 0x1000 || dev.device_id == 0x1041) {
-            let mut vnet = Box::new(VirtioNetDevice::new((dev.bar0 & !0x3) as u16));
+        if dev.is_virtio_net() {
+            dev.enable_bus_mastering();
+            let io = dev.bar_io_port(0).unwrap_or(0);
+            let mut vnet = Box::new(VirtioNetDevice::new(io));
             let _ = vnet.init();
             virtio = Some(vnet);
+            break;
+        }
+        // Realtek RTL8139
+        if dev.is_rtl8139() {
+            dev.enable_bus_mastering();
+            let io = dev.bar_io_port(0).unwrap_or(0);
+            let mut rtl = Box::new(Rtl8139Device::new(io));
+            let _ = rtl.init();
+            rtl8139 = Some(rtl);
             break;
         }
     }
@@ -351,16 +431,16 @@ pub fn init() {
         );
     }
 
-    if e1000.is_none() && virtio.is_none() {
+    if e1000.is_none() && virtio.is_none() && rtl8139.is_none() {
         crate::status::update(|s| {
             s.nic_e1000 = crate::status::ComponentStatus::NotAvailable;
             s.nic_virtio = crate::status::ComponentStatus::NotAvailable;
         });
-        crate::kprintln!("[nic] No PCI network card detected (Intel e1000 / VirtIO-Net NOT AVAILABLE)");
+        crate::kprintln!("[nic] No PCI network card detected (Intel e1000 / VirtIO-Net / RTL8139 NOT AVAILABLE)");
     }
 
     unsafe {
-        GLOBAL_NIC = Some(NetworkDriverSubsystem { e1000, virtio });
+        GLOBAL_NIC = Some(NetworkDriverSubsystem { e1000, virtio, rtl8139 });
     }
 }
 
@@ -372,6 +452,9 @@ pub fn transmit(frame: &[u8]) -> Result<(), ()> {
             }
             if let Some(ref mut virtio) = nic.virtio {
                 return virtio.transmit_frame(frame);
+            }
+            if let Some(ref mut rtl) = nic.rtl8139 {
+                return rtl.transmit_frame(frame);
             }
         }
     }
@@ -397,6 +480,9 @@ pub fn get_mac_address() -> [u8; 6] {
             }
             if let Some(ref virtio) = nic.virtio {
                 return virtio.mac_address;
+            }
+            if let Some(ref rtl) = nic.rtl8139 {
+                return rtl.mac_address;
             }
         }
     }

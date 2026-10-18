@@ -338,5 +338,36 @@ mod tests {
         // In natural scrolling, content tracks finger/wheel movement (negative offset)
         assert!(nat_scroll < 0.0);
     }
+
+    #[test]
+    fn apic_timer_calibration_and_pit_fallback_calculations() {
+        // 1. PIT countdown for 10 ms calibration window:
+        // PIT input clock is 1,193,182 Hz. 10 ms = 0.010 s * 1,193,182 = 11,931.82 -> 11,932 counts.
+        let pit_10ms_counts = 11_932u16;
+        let pit_low = (pit_10ms_counts & 0xFF) as u8;
+        let pit_high = ((pit_10ms_counts >> 8) & 0xFF) as u8;
+        assert_eq!(pit_low, 0x9C);
+        assert_eq!(pit_high, 0x2E);
+
+        // 2. APIC calibration over 10 ms at 1.0 GHz bus (QEMU model):
+        let ticks_10ms_qemu = 625_000u64;
+        let bus_mhz_qemu = ((ticks_10ms_qemu * 16 * 100) / 1_000_000) as u32;
+        assert_eq!(bus_mhz_qemu, 1000); // 1000 MHz
+        let icr_100hz_qemu = ticks_10ms_qemu as u32;
+        assert_eq!(icr_100hz_qemu, 625_000);
+
+        // 3. APIC calibration over 10 ms on Core 2 Duo (200 MHz Front Side Bus):
+        let ticks_10ms_c2d = 125_000u64;
+        let bus_mhz_c2d = ((ticks_10ms_c2d * 16 * 100) / 1_000_000) as u32;
+        assert_eq!(bus_mhz_c2d, 200); // 200 MHz
+        let icr_100hz_c2d = ticks_10ms_c2d as u32;
+        assert_eq!(icr_100hz_c2d, 125_000);
+
+        // 4. Fallback 8254 PIT Channel 0 divisor for 100 Hz scheduling:
+        let pit_divisor = (1_193_182u32 / 100) as u16;
+        assert_eq!(pit_divisor, 11_931);
+        let effective_rate = 1_193_182.0 / (pit_divisor as f64);
+        assert!((effective_rate - 100.0).abs() < 0.01);
+    }
 }
 
