@@ -1,7 +1,7 @@
 @echo off
 setlocal
-set "KASHOS_QEMU=qemu-system-x86_64"
-if exist "C:\Users\Akash.J\qemu\qemu-system-x86_64.exe" set "KASHOS_QEMU=C:\Users\Akash.J\qemu\qemu-system-x86_64.exe"
+if exist "%USERPROFILE%\qemu\qemu-system-x86_64.exe" set "KASHOS_QEMU=%USERPROFILE%\qemu\qemu-system-x86_64.exe"
+if exist "C:\Program Files\qemu\qemu-system-x86_64.exe" set "KASHOS_QEMU=C:\Program Files\qemu\qemu-system-x86_64.exe"
 set "KASHOS_ISO=%~dp0kash-os.iso"
 
 if not exist "%KASHOS_ISO%" (

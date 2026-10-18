@@ -22,6 +22,7 @@ pub mod acpi;
 pub mod smp;
 pub mod tpm;
 
+pub use cpuid::{detect as detect_cpu, CpuFeatures, HardwareTier, detect_hardware_tier, print_hardware_report};
 pub use pci::{scan_bus as scan_pci, PciDevice, find_ahci, find_nic, find_audio};
 pub use vbox::{probe_environment as probe_vbox, VirtualBoxProfile, VBoxBgaDisplay, VBoxAtaDriver, AtaDriveInfo};
 pub use vtd::{init as init_vtd, get_iommu_status, IntelVtdUnit, PcieAcsVerifier};
@@ -441,12 +442,14 @@ pub fn enable_wx_paging(
         MmioRegion::uncached(APIC_MMIO_BASE, APIC_MMIO_LEN),
         MmioRegion::uncached(0xB8000, 0x8000),
         MmioRegion::uncached(0xE0000, 0x20000), // BIOS / ACPI tables
+        MmioRegion::uncached(0xFEBC_0000, 0x20000), // PCI e1000 Gigabit NIC MMIO BAR
+        MmioRegion::uncached(0xFEB8_0000, 0x20000), // Alternate PCI MMIO aperture
         MmioRegion::write_combining(0, 0),
     ];
-    let mut mmio_count = 3;
+    let mut mmio_count = 5;
     if let Some(fb_info) = fb::get_framebuffer() {
-        mmio[3] = MmioRegion::write_combining(fb_info.base_paddr, fb_info.size_bytes);
-        mmio_count = 4;
+        mmio[5] = MmioRegion::write_combining(fb_info.base_paddr, fb_info.size_bytes);
+        mmio_count = 6;
     }
     let mut vs = mmu::build::<X86_64>(frames, root, &sections, extra_rw_regions, &mmio[..mmio_count]);
     let guard_paddr = core::ptr::addr_of!(_boot_stack_guard) as u64;

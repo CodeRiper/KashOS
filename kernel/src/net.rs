@@ -521,7 +521,7 @@ pub static NET_SERVICE: SpinLock<Option<Box<NetworkService>>> = SpinLock::new(No
 pub fn init() {
     let mut net_lock = NET_SERVICE.lock();
     if net_lock.is_none() {
-        crate::kprintln!("[net] Initializing user-mode smoltcp network stack and security proxy...");
+        crate::kprintln!("[net] Initializing knet sovereign TCP/IP network stack and security proxy...");
 
         // Derive cryptographic hardware seed for MAC address randomization
         let mut rng = Csprng::new();

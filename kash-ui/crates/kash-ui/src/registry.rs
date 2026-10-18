@@ -340,7 +340,7 @@ pub struct RpcPolicyEntry {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SettingsTab {
     CompartmentDeckAndManager,
-    UntypedMemoryAndVerusAssurance,
+    UntypedMemoryAndCapabilityAssurance,
     Arinc653SchedulerAndHealth,
     IommuAndPeripheralJails,
     KashRpcAndGuiSecurity,
@@ -349,7 +349,7 @@ pub enum SettingsTab {
 #[derive(Clone, Debug)]
 pub struct KashSystemRegistry {
     /// This registry is local demo state. It does not create kernel compartments,
-    /// schedule partitions, configure an IOMMU, or invoke Verus proofs.
+    /// schedule partitions, configure an IOMMU, or claim unbacked formal proofs.
     pub preview_only: bool,
     pub active_tab: SettingsTab,
     pub selected_domain_idx: usize,
@@ -358,7 +358,7 @@ pub struct KashSystemRegistry {
     pub tint_window_backgrounds: bool,
     pub strict_utf8_title_sanitization: bool,
     pub dpi_scale_percent: u16,
-    pub verus_proofs_verified: u32,
+    pub property_tests_verified: u32,
     pub pbit_hardware_verified: bool,
     pub cbit_ecc_status_clean: bool,
     pub domains: [DomainDescriptor; 7],
@@ -376,7 +376,7 @@ impl KashSystemRegistry {
             tint_window_backgrounds: true,
             strict_utf8_title_sanitization: true,
             dpi_scale_percent: 125,
-            verus_proofs_verified: 0,
+            property_tests_verified: 0,
             pbit_hardware_verified: false,
             cbit_ecc_status_clean: false,
             domains: [

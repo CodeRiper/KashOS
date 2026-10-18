@@ -31,7 +31,7 @@ The target system is a capability-based microkernel workstation operating system
 
 ## 2. Subsystem Audit & Roadmap Matrix
 
-The table below reflects the single source of truth across the codebase, matching [`docs/KASHOS_BUILD_GUIDE.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/KASHOS_BUILD_GUIDE.md) and [`kernel/src/status.rs`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/status.rs):
+The table below reflects the single source of truth across the codebase, matching [`docs/KASHOS_BUILD_GUIDE.md`](docs/KASHOS_BUILD_GUIDE.md) and [`kernel/src/status.rs`](kernel/src/status.rs):
 
 | Area | Current Implementation | Target Implementation | Roadmap Phase |
 | :--- | :--- | :--- | :---: |
@@ -51,7 +51,7 @@ The table below reflects the single source of truth across the codebase, matchin
 
 ## 3. Threat Model and Boundary Definitions
 
-The system security boundaries are structured to defend against threats defined in [`docs/THREAT_MODEL.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/THREAT_MODEL.md):
+The system security boundaries are structured to defend against threats defined in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md):
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -113,5 +113,5 @@ To achieve smooth 60 FPS across all hardware tiers:
 
 In accordance with Rule 10 of the KashOS Build Guide:
 - No claims of "verified" or "proven" are permitted in documentation without a machine-checked proof in the repository and a green CI pipeline.
-- All security guarantees are tracked in [`docs/CLAIMS.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/CLAIMS.md) with their required empirical evidence.
+- All security guarantees are tracked in [`docs/CLAIMS.md`](docs/CLAIMS.md) with their required empirical evidence.
 - An independent security audit will serve as the final milestone before any general-purpose release.

@@ -12,7 +12,7 @@
 
 **Verdict: ✅ TRUE**
 
-[main.rs:241–255](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/main.rs#L241-L255) prints 15 `[boot] [OK]` banners claiming:
+[main.rs:241–255](kernel/src/main.rs#L241-L255) prints 15 `[boot] [OK]` banners claiming:
 
 | Line | Claim | Reality |
 |------|-------|---------|
@@ -35,12 +35,12 @@
 
 | Command | File & Line | What it does |
 |---------|-------------|--------------|
-| `ps` | [shell.rs:162–170](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/shell.rs#L162-L170) | Hardcoded text listing 6 fake processes. **No process scheduler exists.** |
-| `free` | [shell.rs:172–178](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/shell.rs#L172-L178) | Hardcoded `64000000` total memory. **Not read from hardware.** |
-| `df` | [shell.rs:180–186](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/shell.rs#L180-L186) | Hardcoded disk stats including ext4 and btrfs partitions. **No block device driver exists.** |
-| `dmesg` | [shell.rs:204–211](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/shell.rs#L204-L211) | Prints `IOMMU DMA containment tables engaged` — **no IOMMU code exists.** |
-| `security` | [shell.rs:230–236](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/shell.rs#L230-L236) | Claims `ML-KEM-1024`, `TCG MOR Active`, `PQC Disk Encryption` — **none implemented.** |
-| `opsec` | [shell.rs:238–260+](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/shell.rs#L238-L260) | Full OPSEC audit table claiming IOMMU, IBRS/STIBP/SSBD, KPTI, Tor kill-switch — **all fiction.** |
+| `ps` | [shell.rs:162–170](kernel/src/shell.rs#L162-L170) | Hardcoded text listing 6 fake processes. **No process scheduler exists.** |
+| `free` | [shell.rs:172–178](kernel/src/shell.rs#L172-L178) | Hardcoded `64000000` total memory. **Not read from hardware.** |
+| `df` | [shell.rs:180–186](kernel/src/shell.rs#L180-L186) | Hardcoded disk stats including ext4 and btrfs partitions. **No block device driver exists.** |
+| `dmesg` | [shell.rs:204–211](kernel/src/shell.rs#L204-L211) | Prints `IOMMU DMA containment tables engaged` — **no IOMMU code exists.** |
+| `security` | [shell.rs:230–236](kernel/src/shell.rs#L230-L236) | Claims `ML-KEM-1024`, `TCG MOR Active`, `PQC Disk Encryption` — **none implemented.** |
+| `opsec` | [shell.rs:238–260+](kernel/src/shell.rs#L238-L260) | Full OPSEC audit table claiming IOMMU, IBRS/STIBP/SSBD, KPTI, Tor kill-switch — **all fiction.** |
 
 ---
 
@@ -50,7 +50,7 @@
 
 **Verdict: ✅ TRUE**
 
-[kash.rs:22](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/kash.rs#L22):
+[kash.rs:22](kernel/src/kash.rs#L22):
 ```
 ║ T1 Kernel    seL4 (formally verified, ~10k LOC C)            ║
 ```
@@ -73,7 +73,7 @@ The KashOS kernel is a standalone Rust binary. It contains:
 |-------|----------|
 | **ML-KEM-1024** | No ML-KEM / Kyber implementation exists anywhere in the workspace. |
 | **IOMMU** | No IOMMU page table structures, no DMA remapping registers, no DMAR ACPI parsing. |
-| **TCG MOR** | [security.rs:221–223](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/security.rs#L221-L223): `fn request_firmware_memory_overwrite() -> bool { true }` — just returns `true`. |
+| **TCG MOR** | [security.rs:221–223](kernel/src/security.rs#L221-L223): `fn request_firmware_memory_overwrite() -> bool { true }` — just returns `true`. |
 | **Measured Boot** | No TPM2.0 driver, no PCR extend, no DRTM. |
 | **Ring 3** | No user-mode entry (`sysretq` exists in assembly but `EFER.SCE` is never set — see §2.1). |
 
@@ -89,9 +89,9 @@ Three call sites silently ignore the `bool` result:
 
 | Location | Code |
 |----------|------|
-| [main.rs:177](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/main.rs#L177) | `let _ = arch::hw_entropy(&mut buf);` |
-| [scheme.rs:73](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/scheme.rs#L73) | `let _ = crate::arch::hw_entropy(buf);` |
-| [scheme.rs:97](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/scheme.rs#L97) | `let _ = crate::arch::hw_entropy(buf); Ok(buf.len())` |
+| [main.rs:177](kernel/src/main.rs#L177) | `let _ = arch::hw_entropy(&mut buf);` |
+| [scheme.rs:73](kernel/src/scheme.rs#L73) | `let _ = crate::arch::hw_entropy(buf);` |
+| [scheme.rs:97](kernel/src/scheme.rs#L97) | `let _ = crate::arch::hw_entropy(buf); Ok(buf.len())` |
 
 If the CPU lacks RDRAND (e.g. Core 2 Duo), `buf` stays **all zeros** and `Ok(buf.len())` is returned to callers. The boot seed at line 177 becomes `0x0000000000000000`. The random scheme serves zero bytes as "entropy."
 
@@ -103,7 +103,7 @@ If the CPU lacks RDRAND (e.g. Core 2 Duo), `buf` stays **all zeros** and `Ok(buf
 
 **Verdict: ✅ TRUE**
 
-[kvaultfs.rs:122–125](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kvault/src/kvaultfs.rs#L122-L125):
+[kvaultfs.rs:122–125](kvault/src/kvaultfs.rs#L122-L125):
 ```rust
 for (j, byte) in stripe.iter_mut().enumerate() {
     *byte = ((i * 37 + j * 17 + 0xA5) & 0xFF) as u8;
@@ -122,14 +122,14 @@ This is a **fully deterministic formula** with no secret input. An attacker who 
 
 **Verdict: ✅ TRUE**
 
-[boot.S:158](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/boot.S#L158):
+[boot.S:158](kernel/src/arch/x86_64/boot.S#L158):
 ```asm
 or    eax, 0x900
 ```
 
 - `0x900` = bits 8 (LME) + 11 (NXE). **Bit 0 (SCE = System Call Enable) is NOT set.**
 - Without SCE, executing the `syscall` instruction in 64-bit mode raises **#UD (Invalid Opcode)**.
-- The syscall MSRs are configured in [syscall.rs:197–213](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/syscall.rs#L197-L213), but they are meaningless without SCE.
+- The syscall MSRs are configured in [syscall.rs:197–213](kernel/src/arch/x86_64/syscall.rs#L197-L213), but they are meaningless without SCE.
 
 **Fix:** Change `0x900` to `0x901`.
 
@@ -141,7 +141,7 @@ or    eax, 0x900
 
 **Verdict: ✅ TRUE**
 
-[syscall.rs:144–156](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/syscall.rs#L144-L156):
+[syscall.rs:144–156](kernel/src/arch/x86_64/syscall.rs#L144-L156):
 ```asm
 kash_syscall_entry_dispatcher:
     // Save user registers on stack
@@ -162,7 +162,7 @@ kash_syscall_entry_dispatcher:
 
 **Verdict: ✅ TRUE**
 
-[syscall.rs:169–170](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/syscall.rs#L169-L170):
+[syscall.rs:169–170](kernel/src/arch/x86_64/syscall.rs#L169-L170):
 ```asm
 mov r8, r10            // Overwrites r8 with arg4
 // r9 is already arg 5  // WRONG: r8 held arg5, but was just destroyed
@@ -188,14 +188,14 @@ The entry pushes 11 registers × 8 bytes = **88 bytes**. `88 mod 16 = 8`. The Sy
 
 **Verdict: ✅ TRUE**
 
-[idt.rs:134–137](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/idt.rs#L134-L137):
+[idt.rs:134–137](kernel/src/arch/x86_64/idt.rs#L134-L137):
 ```asm
 /* Timer (IRQ 0, vector 32) */
 _isr32:
     push 0 ; push 32 ; jmp _isr_common
 ```
 
-`_isr_common` calls `x86_exception_handler`, which **unconditionally halts** ([idt.rs:83–99](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/idt.rs#L83-L99)):
+`_isr_common` calls `x86_exception_handler`, which **unconditionally halts** ([idt.rs:83–99](kernel/src/arch/x86_64/idt.rs#L83-L99)):
 ```rust
 pub extern "C" fn x86_exception_handler(frame: &ExceptionFrame) -> ! {
     ...
@@ -213,7 +213,7 @@ pub extern "C" fn x86_exception_handler(frame: &ExceptionFrame) -> ! {
 
 **Verdict: ✅ TRUE**
 
-[idt.rs:179](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/idt.rs#L179):
+[idt.rs:179](kernel/src/arch/x86_64/idt.rs#L179):
 ```rust
 IDT.0[i] = IdtGate::interrupt_gate(addr, 0);  // IST = 0 for ALL vectors
 ```
@@ -228,7 +228,7 @@ Vector 8 (Double Fault) gets `ist = 0`, meaning it uses the **current stack**. I
 
 **Verdict: ✅ TRUE**
 
-[boot.S:52–55](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/boot.S#L52-L55):
+[boot.S:52–55](kernel/src/arch/x86_64/boot.S#L52-L55):
 ```asm
 .align 16
 _boot_stack_bottom: .skip 32768
@@ -246,7 +246,7 @@ The 32 KiB stack sits in `.bss` with **no unmapped page below `_boot_stack_botto
 
 **Verdict: ✅ TRUE**
 
-[tresor.rs:73–87](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/tresor.rs#L73-L87):
+[tresor.rs:73–87](kernel/src/arch/x86_64/tresor.rs#L73-L87):
 ```rust
 pub unsafe fn load() -> [u8; 32] {
     ...
@@ -259,7 +259,7 @@ pub unsafe fn load() -> [u8; 32] {
 }
 ```
 
-The full 256-bit key is copied from debug registers into a **stack-allocated array in DRAM**. This directly contradicts the "0 bytes in DRAM" and "Liquid nitrogen immune" claims in `opsec` ([shell.rs:243–244](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/shell.rs#L243-L244)).
+The full 256-bit key is copied from debug registers into a **stack-allocated array in DRAM**. This directly contradicts the "0 bytes in DRAM" and "Liquid nitrogen immune" claims in `opsec` ([shell.rs:243–244](kernel/src/shell.rs#L243-L244)).
 
 The original TRESOR paper performs AES rounds **entirely within CPU registers** using AES-NI, never materializing the full key in RAM. This implementation does the opposite.
 
@@ -271,7 +271,7 @@ The original TRESOR paper performs AES rounds **entirely within CPU registers** 
 
 **Verdict: ✅ TRUE**
 
-[space.rs:168–172](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kcore/src/space.rs#L168-L172):
+[space.rs:168–172](kcore/src/space.rs#L168-L172):
 ```rust
 for (s, d) in self.slots.iter_mut().zip(doomed.iter()) {
     if *d {
@@ -292,12 +292,12 @@ for (s, d) in self.slots.iter_mut().zip(doomed.iter()) {
 
 | Bug | Evidence |
 |-----|----------|
-| **Prefix bypass** | [linux.rs:182](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/linux.rs#L182): `path.starts_with(allowed)` — unveiling `/vault` also grants access to `/vault_leak`, `/vaultbreaker`, etc. |
-| **`SYS_OPEN` doesn't call `check_unveil`** | [linux.rs:251–257](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/linux.rs#L251-L257): Only checks pledge, never unveil. Returns dummy fd `3`. |
-| **`SYS_STAT` doesn't call `check_unveil`** | [linux.rs:261–288](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/linux.rs#L261-L288): Returns hardcoded stat without path check. |
-| **`core::ptr::write` not `write_unaligned`** | [linux.rs:286](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/linux.rs#L286) & [linux.rs:321](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/linux.rs#L321): User pointers may not be aligned to `LinuxStat`'s alignment requirement. |
-| **Single global sandbox** | [syscall.rs:130–131](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/syscall.rs#L130-L131): One static `ProcessSandbox::new(1)` shared by all syscall invocations. |
-| **No list size limit** | [linux.rs:339](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/linux.rs#L339): `unveiled_paths.push()` with no cap — unbounded memory growth. |
+| **Prefix bypass** | [linux.rs:182](kernel/src/linux.rs#L182): `path.starts_with(allowed)` — unveiling `/vault` also grants access to `/vault_leak`, `/vaultbreaker`, etc. |
+| **`SYS_OPEN` doesn't call `check_unveil`** | [linux.rs:251–257](kernel/src/linux.rs#L251-L257): Only checks pledge, never unveil. Returns dummy fd `3`. |
+| **`SYS_STAT` doesn't call `check_unveil`** | [linux.rs:261–288](kernel/src/linux.rs#L261-L288): Returns hardcoded stat without path check. |
+| **`core::ptr::write` not `write_unaligned`** | [linux.rs:286](kernel/src/linux.rs#L286) & [linux.rs:321](kernel/src/linux.rs#L321): User pointers may not be aligned to `LinuxStat`'s alignment requirement. |
+| **Single global sandbox** | [syscall.rs:130–131](kernel/src/arch/x86_64/syscall.rs#L130-L131): One static `ProcessSandbox::new(1)` shared by all syscall invocations. |
+| **No list size limit** | [linux.rs:339](kernel/src/linux.rs#L339): `unveiled_paths.push()` with no cap — unbounded memory growth. |
 
 ---
 
@@ -307,7 +307,7 @@ for (s, d) in self.slots.iter_mut().zip(doomed.iter()) {
 
 **Verdict: ✅ TRUE**
 
-[security.rs:193](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/security.rs#L193):
+[security.rs:193](kernel/src/security.rs#L193):
 ```rust
 if features.has_smep {   // WRONG: SMEP ≠ IBRS/STIBP/SSBD
     let val: u64 = 0x01 | 0x02 | 0x04;
@@ -318,7 +318,7 @@ if features.has_smep {   // WRONG: SMEP ≠ IBRS/STIBP/SSBD
 - **SMEP** (CR4.20) is unrelated to `IA32_SPEC_CTRL`. The correct check is CPUID.7.0:EDX bits 26 (IBRS/IBPB), 27 (STIBP), and 31 (SSBD).
 - Writing unsupported bits to `IA32_SPEC_CTRL` causes a **#GP fault**.
 
-[security.rs:208](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/security.rs#L208):
+[security.rs:208](kernel/src/security.rs#L208):
 ```rust
 core::arch::asm!("wbinvd", ...);
 ```
@@ -333,7 +333,7 @@ core::arch::asm!("wbinvd", ...);
 
 **Verdict: ✅ TRUE**
 
-[build.rs:38](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/build.rs#L38):
+[build.rs:38](kernel/build.rs#L38):
 ```rust
 } else if std::path::Path::new(r"C:\Users\Akash.J\llvm-mingw\llvm-mingw-20260908-ucrt-x86_64\bin\as.exe").exists() {
 ```
@@ -391,9 +391,9 @@ All 13 critique items have been addressed, verified, and tested across `kcore`, 
 
 | Item | Area | Action Taken | Verification |
 |------|------|--------------|--------------|
-| **1.1** | `main.rs` claims | Replaced false `[OK]` lines with honest `[OK]` for real systems (W^X, GDT, TSS, kvault, TRESOR register key staging) and `[INFO] ... NOT IMPLEMENTED` for stubs (IOMMU, FLASK, .kapp, multi-language ELF runtimes, Wayland). | Verified in boot log [qemu_verify_max.log](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/qemu_verify_max.log#L334-L354) |
+| **1.1** | `main.rs` claims | Replaced false `[OK]` lines with honest `[OK]` for real systems (W^X, GDT, TSS, kvault, TRESOR register key staging) and `[INFO] ... NOT IMPLEMENTED` for stubs (IOMMU, FLASK, .kapp, multi-language ELF runtimes, Wayland). | Verified in boot log [qemu_verify_max.log](qemu_verify_max.log#L334-L354) |
 | **1.2** | `shell.rs` fake data | Replaced hardcoded text in `ps`, `free`, `df`, `dmesg`, `security`, `opsec`, `multilang`, `install-os` with real runtime memory, honest OPSEC status, and explicit `[NOT IMPLEMENTED]` disclaimers. | Verified in interactive shell command handlers |
-| **1.3** | `kash.rs` seL4 claim | Changed `seL4 (formally verified)` to `Rust microkernel (seL4-inspired, NOT formally verified)`. | [kash.rs:22](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/kash.rs#L22) |
+| **1.3** | `kash.rs` seL4 claim | Changed `seL4 (formally verified)` to `Rust microkernel (seL4-inspired, NOT formally verified)`. | [kash.rs:22](kernel/src/kash.rs#L22) |
 | **1.4** | Speculative claims | Removed / labeled stubs for ML-KEM, IOMMU, MOR, and Ring 3 across all tables and logs. | Manifest and boot banners updated |
 | **1.5** | Entropy fail-closed | `arch::hw_entropy()` panics at boot if RDRAND/RDSEED is absent; returns `IoError` on read. | Tested in QEMU: halts with `[FATAL] No hardware entropy source` without RDRAND |
 | **1.6** | AF-Split randomness | `AfSplit::split` uses cryptographic keystream from `master_key` and BLAKE3 hash-chain. | 5 unit tests pass in `kvaultfs_tests.rs` |

@@ -11,7 +11,8 @@ def package_zip(output_zip="kash os.zip"):
     }
     exclude_files = {
         'kash os.zip', 'KashOS_Complete_Source.zip', 'KashOS_Source_Release.zip',
-        'KashOS_v0.1.0_Complete_Release.zip', 'kash_drive.img', 'bios_test.ppm', 'test_screen.ppm'
+        'KashOS_v0.1.0_Complete_Release.zip', 'kashos-source.zip', 'kash_drive.img',
+        'kash_vault.img', 'kash-os.iso', 'bios_test.ppm', 'test_screen.ppm'
     }
 
     base_dir = os.path.abspath(".")
@@ -24,7 +25,9 @@ def package_zip(output_zip="kash os.zip"):
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
 
             for file in files:
-                if file in exclude_files or file.endswith('.ppm') or file.endswith('.tmp'):
+                if (file in exclude_files or file.endswith('.ppm') or 
+                    file.endswith('.tmp') or file.endswith('.iso') or 
+                    file.endswith('.img')):
                     continue
                 
                 full_path = os.path.join(root, file)

@@ -8,6 +8,7 @@ pub struct CpuFeatures {
     pub brand: [u8; 48],
     pub vendor: [u8; 12],
     pub has_nx:      bool,  // No-Execute / Execute-Disable
+    pub has_aesni:   bool,  // AES-NI hardware instruction acceleration
     pub has_rdrand:  bool,  // RDRAND instruction
     pub has_rdseed:  bool,  // RDSEED instruction (higher-quality entropy)
     pub has_vmx:     bool,  // Intel VT-x (hardware virtualisation)
@@ -28,12 +29,20 @@ pub struct CpuFeatures {
     pub max_virt_bits: u8,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HardwareTier {
+    T0Legacy,       // 1 core, < 1 GB RAM, BIOS only, no VT-x, no IOMMU, no TPM
+    T1BasicModern,  // 2+ cores, 4 GB RAM, VT-x, no TPM
+    T2SecureModern, // 4+ cores, 8 GB RAM, VT-x + VT-d/AMD-Vi, TPM 2.0, UEFI Secure Boot
+    T3HighEnd,      // Multi-core, 16+ GB RAM, CET, SMEP/SMAP, PKU
+}
+
 impl Default for CpuFeatures {
     fn default() -> Self {
         CpuFeatures {
             brand: [0; 48],
             vendor: [0; 12],
-            has_nx: false, has_rdrand: false, has_rdseed: false, has_vmx: false,
+            has_nx: false, has_aesni: false, has_rdrand: false, has_rdseed: false, has_vmx: false,
             has_smep: false, has_smap: false, has_umip: false, has_tme: false, has_fsgsbase: false,
             has_pcid: false, has_ibrs: false, has_stibp: false, has_l1d_flush: false,
             has_ssbd: false, has_apic: false, has_tsc: false, has_invariant_tsc: false,
@@ -203,4 +212,68 @@ pub fn fill_entropy(buf: &mut [u8]) -> bool {
         }
     }
     true
+}
+
+impl HardwareTier {
+    pub fn name(&self) -> &'static str {
+        match *self {
+            HardwareTier::T0Legacy => "T0 Legacy (Vintage PC / Core 2 Duo Class)",
+            HardwareTier::T1BasicModern => "T1 Basic Modern (Multi-Core / Virtualization)",
+            HardwareTier::T2SecureModern => "T2 Secure Modern (IOMMU + TPM + Secure Boot)",
+            HardwareTier::T3HighEnd => "T3 High End (Hardware Security Extension / CET)",
+        }
+    }
+}
+
+pub fn detect_hardware_tier() -> HardwareTier {
+    let f = detect();
+    let (iommu_active, _, _) = super::vtd::get_iommu_status();
+    let tpm_status = super::tpm::get_tpm_status();
+
+    if f.has_vmx && iommu_active && tpm_status.contains("Active") && f.has_smep && f.has_smap {
+        HardwareTier::T2SecureModern
+    } else if f.has_vmx {
+        HardwareTier::T1BasicModern
+    } else {
+        HardwareTier::T0Legacy
+    }
+}
+
+pub fn print_hardware_report() {
+    let f = detect();
+    let tier = detect_hardware_tier();
+    let (iommu_active, _, _) = super::vtd::get_iommu_status();
+    let tpm_status = super::tpm::get_tpm_status();
+    let cpus = super::smp::cpu_count();
+
+    crate::kprintln!("\n╔══════════════════════════════════════════════════════════════════════╗");
+    crate::kprintln!("║            KASH-OS HARDWARE COMPLIANCE & SECURITY REPORT             ║");
+    crate::kprintln!("╠══════════════════════════════════════════════════════════════════════╣");
+    let vendor_str = core::str::from_utf8(&f.vendor).unwrap_or("Unknown");
+    crate::kprintln!("║ CPU Vendor / Cores    : {:<20} ({} active cores)        ║", vendor_str, cpus);
+    crate::kprintln!("║ Detected Platform Tier: {:<45}║", tier.name());
+    crate::kprintln!("╠──────────────────────────────────────────────────────────────────────╣");
+    crate::kprintln!("║ HARDWARE SECURITY CAPABILITY AUDIT (NO SILENT DOWNGRADES):           ║");
+    crate::kprintln!("║   * Hardware W^X / NX Execution Protection: [{:<12}]               ║", if f.has_nx { "ACTIVE" } else { "NOT AVAILABLE" });
+    crate::kprintln!("║   * SMEP (Supervisor Mode Execution Prev) : [{:<12}]               ║", if f.has_smep { "ACTIVE" } else { "NOT AVAILABLE" });
+    crate::kprintln!("║   * SMAP (Supervisor Mode Access Prev)    : [{:<12}]               ║", if f.has_smap { "ACTIVE" } else { "NOT AVAILABLE" });
+    crate::kprintln!("║   * Intel VT-x Hardware Virtualization    : [{:<12}]               ║", if f.has_vmx { "ACTIVE" } else { "NOT AVAILABLE" });
+    crate::kprintln!("║   * IOMMU / VT-d DMA Bus-Master Remapping : [{:<12}]               ║", if iommu_active { "ACTIVE" } else { "REDUCED (T0)" });
+    crate::kprintln!("║   * Hardware TPM 2.0 Cryptographic Root   : [{:<12}]               ║", if tpm_status.contains("Active") { "ACTIVE" } else { "REDUCED (T0)" });
+    crate::kprintln!("║   * AES-NI Hardware Crypto Acceleration   : [{:<12}]               ║", if f.has_aesni { "ACTIVE" } else { "SOFTWARE (XChaCha20)" });
+    crate::kprintln!("║   * RDRAND / RDSEED Hardware Entropy      : [{:<12}]               ║", if f.has_rdrand { "ACTIVE" } else { "FALLBACK (Jitter)" });
+    crate::kprintln!("╠──────────────────────────────────────────────────────────────────────╣");
+    crate::kprintln!("║ COMPENSATING POLICIES FOR DETECTED TIER:                             ║");
+    if tier == HardwareTier::T0Legacy {
+        crate::kprintln!("║   - Vault Key Derivation  : Memory-Hard Argon2id (OWASP Low-RAM)     ║");
+        crate::kprintln!("║   - Stream Cipher         : XChaCha20-Poly1305 (Fast in software)    ║");
+        crate::kprintln!("║   - DMA Port Isolation    : USB deny-by-default, Whitelisted HID only║");
+        crate::kprintln!("║   - Browser Sandbox       : Lightweight Single-Pass Execution Engine ║");
+    } else {
+        crate::kprintln!("║   - Vault Key Derivation  : Argon2id (256 MiB, t=12, p=1) Full Spec  ║");
+        crate::kprintln!("║   - Stream Cipher         : Post-Quantum ML-KEM + 4000-Stripe Split  ║");
+        crate::kprintln!("║   - DMA Bus Isolation     : Hardware IOMMU Fencing for all devices   ║");
+        crate::kprintln!("║   - VM Containment        : Hardware-Assisted VT-x Domain Separation ║");
+    }
+    crate::kprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 }

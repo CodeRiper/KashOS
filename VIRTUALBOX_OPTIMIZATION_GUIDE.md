@@ -20,7 +20,7 @@ KashOS natively targets, detects, and optimizes for:
 
 ## 2. VirtualBox Driver Implementations in KashOS
 
-All VirtualBox hardware drivers are centralized in [`kernel/src/arch/x86_64/vbox.rs`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/arch/x86_64/vbox.rs) and exposed to the interactive console via [`kernel/src/shell.rs`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kernel/src/shell.rs).
+All VirtualBox hardware drivers are centralized in [`kernel/src/arch/x86_64/vbox.rs`](kernel/src/arch/x86_64/vbox.rs) and exposed to the interactive console via [`kernel/src/shell.rs`](kernel/src/shell.rs).
 
 ### 2.1 Hypervisor Detection (`probe_environment`)
 KashOS queries CPUID leaf `0x40000000`:

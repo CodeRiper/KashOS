@@ -14,9 +14,9 @@
 
 **KashOS** is an open-source, capability-based microkernel research workstation operating system written from bare metal in `#![no_std]` Rust for x86_64 architectures.
 
-Its long-term architectural goal is to build a small, robust workstation operating system where drivers, networking, filesystems, and the window compositor run as separate unprivileged user-mode services, backed by hardware-enforced isolation (IOMMU, NX, SMEP/SMAP) and an unforgeable domain-bordered display server ([`kash-ui`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/kash-ui/)).
+Its long-term architectural goal is to build a small, robust workstation operating system where drivers, networking, filesystems, and the window compositor run as separate unprivileged user-mode services, backed by hardware-enforced isolation (IOMMU, NX, SMEP/SMAP) and an unforgeable domain-bordered display server ([`kash-ui`](kash-ui/)).
 
-The project follows the **10 Non-Negotiable Rules** defined in [`docs/KASHOS_BUILD_GUIDE.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/KASHOS_BUILD_GUIDE.md): no simulated system output, no unearned `[OK]` status banners, no unbacked claims, fail-closed hardware support, and a public claim-to-evidence registry.
+The project follows the **10 Non-Negotiable Rules** defined in [`docs/KASHOS_BUILD_GUIDE.md`](docs/KASHOS_BUILD_GUIDE.md): no simulated system output, no unearned `[OK]` status banners, no unbacked claims, fail-closed hardware support, and a public claim-to-evidence registry.
 
 ---
 
@@ -192,7 +192,7 @@ qemu-system-x86_64 -cdrom kash-os.iso -m 2048M -smp 4 -vga std -serial stdio
 1. **No simulation**: Never hardcode output that looks like system state (`ps`, `free`, `df`, `dmesg`, `opsec`, `security`). Every number shown must be read from real kernel state.
 2. **No fake `[OK]`**: A status line prints `[OK]` only after the code just checked the thing. `status.rs` is the single source of truth.
 3. **Feature "done" criteria**: Code exists, reachable from boot, test proves it, and status registry says `Real`.
-4. **Claim-to-evidence**: Every security claim gets a row in [`docs/CLAIMS.md`](file:///c:/Users/Akash.J/Documents/KashOS%20Kernal/kash-kernel/docs/CLAIMS.md). No evidence, no claim.
+4. **Claim-to-evidence**: Every security claim gets a row in [`docs/CLAIMS.md`](docs/CLAIMS.md). No evidence, no claim.
 5. **Fail closed**: If hardware support (IOMMU, RNG, TPM) is missing, say so, disable the dependent feature, and do not pretend.
 6. **No dead code**: Wire in or remove unused components.
 7. **Real GUI settings**: Every setting in the GUI must be backed by a real service API.

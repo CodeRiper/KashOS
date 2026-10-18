@@ -7,6 +7,7 @@ pub use x86_64::{
     kernel_sections, scan_pci, find_ahci, find_nic, find_audio, shutdown, zero_phys, probe_vbox, VirtualBoxProfile, AtaDriveInfo,
     init_vtd, get_iommu_status, init_tpm, get_tpm_status, init_input, poll_input_event, init_nic, nic_transmit, nic_receive, nic_mac, rdtsc,
     framebuffer, fill_gradient_test, clear_framebuffer, read_rtc_unix_seconds, elapsed_seconds, tsc_frequency_hz, sse_selftest,
+    print_hardware_report, detect_hardware_tier, HardwareTier,
 };
 
 #[cfg(target_arch = "aarch64")]

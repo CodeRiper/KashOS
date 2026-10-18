@@ -8,7 +8,7 @@ def main():
         "-accel", "tcg,thread=multi",
         "-cpu", "max",
         "-kernel", "isodir/boot/kash-kernel",
-        "-drive", "file=kash_drive.img,format=raw,if=ide,index=0,media=disk",
+        "-drive", "file=kash_vault.img,format=raw,if=ide,index=0,media=disk",
         "-m", "512M",
         "-vga", "none",
         "-display", "none",
@@ -33,7 +33,7 @@ def main():
         if any(tag in safe_print for tag in ["[boot]", "[selftest]", "[kblock]", "[stage", "kash-root", "KASH-OS", "MBR"]):
             print(f"[{time.time()-t0:5.1f}s] {safe_print}")
 
-        if "kash-root@kash-node-01" in text or "Launching interactive root shell" in text:
+        if "root@kash-node-01" in text or "KASH-OS INTERACTIVE" in text:
             shell_ready = True
             print(f"\n[+] Shell prompt reached at {time.time()-t0:.1f}s! Executing 'kash install'...")
             proc.stdin.write(b"kash install\n")

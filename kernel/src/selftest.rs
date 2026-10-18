@@ -1728,6 +1728,7 @@ pub fn run_hardening_verification_tests() {
     test_elf_loader_fuzz_hardening();
     test_syscall_boundary_fuzz_hardening();
     test_network_packet_fuzz_hardening();
+    test_hostile_capability_and_memory_containment();
 
     crate::status::update(|s| {
         s.kcore_caps = crate::status::ComponentStatus::Real;
@@ -1828,7 +1829,7 @@ fn test_formal_capability_invariants() {
     crate::security::scrub_slice(&mut mem_buf);
     check!(mem_buf.iter().all(|&b| b == 0));
 
-    kprintln!("[selftest] PASS: T40 Formal Invariant & Capability Rights Monotonicity Gate: machine-checked monotonicity verified across 64 permutations, untyped memory disjointness confirmed, transitive revocation soundness proven");
+    kprintln!("[selftest] PASS: T40 Formal Invariant & Capability Rights Monotonicity Gate: monotonicity verified across 64 permutations, untyped memory disjointness confirmed, transitive revocation soundness verified");
 }
 
 /// Test 41: ELF64 Loader Malformed Image Fuzz Gate
@@ -2072,6 +2073,48 @@ fn test_network_packet_fuzz_hardening() {
 
     check!(blocked_packets > 500);
     kprintln!("[selftest] PASS: T43 Network Packet & Protocol Parser Fuzz Gate: 1,000 malformed frames, cyclic headers, and corrupt SNI domains safely filtered, fail-closed kill-switch verified, 0 unencrypted bytes leaked");
+}
+
+/// Test 44: Hostile Process Containment & Zero-Ambient-Authority Capability Gate
+#[cfg(target_arch = "x86_64")]
+fn test_hostile_capability_and_memory_containment() {
+    use crate::cap::{self, CapRights, KernelObjType, SeL4Error};
+
+    // 1. Hostile Attempt: Act with Zero Capabilities
+    // A process slot with no capabilities tries to perform operations
+    let empty_slot = 999;
+    let res_retype = cap::sel4_untyped_retype(empty_slot, KernelObjType::Frame4K, 500);
+    check!(res_retype == Err(SeL4Error::IllegalOperation) || res_retype == Err(SeL4Error::MissingCapability));
+
+    // 2. Hostile Attempt: Capability Forgery (forge badged endpoint with inflated rights)
+    let res_forged_mint = cap::sel4_mint_endpoint(empty_slot, 501, CapRights::ALL, 0xBAD_CAFE);
+    check!(res_forged_mint.is_err());
+
+    // 3. Hostile Attempt: Retype Device MMIO into Execution TCB
+    // Physical hardware MMIO must NEVER be allowed to execute as code or become a thread
+    let _ = cap::CAP_CORE.lock().register_untyped(0xFEE00000, 12, true, 800); // APIC MMIO
+    let res_device_tcb = cap::sel4_untyped_retype(800, KernelObjType::TCB, 801);
+    check!(res_device_tcb == Err(SeL4Error::IllegalOperation)); // Hardware invariant strictly enforced
+
+    // 4. Hostile Attempt: Capability Derivation Tree Transitive Revocation & Memory Zeroing
+    // Allocate Untyped -> Retype into Frame4K -> Mint child -> Revoke parent
+    let root_slot = 850;
+    let frame_slot = 851;
+    let mut test_page = [0xAAu8; 4096];
+    let page_paddr = test_page.as_mut_ptr() as usize as u64;
+    let _ = cap::CAP_CORE.lock().register_untyped(page_paddr, 12, false, root_slot);
+    let retype_res = cap::sel4_untyped_retype(root_slot, KernelObjType::Frame4K, frame_slot);
+    check!(retype_res.is_ok());
+
+    // Revoke the root untyped
+    let revoke_res = cap::sel4_cnode_revoke(root_slot);
+    check!(revoke_res.is_ok());
+    // Child frame slot must now be Null
+    check!(cap::CAP_CORE.lock().slots[frame_slot].cap.is_null());
+    // Memory zeroing verification
+    check!(test_page.iter().all(|&b| b == 0));
+
+    kprintln!("[selftest] PASS: T44 Hostile Process Containment & seL4 Capability Gate: zero-ambient-authority rejection verified, capability forgery blocked, MMIO-to-TCB privilege escalation denied, CDT transitive revocation confirmed");
 }
 
 

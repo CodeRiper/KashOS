@@ -331,9 +331,9 @@ impl RootVaultFs {
 
         let mut rng = Csprng::new();
 
-        // Fast KDF profile suited for microkernel memory budget
+        // Hardened memory-hard Argon2id KDF profile suited for microkernel memory budget (OWASP floor)
         let opts = FormatOptions {
-            params: KdfParams::TEST_ONLY_INSECURE_FAST,
+            params: KdfParams::LOW_END,
             hidden_percent: 0,
         };
 

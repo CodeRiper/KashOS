@@ -189,6 +189,11 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
             claim_heap_region(r);
             kprintln!("[mem] heap allocator arena: {:#018x}, {} MiB", r.base, r.size_bytes() >> 20);
             heap::selftest();
+
+            // Register Root Untyped Memory in seL4 Capability Core (Slot 0 = Root Untyped)
+            let _ = cap::init_root_untyped(cap_region.base, cap_region.size_bytes(), false, 0);
+            kprintln!("[cap] Initialized seL4 root untyped memory capability (slot 0, base={:#x}, size={} MiB)",
+                      cap_region.base, cap_region.size_bytes() >> 20);
         }
         None => {
             kprintln!("[mem] WARNING: only one free region discovered — no memory left for a heap arena.");

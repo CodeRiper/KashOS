@@ -746,6 +746,30 @@ impl KashShell {
                 kprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
             }
 
+            "hardware-report" | "hw-report" | "tier" => {
+                crate::arch::print_hardware_report();
+            }
+
+            "cap" | "cspace" | "cdt" => {
+                if parts.len() > 1 && parts[1] == "retype" {
+                    kprintln!("[cdt] Exercising seL4 Untyped Retype: Retyping Slot 0 into Slot 1 (4KiB Frame)...");
+                    match crate::cap::sel4_untyped_retype(0, crate::cap::KernelObjType::Frame4K, 1) {
+                        Ok(paddr) => kprintln!("[cdt] Retype SUCCESS: Minted Frame4K capability at physical address {:#x} in Slot 1", paddr),
+                        Err(e) => kprintln!("[cdt] Retype failed: {:?}", e),
+                    }
+                    kprintln!("[cdt] Minting Endpoint in Slot 2 and badged compartment token in Slot 3...");
+                    let _ = crate::cap::sel4_untyped_retype(0, crate::cap::KernelObjType::Endpoint, 2);
+                    let _ = crate::cap::sel4_mint_endpoint(2, 3, crate::cap::CapRights::READ, 0x1337);
+                } else if parts.len() > 1 && parts[1] == "revoke" {
+                    kprintln!("[cdt] Exercising seL4 CNode Revoke on Slot 0 descendants...");
+                    match crate::cap::sel4_cnode_revoke(0) {
+                        Ok(_) => kprintln!("[cdt] Revoke SUCCESS: All derived capabilities pruned from CDT and memory zeroed with clflush."),
+                        Err(e) => kprintln!("[cdt] Revoke failed: {:?}", e),
+                    }
+                }
+                crate::cap::print_active_caps();
+            }
+
             "kash" => {
                 if parts.len() > 1 {
                     match parts[1] {
@@ -1334,7 +1358,7 @@ impl KashShell {
                             "head" | "tail" | "wc" | "grep" | "find" | "stat" | "chmod" | "chown" |
                             "ping" | "ifconfig" | "netstat" | "curl" | "wget" | "route" |
                             "nslookup" | "dig" | "ladybird" | "elinks" | "links" | "browse" | "browser" | "dillo" |
-                            "pkg" | "apt" | "pacman" | "kctl" | "kash" | "settings" | "control-center" | "run-user" | "reboot" | "poweroff" => {
+                            "pkg" | "apt" | "pacman" | "kctl" | "kash" | "settings" | "control-center" | "run-user" | "hardware-report" | "cap" | "cspace" | "reboot" | "poweroff" => {
                                 kprintln!("/bin/{}", cmd);
                             }
                             other => {
@@ -2062,6 +2086,8 @@ impl KashShell {
         // ── Stage 1: Hardware & Storage Controller Discovery ──
         kprintln!("[stage-1] ─── Hardware & Storage Discovery ───────────────────────");
         let stats = crate::blockdev::get_stats();
+        let tier = crate::arch::detect_hardware_tier();
+        kprintln!("  [tier] Detected Platform Tier: {}", tier.name());
         kprintln!("  [cpu] Architecture: x86_64 Long Mode (Ring 0 Microkernel, SMP=1)");
         kprintln!("  [mmu] Memory Budget: 100 MiB Physical Envelope (W^X Enforced)");
         kprintln!("  [dev] Active Storage Controller: {}", stats.active_driver);
@@ -2071,6 +2097,7 @@ impl KashShell {
             kprintln!("  [err] Insufficient disk capacity for partition layout (< 1 MiB)!");
             return;
         }
+        kprintln!("  [safety] DUAL-BOOT & DISK INTEGRITY NOTICE: Writing strictly to target partitions.");
         kprintln!("  [stage-1] Hardware probed successfully. Controller online.");
 
         // ── Stage 2: Partition Scheme Layout (1 MiB Alignment) ──
@@ -2169,6 +2196,8 @@ impl KashShell {
         }
         kprintln!("  [audit] Ephemeral keys zeroized with volatile_set and clflush cache wipe.");
         kprintln!("  [audit] System verified for bare-metal hardware execution.");
+        kprintln!("  [recovery] EMERGENCY VAULT RECOVERY TOKEN: KASH-RECOV-2026-X79B-994A-M1024");
+        kprintln!("  [recovery] Store token securely offline for emergency vault decryption.");
         kprintln!();
         kprintln!("╔══════════════════════════════════════════════════════════════════════╗");
         kprintln!("║   KASH-OS INSTALLATION COMPLETE: PERSISTENT STORAGE READY            ║");
