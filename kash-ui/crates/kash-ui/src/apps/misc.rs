@@ -94,8 +94,8 @@ impl App for Browser {
             c1: th.content_bg(),
         });
 
-        cx.text_in(Rect::new(0.0, base_y + 40.0, area.w, 36.0), "Firefox", 28.0, Weight::Bold, th.label(), Align::Center);
-        cx.text_in(Rect::new(0.0, base_y + 75.0, area.w, 20.0), "Quantum ESR · Default Web Browser · Enhanced Tracking Protection: Strict", 12.0, Weight::Medium, th.pick(Color::hex(0x0A84FF), Color::hex(0x5E5CE6)), Align::Center);
+        cx.text_in(Rect::new(0.0, base_y + 40.0, area.w, 36.0), "Browser (demo)", 28.0, Weight::Bold, th.label(), Align::Center);
+        cx.text_in(Rect::new(0.0, base_y + 75.0, area.w, 20.0), "KashOS Native Lightweight Web Browser · Software Rendered · Strict Isolation", 12.0, Weight::Medium, th.pick(Color::hex(0x0A84FF), Color::hex(0x5E5CE6)), Align::Center);
 
         // Security Lockdown Status Card
         let sec_card = Rect::new(area.cx() - 320.0, base_y + 105.0, 640.0, 36.0);

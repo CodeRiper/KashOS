@@ -48,7 +48,7 @@ pub enum AppKind { Files, Settings, Terminal, About, Notes, Browser, Photos, Mus
 impl AppKind {
     pub fn name(&self) -> &'static str {
         match self { AppKind::Files => "Files", AppKind::Settings => "System Settings", AppKind::Terminal => "Terminal", AppKind::About => "About KashOS",
-            AppKind::Notes => "Notes", AppKind::Browser => "Firefox", AppKind::Photos => "Photos", AppKind::Music => "Music", AppKind::Messages => "Messages", AppKind::ActivityMonitor => "Activity Monitor", AppKind::Calculator => "Calculator" }
+            AppKind::Notes => "Notes", AppKind::Browser => "Browser (demo)", AppKind::Photos => "Photos", AppKind::Music => "Music", AppKind::Messages => "Messages", AppKind::ActivityMonitor => "Activity Monitor", AppKind::Calculator => "Calculator" }
     }
 }
 

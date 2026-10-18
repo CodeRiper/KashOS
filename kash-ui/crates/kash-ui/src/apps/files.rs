@@ -151,7 +151,7 @@ impl Files {
             FileKind::Folder => { let mut p = self.path.clone(); p.push(it.name.clone()); self.goto(p, true); }
             FileKind::Vault => cx.cmds.push(Cmd::Toast(String::from("Vault is sealed — unlock with your passphrase (kvault)"))),
             FileKind::App => {
-                let k = match it.name.as_str() { "Terminal" => Some(AppKind::Terminal), "System Settings" => Some(AppKind::Settings), "Notes" => Some(AppKind::Notes), "Firefox" | "Browser" => Some(AppKind::Browser),
+                let k = match it.name.as_str() { "Terminal" => Some(AppKind::Terminal), "System Settings" => Some(AppKind::Settings), "Notes" => Some(AppKind::Notes), "Firefox" | "Browser" | "Browser (demo)" => Some(AppKind::Browser),
                     "Photos" => Some(AppKind::Photos), "Music" => Some(AppKind::Music), "Messages" => Some(AppKind::Messages), "Files" => Some(AppKind::Files),
                     "Activity Monitor" => Some(AppKind::ActivityMonitor), "Calculator" => Some(AppKind::Calculator), _ => None };
                 if let Some(k) = k { cx.cmds.push(Cmd::Open(k)); }
