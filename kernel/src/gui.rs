@@ -254,7 +254,8 @@ pub fn run(fb: FramebufferInfo) -> ! {
 
         // Drain pending hardware input events
         let mut key_events: Vec<KeyEv> = Vec::new();
-        let wheel = Pt::new(0.0, 0.0);
+        let mut wheel_dx = 0.0f32;
+        let mut wheel_dy = 0.0f32;
         let mut mouse_moved = false;
 
         while let Some(ev) = crate::arch::poll_input_event() {
@@ -280,6 +281,14 @@ pub fn run(fb: FramebufferInfo) -> ! {
                     if left { left_button = false; }
                     if right { right_button = false; }
                     break;
+                }
+                InputEvent::MouseWheel { dx, dy } => {
+                    let scroll_mult = desktop.sys.scroll_speed.clamp(0.2, 5.0);
+                    // Standard scrolling: rolling wheel down (negative dy from PS/2) scrolls content down (+y).
+                    // Natural scrolling reverses this to track finger direction.
+                    let sign = if desktop.sys.natural_scroll { 1.0 } else { -1.0 };
+                    wheel_dy += (dy as f32) * scroll_mult * sign;
+                    wheel_dx += (dx as f32) * scroll_mult * sign;
                 }
                 InputEvent::KeyDown(kc) => {
                     match kc {
@@ -308,7 +317,7 @@ pub fn run(fb: FramebufferInfo) -> ! {
             mouse: Pt::new(mouse_x, mouse_y),
             left: left_button,
             right: right_button,
-            wheel,
+            wheel: Pt::new(wheel_dx, wheel_dy),
             keys: key_events.clone(),
             dt,
         };

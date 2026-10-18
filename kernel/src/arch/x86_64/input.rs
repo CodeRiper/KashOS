@@ -25,8 +25,11 @@ const PENDING_INPUT_CAPACITY: usize = 128;
 
 pub struct Ps2Controller {
     is_mouse_enabled: bool,
+    has_wheel: bool,
+    mouse_id: u8,
+    mouse_packet_len: u8,
     mouse_cycle: u8,
-    mouse_packet: [u8; 3],
+    mouse_packet: [u8; 4],
     shift_pressed: bool,
     ctrl_pressed: bool,
     alt_pressed: bool,
@@ -41,8 +44,11 @@ impl Ps2Controller {
     pub const fn new() -> Self {
         Self {
             is_mouse_enabled: false,
+            has_wheel: false,
+            mouse_id: 0,
+            mouse_packet_len: 3,
             mouse_cycle: 0,
-            mouse_packet: [0; 3],
+            mouse_packet: [0; 4],
             shift_pressed: false,
             ctrl_pressed: false,
             alt_pressed: false,
@@ -118,6 +124,19 @@ impl Ps2Controller {
         }
     }
 
+    fn mouse_write(byte: u8) -> bool {
+        Self::wait_input_clear();
+        unsafe { Self::outb(PS2_COMMAND_PORT, 0xD4); } // Route next byte to auxiliary device (mouse)
+        Self::wait_input_clear();
+        unsafe { Self::outb(PS2_DATA_PORT, byte); }
+        if Self::wait_output_ready() {
+            let ack = unsafe { Self::inb(PS2_DATA_PORT) };
+            ack == 0xFA
+        } else {
+            false
+        }
+    }
+
     pub fn init(&mut self) {
         // Disable devices during configuration
         Self::wait_input_clear();
@@ -148,21 +167,42 @@ impl Ps2Controller {
         unsafe { Self::outb(PS2_COMMAND_PORT, 0xA8); } // Enable mouse
 
         // Reset mouse to defaults (0xF6)
+        Self::mouse_write(0xF6);
+
+        // IntelliMouse wheel negotiation sequence:
+        // Set sample rate 200, then 100, then 80
+        Self::mouse_write(0xF3);
+        Self::mouse_write(200);
+        Self::mouse_write(0xF3);
+        Self::mouse_write(100);
+        Self::mouse_write(0xF3);
+        Self::mouse_write(80);
+
+        // Read Device ID (0xF2)
         Self::wait_input_clear();
         unsafe { Self::outb(PS2_COMMAND_PORT, 0xD4); }
         Self::wait_input_clear();
-        unsafe { Self::outb(PS2_DATA_PORT, 0xF6); }
+        unsafe { Self::outb(PS2_DATA_PORT, 0xF2); }
         if Self::wait_output_ready() {
-            let _ = unsafe { Self::inb(PS2_DATA_PORT) }; // Read ACK
+            let ack = unsafe { Self::inb(PS2_DATA_PORT) };
+            if ack == 0xFA && Self::wait_output_ready() {
+                let id = unsafe { Self::inb(PS2_DATA_PORT) };
+                if id == 3 || id == 4 {
+                    self.has_wheel = true;
+                    self.mouse_id = id;
+                    self.mouse_packet_len = 4;
+                    crate::kprintln!("[input] PS/2 mouse ID {:#04X}: IntelliMouse scrolling protocol enabled (4-byte packets)", id);
+                } else {
+                    self.has_wheel = false;
+                    self.mouse_id = id;
+                    self.mouse_packet_len = 3;
+                    crate::kprintln!("[input] PS/2 mouse ID {:#04X}: Standard 3-byte mouse protocol active", id);
+                }
+            }
         }
 
         // Enable mouse streaming mode (0xF4)
-        Self::wait_input_clear();
-        unsafe { Self::outb(PS2_COMMAND_PORT, 0xD4); } // Route next byte to auxiliary device (mouse)
-        Self::wait_input_clear();
-        unsafe { Self::outb(PS2_DATA_PORT, 0xF4); }    // Enable data reporting
-        if Self::wait_output_ready() {
-            let _ack = unsafe { Self::inb(PS2_DATA_PORT) };
+        if Self::mouse_write(0xF4) {
             self.is_mouse_enabled = true;
         }
 
@@ -170,7 +210,7 @@ impl Ps2Controller {
         Self::flush_output();
 
         self.mouse_cycle = 0;
-        self.mouse_packet = [0; 3];
+        self.mouse_packet = [0; 4];
         self.prev_buttons = 0;
 
         crate::kprintln!("[input] PS/2 keyboard & auxiliary mouse controller initialized");
@@ -308,10 +348,10 @@ impl Ps2Controller {
                 }
 
                 self.mouse_packet[self.mouse_cycle as usize] = data;
-                self.mouse_cycle = (self.mouse_cycle + 1) % 3;
+                self.mouse_cycle = (self.mouse_cycle + 1) % self.mouse_packet_len;
 
                 // Decode only complete packets; partial packets resume next poll.
-                // If packet completed, decode movement and buttons
+                // If packet completed, decode movement, buttons, and wheel
                 if self.mouse_cycle == 0 {
                     let flags = self.mouse_packet[0];
 
@@ -356,6 +396,23 @@ impl Ps2Controller {
                             right: right_up,
                             middle: mid_up,
                         });
+                    }
+
+                    // Decode scroll wheel if active (4-byte IntelliMouse mode)
+                    if self.has_wheel {
+                        let dz = if self.mouse_id == 4 {
+                            let raw = (self.mouse_packet[3] & 0x0F) as i8;
+                            if (raw & 0x08) != 0 {
+                                (raw | -16) as i32
+                            } else {
+                                raw as i32
+                            }
+                        } else {
+                            (self.mouse_packet[3] as i8) as i32
+                        };
+                        if dz != 0 {
+                            self.queue_pending_event(InputEvent::MouseWheel { dx: 0, dy: dz });
+                        }
                     }
 
                     accum_dx += raw_dx;

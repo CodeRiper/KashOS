@@ -95,6 +95,12 @@ pub struct SysState {
     pub cursor_size: f32,
     /// Relative pointer multiplier layered over the PS/2 driver's acceleration.
     pub pointer_speed: f32,
+    /// Multiplier for wheel and trackpad scroll delta.
+    pub scroll_speed: f32,
+    /// Content scrolls in direction of finger/wheel movement (natural scrolling).
+    pub natural_scroll: bool,
+    /// Single-finger tap on trackpad registers as primary click.
+    pub trackpad_tap: bool,
     pub notifications: bool,
     pub night_shift: bool,
     // KashOS kernel services (mirrors kernel/src/kash.rs Tier3Status)
@@ -151,6 +157,7 @@ impl SysState {
             appearance: Appearance::Light, accent: 0, clarity: 0.55, reduce_transparency: false,
             dock_size: 0.45, dock_magnify: 0.6, dock_magnify_on: true, dock_autohide: false, wallpaper: 0,
             wifi: false, bluetooth: false, airdrop: false, focus: false, brightness: 1.0, cursor_size: 0.0, pointer_speed: 1.25,
+            scroll_speed: 1.0, natural_scroll: false, trackpad_tap: true,
             notifications: true, night_shift: false,
             anon_gateway: false, packet_filter: false, kill_switch: false, telemetry: false, key_manager: false, duress: false,
             unix_secs: 1_791_786_840, screen: Rect::new(0.0, 0.0, 1440.0, 900.0), display_output: Rect::new(0.0, 0.0, 1440.0, 900.0), display_scale: 0, settings_pane_request: None,

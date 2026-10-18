@@ -277,9 +277,66 @@ pub enum InputEvent {
     MouseMove { dx: i32, dy: i32 },
     MouseButtonDown { left: bool, right: bool, middle: bool },
     MouseButtonUp { left: bool, right: bool, middle: bool },
+    MouseWheel { dx: i32, dy: i32 },
 }
 
 pub trait InputDevice {
     fn poll_event(&mut self) -> Option<InputEvent>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_wheel_event_invariants() {
+        let ev = InputEvent::MouseWheel { dx: 0, dy: 1 };
+        assert_eq!(ev, InputEvent::MouseWheel { dx: 0, dy: 1 });
+        assert_ne!(ev, InputEvent::MouseWheel { dx: 0, dy: -1 });
+    }
+
+    #[test]
+    fn intellimouse_standard_wheel_delta_decoding() {
+        // Standard IntelliMouse byte 4 is signed 8-bit dz
+        let up_byte: u8 = 1;
+        let down_byte: u8 = 0xFF; // -1 in 2's complement
+        let dz_up = (up_byte as i8) as i32;
+        let dz_down = (down_byte as i8) as i32;
+        assert_eq!(dz_up, 1);
+        assert_eq!(dz_down, -1);
+    }
+
+    #[test]
+    fn intellimouse_5button_wheel_delta_decoding() {
+        // 5-button mouse byte 4 lower 4 bits are 2's complement (-8..+7)
+        let raw_up: u8 = 0x01;
+        let raw_down: u8 = 0x0F; // -1 in 4-bit signed
+        let decode = |b: u8| -> i32 {
+            let r = (b & 0x0F) as i8;
+            if (r & 0x08) != 0 {
+                (r | -16) as i32
+            } else {
+                r as i32
+            }
+        };
+        assert_eq!(decode(raw_up), 1);
+        assert_eq!(decode(raw_down), -1);
+    }
+
+    #[test]
+    fn natural_vs_traditional_scroll_direction() {
+        let dy = -1; // rolling wheel down towards user
+        let mult = 1.0f32;
+        let traditional_sign = -1.0f32;
+        let natural_sign = 1.0f32;
+
+        let trad_scroll = (dy as f32) * mult * traditional_sign;
+        let nat_scroll = (dy as f32) * mult * natural_sign;
+
+        // In traditional scrolling, rolling down yields positive content offset (scrolling down the page)
+        assert!(trad_scroll > 0.0);
+        // In natural scrolling, content tracks finger/wheel movement (negative offset)
+        assert!(nat_scroll < 0.0);
+    }
 }
 

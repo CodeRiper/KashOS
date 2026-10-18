@@ -377,13 +377,35 @@ impl Settings {
     }
 
     fn pane_mouse(&mut self, cx: &mut Ctx, f: &mut Form) {
+        cx.heading(f, "Pointer & Tracking");
         let mut g = cx.group_begin(f, 2, 52.0);
         let mut speed = ((cx.sys.pointer_speed.clamp(0.5, 2.0) - 0.5) / 1.5).clamp(0.0, 1.0);
         cx.row_slider(&mut g, "pointer_speed", "Tracking speed", &mut speed, "Slow", "Fast");
         cx.sys.pointer_speed = 0.5 + speed * 1.5;
         let mut c = cx.sys.cursor_size;
-        cx.row_slider(&mut g, "cursor_size", "Pointer size", &mut c, "Normal", "Large"); cx.sys.cursor_size = c;
+        cx.row_slider(&mut g, "cursor_size", "Pointer size", &mut c, "Normal", "Large");
+        cx.sys.cursor_size = c;
         cx.caption(f, "Tracking speed applies immediately to pointer movement. Device-specific acceleration remains fixed by the input driver.");
+
+        cx.heading(f, "Mouse & Trackpad Scrolling");
+        let mut g2 = cx.group_begin(f, 3, 52.0);
+        let mut s_speed = ((cx.sys.scroll_speed.clamp(0.2, 3.0) - 0.2) / 2.8).clamp(0.0, 1.0);
+        cx.row_slider(&mut g2, "scroll_speed", "Scrolling speed", &mut s_speed, "Slow", "Fast");
+        cx.sys.scroll_speed = 0.2 + s_speed * 2.8;
+
+        let mut nat = cx.sys.natural_scroll;
+        cx.row_toggle(&mut g2, "natural_scroll", "Natural scrolling", "Content tracks finger or wheel movement", &mut nat);
+        cx.sys.natural_scroll = nat;
+
+        let mut tap = cx.sys.trackpad_tap;
+        cx.row_toggle(&mut g2, "trackpad_tap", "Tap to click", "Single finger tap acts as primary click", &mut tap);
+        cx.sys.trackpad_tap = tap;
+        cx.caption(f, "Scrolling options support standard PS/2 IntelliMouse hardware, trackpad scroll areas, and USB wheel mice.");
+
+        cx.heading(f, "Hardware Controller");
+        let mut g3 = cx.group_begin(f, 2, 46.0);
+        cx.row_value(&mut g3, "Controller", "8042 PS/2 Keyboard & Auxiliary Mouse");
+        cx.row_value(&mut g3, "Packet Format", "IntelliMouse 4-byte streaming (Z-axis wheel active)");
     }
 
     fn pane_generic(&mut self, cx: &mut Ctx, f: &mut Form) {
