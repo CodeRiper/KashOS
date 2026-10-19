@@ -21,11 +21,240 @@
 
 extern crate alloc;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 use khal::KeyCode;
 
 pub const TOP_BAR_HEIGHT: u32 = 28; // System status menubar height in pixels
 pub const MIN_SURFACE_DIM: u32 = 64; // Minimum allowed width and height
+
+/// 2D Rectangle Geometry Primitive
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Rect {
+    pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
+        Self { x, y, width, height }
+    }
+
+    pub fn intersects(&self, other: &Rect) -> bool {
+        if self.width == 0 || self.height == 0 || other.width == 0 || other.height == 0 {
+            return false;
+        }
+        let r1_right = self.x.saturating_add(self.width as i32);
+        let r1_bottom = self.y.saturating_add(self.height as i32);
+        let r2_right = other.x.saturating_add(other.width as i32);
+        let r2_bottom = other.y.saturating_add(other.height as i32);
+
+        self.x < r2_right && r1_right > other.x && self.y < r2_bottom && r1_bottom > other.y
+    }
+
+    pub fn intersection(&self, other: &Rect) -> Option<Rect> {
+        let x1 = self.x.max(other.x);
+        let y1 = self.y.max(other.y);
+        let x2 = (self.x + self.width as i32).min(other.x + other.width as i32);
+        let y2 = (self.y + self.height as i32).min(other.y + other.height as i32);
+
+        if x2 > x1 && y2 > y1 {
+            Some(Rect {
+                x: x1,
+                y: y1,
+                width: (x2 - x1) as u32,
+                height: (y2 - y1) as u32,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn union(&self, other: &Rect) -> Rect {
+        if self.width == 0 || self.height == 0 {
+            return *other;
+        }
+        if other.width == 0 || other.height == 0 {
+            return *self;
+        }
+
+        let x1 = self.x.min(other.x);
+        let y1 = self.y.min(other.y);
+        let x2 = (self.x + self.width as i32).max(other.x + other.width as i32);
+        let y2 = (self.y + self.height as i32).max(other.y + other.height as i32);
+
+        Rect {
+            x: x1,
+            y: y1,
+            width: (x2 - x1) as u32,
+            height: (y2 - y1) as u32,
+        }
+    }
+
+    pub fn clamp(&self, bounds: &Rect) -> Option<Rect> {
+        self.intersection(bounds)
+    }
+
+    pub fn contains_point(&self, px: i32, py: i32) -> bool {
+        px >= self.x
+            && px < self.x + self.width as i32
+            && py >= self.y
+            && py < self.y + self.height as i32
+    }
+}
+
+/// Accumulator for bounding dirty regions during software frame rendering
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DirtyTracker {
+    pub dirty_rect: Option<Rect>,
+}
+
+impl DirtyTracker {
+    pub const fn new() -> Self {
+        Self { dirty_rect: None }
+    }
+
+    pub fn mark_dirty(&mut self, rect: Rect) {
+        if rect.width == 0 || rect.height == 0 {
+            return;
+        }
+        self.dirty_rect = match self.dirty_rect {
+            Some(existing) => Some(existing.union(&rect)),
+            None => Some(rect),
+        };
+    }
+
+    pub fn mark_all(&mut self, width: u32, height: u32) {
+        self.mark_dirty(Rect::new(0, 0, width, height));
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.dirty_rect.is_some()
+    }
+
+    pub fn take(&mut self) -> Option<Rect> {
+        self.dirty_rect.take()
+    }
+}
+
+/// Double-buffered off-screen RAM surface with dirty region tracking
+pub struct DoubleBuffer {
+    pub width: u32,
+    pub height: u32,
+    pub back_buffer: Vec<u32>,
+    pub tracker: DirtyTracker,
+}
+
+impl DoubleBuffer {
+    pub fn new(width: u32, height: u32) -> Self {
+        let size = (width as usize) * (height as usize);
+        let mut buf = Self {
+            width,
+            height,
+            back_buffer: vec![0u32; size],
+            tracker: DirtyTracker::new(),
+        };
+        buf.tracker.mark_all(width, height);
+        buf
+    }
+
+    pub fn set_pixel(&mut self, x: u32, y: u32, color: u32) {
+        if x < self.width && y < self.height {
+            let idx = (y as usize) * (self.width as usize) + (x as usize);
+            if self.back_buffer[idx] != color {
+                self.back_buffer[idx] = color;
+                self.tracker.mark_dirty(Rect::new(x as i32, y as i32, 1, 1));
+            }
+        }
+    }
+
+    pub fn get_pixel(&self, x: u32, y: u32) -> Option<u32> {
+        if x < self.width && y < self.height {
+            Some(self.back_buffer[(y as usize) * (self.width as usize) + (x as usize)])
+        } else {
+            None
+        }
+    }
+
+    pub fn fill_rect(&mut self, rect: Rect, color: u32) {
+        let bounds = Rect::new(0, 0, self.width, self.height);
+        if let Some(clipped) = rect.clamp(&bounds) {
+            for row in 0..clipped.height {
+                let y = (clipped.y + row as i32) as usize;
+                let start_idx = y * (self.width as usize) + (clipped.x as usize);
+                let end_idx = start_idx + (clipped.width as usize);
+                for p in &mut self.back_buffer[start_idx..end_idx] {
+                    *p = color;
+                }
+            }
+            self.tracker.mark_dirty(clipped);
+        }
+    }
+
+    pub fn draw_rect_outline(&mut self, rect: Rect, thickness: u32, color: u32) {
+        if thickness == 0 {
+            return;
+        }
+        // Top border
+        self.fill_rect(Rect::new(rect.x, rect.y, rect.width, thickness), color);
+        // Bottom border
+        self.fill_rect(
+            Rect::new(
+                rect.x,
+                rect.y + rect.height as i32 - thickness as i32,
+                rect.width,
+                thickness,
+            ),
+            color,
+        );
+        // Left border
+        self.fill_rect(Rect::new(rect.x, rect.y, thickness, rect.height), color);
+        // Right border
+        self.fill_rect(
+            Rect::new(
+                rect.x + rect.width as i32 - thickness as i32,
+                rect.y,
+                thickness,
+                rect.height,
+            ),
+            color,
+        );
+    }
+
+    pub fn present_to(&mut self, dest: &mut [u32], dest_pitch_pixels: usize) -> Option<Rect> {
+        let dirty = self.tracker.take()?;
+        let bounds = Rect::new(0, 0, self.width, self.height);
+        let clipped = dirty.clamp(&bounds)?;
+
+        for row in 0..clipped.height {
+            let y = (clipped.y + row as i32) as usize;
+            let src_start = y * (self.width as usize) + (clipped.x as usize);
+            let src_end = src_start + (clipped.width as usize);
+            let dst_start = y * dest_pitch_pixels + (clipped.x as usize);
+            let dst_end = dst_start + (clipped.width as usize);
+
+            if dst_end <= dest.len() && src_end <= self.back_buffer.len() {
+                dest[dst_start..dst_end].copy_from_slice(&self.back_buffer[src_start..src_end]);
+            }
+        }
+
+        Some(clipped)
+    }
+
+    pub fn mark_dirty(&mut self, rect: Rect) {
+        self.tracker.mark_dirty(rect);
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.tracker.is_dirty()
+    }
+
+    pub fn dirty_rect(&self) -> Option<Rect> {
+        self.tracker.dirty_rect
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrustDomain {
@@ -126,6 +355,7 @@ pub struct CompositorEngine {
     pub windows: Vec<WindowSurface>,
     pub clipboard: ClipboardDaemon,
     active_focus_id: Option<u32>,
+    pub double_buffer: Option<DoubleBuffer>,
 }
 
 impl CompositorEngine {
@@ -134,6 +364,7 @@ impl CompositorEngine {
             windows: Vec::new(),
             clipboard: ClipboardDaemon::new(),
             active_focus_id: None,
+            double_buffer: None,
         }
     }
 
@@ -282,6 +513,38 @@ impl CompositorEngine {
         }
         crate::kprintln!("└────┴──────┴────────────────────────────┴───────────────────────┴────────┘");
     }
+
+    /// Initializes double-buffering with given dimensions.
+    pub fn init_double_buffer(&mut self, width: u32, height: u32) {
+        self.double_buffer = Some(DoubleBuffer::new(width, height));
+    }
+
+    /// Renders Nitpicker security borders for all surfaces into the double buffer.
+    pub fn render_security_borders(&mut self) {
+        if let Some(ref mut db) = self.double_buffer {
+            for win in &self.windows {
+                let rect = Rect::new(win.x, win.y, win.width, win.height);
+                db.draw_rect_outline(rect, win.border_thickness, win.domain.border_color());
+            }
+        }
+    }
+
+    /// Renders the exclusive system status bar at the top edge.
+    pub fn render_top_bar(&mut self, bg_color: u32) {
+        if let Some(ref mut db) = self.double_buffer {
+            let bar_rect = Rect::new(0, 0, db.width, TOP_BAR_HEIGHT);
+            db.fill_rect(bar_rect, bg_color);
+        }
+    }
+
+    /// Presents current dirty regions to the given destination buffer (hardware framebuffer).
+    pub fn present_frame(&mut self, dest: &mut [u32], dest_pitch_pixels: usize) -> Option<Rect> {
+        if let Some(ref mut db) = self.double_buffer {
+            db.present_to(dest, dest_pitch_pixels)
+        } else {
+            None
+        }
+    }
 }
 
 pub static COMPOSITOR: crate::sync::SpinLock<CompositorEngine> =
@@ -290,6 +553,19 @@ pub static COMPOSITOR: crate::sync::SpinLock<CompositorEngine> =
 pub fn init() {
     let mut comp = COMPOSITOR.lock();
     *comp = CompositorEngine::new();
+    if let Some(fb) = crate::arch::framebuffer() {
+        comp.init_double_buffer(fb.width, fb.height);
+        crate::kprintln!(
+            "[display] Double buffer initialized: {}x{} off-screen RAM surface",
+            fb.width, fb.height
+        );
+    }
+    if let Some(dev) = crate::arch::find_virtio_gpu() {
+        crate::kprintln!(
+            "[display] VirtIO-GPU 2D hardware detected at PCI {:02x}:{:02x}.{:x} (BAR0: {:#x})",
+            dev.bus, dev.slot, dev.func, dev.bar0
+        );
+    }
     crate::status::update(|s| {
         s.wayland_compositor = crate::status::ComponentStatus::Real;
         s.liquid_glass_gui = crate::status::ComponentStatus::Real;
@@ -349,4 +625,96 @@ pub fn verify_buffer_isolation(id1: u32, id2: u32) -> Result<(), &'static str> {
 pub fn verify_border_integrity(id: u32) -> Result<u32, &'static str> {
     let comp = COMPOSITOR.lock();
     comp.verify_border_integrity(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rect_intersections() {
+        let r1 = Rect::new(10, 10, 50, 50);
+        let r2 = Rect::new(30, 30, 50, 50);
+        let r3 = Rect::new(100, 100, 20, 20);
+
+        assert!(r1.intersects(&r2));
+        assert!(!r1.intersects(&r3));
+
+        let isect = r1.intersection(&r2).expect("should intersect");
+        assert_eq!(isect, Rect::new(30, 30, 30, 30));
+        assert!(r1.intersection(&r3).is_none());
+    }
+
+    #[test]
+    fn test_rect_union_and_clamp() {
+        let r1 = Rect::new(10, 10, 20, 20);
+        let r2 = Rect::new(40, 50, 10, 10);
+        let u = r1.union(&r2);
+        assert_eq!(u, Rect::new(10, 10, 40, 50));
+
+        let bounds = Rect::new(0, 0, 100, 100);
+        let clamped = r1.clamp(&bounds).expect("should clamp");
+        assert_eq!(clamped, r1);
+
+        let out_of_bounds = Rect::new(90, 90, 30, 30);
+        let clamped2 = out_of_bounds.clamp(&bounds).expect("partial overlap");
+        assert_eq!(clamped2, Rect::new(90, 90, 10, 10));
+    }
+
+    #[test]
+    fn test_dirty_tracker_accumulation() {
+        let mut tracker = DirtyTracker::new();
+        assert!(!tracker.is_dirty());
+        assert_eq!(tracker.take(), None);
+
+        tracker.mark_dirty(Rect::new(10, 10, 20, 20));
+        assert!(tracker.is_dirty());
+        tracker.mark_dirty(Rect::new(50, 50, 10, 10));
+
+        let dirty = tracker.take().expect("should have dirty rect");
+        assert_eq!(dirty, Rect::new(10, 10, 50, 50));
+        assert!(!tracker.is_dirty());
+    }
+
+    #[test]
+    fn test_double_buffer_drawing_and_present() {
+        let mut db = DoubleBuffer::new(64, 64);
+        assert!(db.is_dirty());
+
+        let mut dest = vec![0u32; 64 * 64];
+        let presented = db.present_to(&mut dest, 64);
+        assert_eq!(presented, Some(Rect::new(0, 0, 64, 64)));
+        assert!(!db.is_dirty());
+
+        // Fill a small rect
+        db.fill_rect(Rect::new(10, 10, 5, 5), 0xFF00FF00);
+        assert!(db.is_dirty());
+        assert_eq!(db.get_pixel(10, 10), Some(0xFF00FF00));
+        assert_eq!(db.get_pixel(0, 0), Some(0));
+
+        let presented2 = db.present_to(&mut dest, 64);
+        assert_eq!(presented2, Some(Rect::new(10, 10, 5, 5)));
+        assert_eq!(dest[10 * 64 + 10], 0xFF00FF00);
+        assert_eq!(dest[0], 0);
+    }
+
+    #[test]
+    fn test_compositor_borders_and_top_bar() {
+        let mut comp = CompositorEngine::new();
+        comp.init_double_buffer(800, 600);
+
+        let s1 = comp
+            .create_surface_at(1, "Secure Term", TrustDomain::CoreSystem, 50, 100, 200, 150)
+            .unwrap();
+        assert_eq!(s1, 1);
+
+        comp.render_security_borders();
+        comp.render_top_bar(0xFF101010);
+
+        let mut dest = vec![0u32; 800 * 600];
+        let presented = comp.present_frame(&mut dest, 800);
+        assert!(presented.is_some());
+        // Verify top bar was drawn at y=0
+        assert_eq!(dest[0], 0xFF101010);
+    }
 }

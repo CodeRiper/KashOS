@@ -298,6 +298,10 @@ impl PciDevice {
         self.vendor_id == 0x1AF4 && (self.device_id == 0x1001 || self.device_id == 0x1042)
     }
 
+    pub fn is_virtio_gpu(&self) -> bool {
+        self.vendor_id == 0x1AF4 && (self.device_id == 0x1050 || self.device_id == 0x1013)
+    }
+
     pub fn is_hda_audio(&self) -> bool {
         self.class_id == 0x04 && self.subclass_id == 0x03
     }
@@ -383,6 +387,11 @@ pub fn find_nic() -> Option<PciDevice> {
 /// Finds the first Intel HDA audio controller if present.
 pub fn find_audio() -> Option<PciDevice> {
     scan_bus().into_iter().find(|d| d.is_hda_audio())
+}
+
+/// Finds the first VirtIO-GPU controller if present.
+pub fn find_virtio_gpu() -> Option<PciDevice> {
+    scan_bus().into_iter().find(|d| d.is_virtio_gpu())
 }
 
 /// Finds the BAR0 physical address of the primary display controller

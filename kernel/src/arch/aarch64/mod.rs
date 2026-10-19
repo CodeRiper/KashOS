@@ -364,6 +364,10 @@ pub fn find_audio() -> Option<PciDevice> {
     None
 }
 
+pub fn find_virtio_gpu() -> Option<PciDevice> {
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct AtaDriveInfo {
     pub drive_index: u8,

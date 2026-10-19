@@ -21,9 +21,10 @@ pub mod fb;
 pub mod acpi;
 pub mod smp;
 pub mod tpm;
+pub mod virtio_gpu;
 
 pub use cpuid::{detect as detect_cpu, CpuFeatures, HardwareTier, detect_hardware_tier, print_hardware_report};
-pub use pci::{scan_bus as scan_pci, PciDevice, find_ahci, find_nvme, find_nic, find_audio};
+pub use pci::{scan_bus as scan_pci, PciDevice, find_ahci, find_nvme, find_nic, find_audio, find_virtio_gpu};
 pub use vbox::{probe_environment as probe_vbox, VirtualBoxProfile, VBoxBgaDisplay, VBoxAtaDriver, AtaDriveInfo};
 pub use vtd::{init as init_vtd, get_iommu_status, IntelVtdUnit, PcieAcsVerifier};
 pub use tpm::{init as init_tpm, get_tpm_status, Tpm2Device, TpmError, print_pcr_report, print_tcg_event_log, print_anti_rollback_status, get_security_epoch, verify_and_ratify_epoch};

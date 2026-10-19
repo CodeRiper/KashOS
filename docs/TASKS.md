@@ -17,7 +17,7 @@
 | A13 | USB: xHCI, HID and mass storage | Done | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Done | main | docs/EVIDENCE/A14.md |
 | A15 | Storage drivers: NVMe, hardened AHCI | Done | main | docs/EVIDENCE/A15.md |
-| A16 | Display (double-buffering, virtio-gpu 2D) | Planned | - | docs/EVIDENCE/A16.md |
+| A16 | Display (double-buffering, virtio-gpu 2D) | Done | main | docs/EVIDENCE/A16.md |
 | A17 | ACPI, power and platform | Planned | - | docs/EVIDENCE/A17.md |
 | A18 | Make the UI honest and connected to real services | Planned | - | docs/EVIDENCE/A18.md |
 | A19 | libc, Rust std and a POSIX layer | Planned | - | docs/EVIDENCE/A19.md |
