@@ -434,3 +434,22 @@ fn invalid_names_are_rejected() {
     v.create_folder(&mut rng, "ok", None).unwrap();
     assert_eq!(v.create_folder(&mut rng, "ok", None).unwrap_err(), VaultError::Exists);
 }
+
+#[test]
+fn open_failure_does_not_mutate_or_format_device() {
+    let mut rng = TestRng(42);
+    let dev = make(64, false, false, &mut rng);
+    let initial_bytes = dev.raw().to_vec();
+
+    // Attempt to open with wrong password
+    let res = Vault::open(clone_dev(&dev), &mut rng, b"completely-wrong-password");
+    let fail = match res {
+        Err(f) => f,
+        Ok(_) => panic!("expected open failure with wrong password"),
+    };
+    assert_eq!(fail.error, VaultError::BadPassword);
+
+    // Verify the device raw storage was NOT mutated by the failed open attempt
+    assert_eq!(fail.device.raw(), initial_bytes.as_slice());
+}
+

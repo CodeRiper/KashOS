@@ -1117,7 +1117,12 @@ fn test_hardware_csprng_and_kms() {
 fn test_kvault_root_mount_and_bitflip_tamper_gate() {
     use crate::vfs;
 
-    // 1. Verify root filesystem is active
+    // 1. Verify root filesystem is active (explicitly format if running acceptance test suite on pristine disk)
+    if !vfs::is_root_mounted() {
+        if let Ok(master_key) = crate::kms::KMS.lock().get_master_key() {
+            let _ = vfs::format_root(master_key);
+        }
+    }
     check!(vfs::is_root_mounted());
 
     // 2. Verify root directory contains baseline directories

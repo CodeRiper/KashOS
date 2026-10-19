@@ -331,12 +331,6 @@ impl RootVaultFs {
 
         let mut rng = Csprng::new();
 
-        // Hardened memory-hard Argon2id KDF profile suited for microkernel memory budget (OWASP floor)
-        let opts = FormatOptions {
-            params: KdfParams::LOW_END,
-            hidden_percent: 0,
-        };
-
         // Attempt 1: Open existing formatted vault
         let open_res = Vault::open(dev, &mut rng, master_key);
         let mut vault = match open_res {
@@ -348,21 +342,12 @@ impl RootVaultFs {
                 crate::kprintln!("[vfs] [ALERT] Duress unlock occurred; all vault key slots wiped!");
                 return Err(VfsError::CorruptFilesystem);
             }
-            Err(open_fail) => {
-                crate::kprintln!("[vfs] No existing kvault header detected; formatting new authenticated root volume...");
-                let fmt_dev = Vault::format(open_fail.device, &mut rng, &opts, master_key, None, None)
-                    .map_err(|e| {
-                        crate::kprintln!("[vfs] Format failed: {:?}", e);
-                        VfsError::IoError
-                    })?;
-
-                match Vault::open(fmt_dev, &mut rng, master_key) {
-                    Ok(OpenOutcome::Unlocked(v)) => {
-                        crate::kprintln!("[vfs] Freshly formatted kvault root volume opened successfully");
-                        v
-                    }
-                    _ => return Err(VfsError::CorruptFilesystem),
-                }
+            Err(open_err) => {
+                crate::kprintln!(
+                    "[vfs] Failed to open kvault root volume: {:?}. Refusing automatic format to protect data.",
+                    open_err.error
+                );
+                return Err(VfsError::CorruptFilesystem);
             }
         };
 
@@ -376,7 +361,7 @@ impl RootVaultFs {
 
         // Provision standard baseline files if missing
         if vault.read_file("system", "os-release").is_err() {
-            let os_rel = b"NAME=KashOS\nVERSION=0.1.0-alpha\nID=kashos\nPRETTY_NAME=\"KashOS Verified Microkernel\"\n";
+            let os_rel = b"NAME=KashOS\nVERSION=0.2.0\nID=kashos\nPRETTY_NAME=\"KashOS Microkernel\"\n";
             let _ = vault.write_file(&mut rng, "system", "os-release", os_rel);
         }
 
@@ -397,6 +382,63 @@ impl RootVaultFs {
         self.vault = Some(vault);
         self.is_mounted = true;
         Ok(())
+    }
+
+    /// Explicitly formats a new kvault filesystem on the root block device.
+    ///
+    /// # Safety and Data Integrity
+    /// This function wipes all existing data on the block device and initializes
+    /// a new authenticated volume with random-fill masking and Merkle tree roots.
+    /// It MUST NEVER be called implicitly or as a fallback for failed mounts.
+    /// It may only be called by the system installer or an explicit administrative command.
+    pub fn format_root(&mut self, master_key: &[u8]) -> Result<(), VfsError> {
+        crate::kprintln!("[vfs] Explicitly formatting authenticated kvault root volume over kblock...");
+
+        let dev = KBlockDeviceAdapter::new();
+        if dev.block_count < 32 {
+            crate::kprintln!("[vfs] ERROR: Block device too small for kvault (has {} blocks, minimum 32 required)", dev.block_count);
+            return Err(VfsError::IoError);
+        }
+
+        let mut rng = Csprng::new();
+        let opts = FormatOptions {
+            params: KdfParams::LOW_END,
+            hidden_percent: 0,
+        };
+
+        let fmt_dev = Vault::format(dev, &mut rng, &opts, master_key, None, None)
+            .map_err(|e| {
+                crate::kprintln!("[vfs] Format failed: {:?}", e);
+                VfsError::IoError
+            })?;
+
+        match Vault::open(fmt_dev, &mut rng, master_key) {
+            Ok(OpenOutcome::Unlocked(mut v)) => {
+                crate::kprintln!("[vfs] Freshly formatted kvault root volume opened successfully");
+                let folders = ["system", "apps", "personal", "etc"];
+                for f in &folders {
+                    if !v.list_folders().iter().any(|fi| fi.name == *f) {
+                        let _ = v.create_folder(&mut rng, f, None);
+                    }
+                }
+                if v.read_file("system", "os-release").is_err() {
+                    let os_rel = b"NAME=KashOS\nVERSION=0.2.0\nID=kashos\nPRETTY_NAME=\"KashOS Microkernel\"\n";
+                    let _ = v.write_file(&mut rng, "system", "os-release", os_rel);
+                }
+                if v.read_file("etc", "kashos.conf").is_err() {
+                    let conf = b"# KashOS Core Configuration\nlockdown=enforcing\nw_xor_x=strict\niommu=strict\ntpm_measured_boot=enabled\n";
+                    let _ = v.write_file(&mut rng, "etc", "kashos.conf", conf);
+                }
+                if v.read_file("personal", "welcome.txt").is_err() {
+                    let welcome = b"Welcome to KashOS: Native Authenticated Storage with XChaCha20-Poly1305 and Anti-Evil Maid TPM 2.0.\n";
+                    let _ = v.write_file(&mut rng, "personal", "welcome.txt", welcome);
+                }
+                self.vault = Some(v);
+                self.is_mounted = true;
+                Ok(())
+            }
+            _ => Err(VfsError::CorruptFilesystem),
+        }
     }
 
     /// Splits a path like "/system/manifest.toml" or "system/manifest.toml" into ("system", "manifest.toml")
@@ -487,6 +529,13 @@ pub static ROOT_FS: crate::blockdev::SpinLock<RootVaultFs> =
 pub fn mount_root(master_key: &[u8]) -> Result<(), VfsError> {
     let mut guard = ROOT_FS.lock();
     guard.mount_root(master_key)
+}
+
+/// Explicitly formats a new kvault filesystem as the root filesystem.
+/// This is an administrative/installer operation and is never called implicitly on mount failure.
+pub fn format_root(master_key: &[u8]) -> Result<(), VfsError> {
+    let mut guard = ROOT_FS.lock();
+    guard.format_root(master_key)
 }
 
 /// Reads an authenticated file from the root kvault filesystem.
