@@ -42,11 +42,26 @@ impl CapRights {
     }
 }
 
+impl core::ops::BitOr for CapRights {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        self.union(rhs)
+    }
+}
+
+impl core::ops::BitAnd for CapRights {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        self.intersect(rhs)
+    }
+}
+
 // ── 2. Kernel Object Types & Memory Alignment ─────────────────────────────────
 
 pub const MIN_UNTYPED_BITS: u8 = 4;   // 16 bytes
 pub const FRAME_BITS: u8 = 12;         // 4 KiB standard MMU page
 pub const LARGE_FRAME_BITS: u8 = 21;   // 2 MiB large page
+pub const HUGE_FRAME_BITS: u8 = 30;    // 1 GiB huge page
 pub const ENDPOINT_BITS: u8 = 4;       // 16 bytes
 pub const NOTIFICATION_BITS: u8 = 4;   // 16 bytes
 pub const TCB_BITS: u8 = 10;           // 1024 bytes
@@ -57,12 +72,22 @@ pub enum KernelObjType {
     Untyped { size_bits: u8 },
     Frame4K,
     Frame2M,
+    Frame1G,
     Endpoint,
     Notification,
     TCB,
     CNode { size_bits: u8 },
     SchedContext { budget_us: u64, period_us: u64 },
+    Reply,
+    PageTable,
+    VSpace,
     ASIDPool,
+    IrqControl,
+    IrqHandler { irq: u8 },
+    IoPortControl,
+    IoPort { start_port: u16, end_port: u16 },
+    IoSpace { pci_bdf: u16, domain_id: u16 },
+    Vcpu,
 }
 
 impl KernelObjType {
@@ -71,12 +96,22 @@ impl KernelObjType {
             KernelObjType::Untyped { size_bits } => 1u64 << size_bits,
             KernelObjType::Frame4K => 1u64 << FRAME_BITS,
             KernelObjType::Frame2M => 1u64 << LARGE_FRAME_BITS,
+            KernelObjType::Frame1G => 1u64 << HUGE_FRAME_BITS,
             KernelObjType::Endpoint => 1u64 << ENDPOINT_BITS,
             KernelObjType::Notification => 1u64 << NOTIFICATION_BITS,
             KernelObjType::TCB => 1u64 << TCB_BITS,
             KernelObjType::CNode { size_bits } => 32u64 * (1u64 << size_bits), // 32 bytes per slot on x86_64
             KernelObjType::SchedContext { .. } => 1u64 << SCHED_CONTEXT_BITS,
+            KernelObjType::Reply => 32,
+            KernelObjType::PageTable => 4096,
+            KernelObjType::VSpace => 4096,
             KernelObjType::ASIDPool => 4096, // 4 KiB manages 1,024 VSpaces
+            KernelObjType::IrqControl => 0,
+            KernelObjType::IrqHandler { .. } => 32,
+            KernelObjType::IoPortControl => 0,
+            KernelObjType::IoPort { .. } => 16,
+            KernelObjType::IoSpace { .. } => 32,
+            KernelObjType::Vcpu => 4096,
         }
     }
 }
@@ -119,12 +154,36 @@ pub enum CapKind {
         period_us: u64,
         is_sporadic: bool,
     },
+    Reply {
+        tcb_id: u64,
+        is_valid: bool,
+    },
+    PageTable {
+        paddr: u64,
+        level: u8,
+    },
+    VSpace {
+        cr3: u64,
+        asid: u32,
+    },
     ASIDPool {
         pool_id: u32,
     },
+    IrqControl,
+    IrqHandler {
+        irq: u8,
+    },
+    IoPortControl,
     IOPort {
         start_port: u16,
         end_port: u16,
+    },
+    IOSpace {
+        pci_bdf: u16,
+        domain_id: u16,
+    },
+    Vcpu {
+        vcpu_id: u32,
     },
 }
 
@@ -275,14 +334,15 @@ impl<const N: usize> SeL4CapabilityCore<N> {
         // Device Memory Invariant: is_device == true can ONLY be retyped into Frames or smaller Untypeds
         if is_dev {
             match target_type {
-                KernelObjType::Frame4K | KernelObjType::Frame2M | KernelObjType::Untyped { .. } => {}
+                KernelObjType::Frame4K | KernelObjType::Frame2M | KernelObjType::Frame1G | KernelObjType::Untyped { .. } => {}
                 _ => return Err(SeL4Error::IllegalOperation), // Attempting TCB/Endpoint from device MMIO rejected
             }
         }
 
         let obj_size = target_type.size_bytes();
-        // Alignment: align watermark to object size boundary
-        let aligned_wm = (cur_wm + (obj_size - 1)) & !(obj_size - 1);
+        // Alignment: align watermark to object size boundary (minimum 16 bytes)
+        let align_mask = obj_size.max(16) - 1;
+        let aligned_wm = (cur_wm + align_mask) & !align_mask;
         if aligned_wm + obj_size > max_size {
             return Err(SeL4Error::NotEnoughMemory);
         }
@@ -293,12 +353,22 @@ impl<const N: usize> SeL4CapabilityCore<N> {
         let new_cap_kind = match target_type {
             KernelObjType::Frame4K => CapKind::Frame { paddr: allocated_paddr, is_large: false },
             KernelObjType::Frame2M => CapKind::Frame { paddr: allocated_paddr, is_large: true },
+            KernelObjType::Frame1G => CapKind::Frame { paddr: allocated_paddr, is_large: true },
             KernelObjType::Endpoint => CapKind::Endpoint { addr: allocated_paddr, badge: 0 },
             KernelObjType::Notification => CapKind::Notification { addr: allocated_paddr, badge: 0 },
             KernelObjType::TCB => CapKind::TCB { tcb_id: allocated_paddr, priority: 128, is_passive: false },
             KernelObjType::CNode { size_bits } => CapKind::CNode { radix: size_bits, guard: 0, guard_size: 0 },
             KernelObjType::SchedContext { budget_us, period_us } => CapKind::SchedContext { budget_us, period_us, is_sporadic: true },
+            KernelObjType::Reply => CapKind::Reply { tcb_id: allocated_paddr, is_valid: true },
+            KernelObjType::PageTable => CapKind::PageTable { paddr: allocated_paddr, level: 1 },
+            KernelObjType::VSpace => CapKind::VSpace { cr3: allocated_paddr, asid: 1 },
             KernelObjType::ASIDPool => CapKind::ASIDPool { pool_id: (allocated_paddr >> 12) as u32 },
+            KernelObjType::IrqControl => CapKind::IrqControl,
+            KernelObjType::IrqHandler { irq } => CapKind::IrqHandler { irq },
+            KernelObjType::IoPortControl => CapKind::IoPortControl,
+            KernelObjType::IoPort { start_port, end_port } => CapKind::IOPort { start_port, end_port },
+            KernelObjType::IoSpace { pci_bdf, domain_id } => CapKind::IOSpace { pci_bdf, domain_id },
+            KernelObjType::Vcpu => CapKind::Vcpu { vcpu_id: (allocated_paddr >> 12) as u32 },
             KernelObjType::Untyped { size_bits } => CapKind::Untyped {
                 paddr: allocated_paddr,
                 size_bits,

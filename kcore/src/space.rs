@@ -502,8 +502,8 @@ mod tests {
 
     #[test]
     fn unknown_rights_bits_are_rejected() {
-        assert!(Rights::from_bits(0b111).is_some());
-        assert!(Rights::from_bits(0b1000).is_none());
+        assert!(Rights::from_bits(0b1111).is_some());
+        assert!(Rights::from_bits(0b1_0000).is_none());
         assert!(Rights::from_bits(0xFF).is_none());
     }
 

@@ -9,7 +9,8 @@ impl Rights {
     pub const READ: Rights = Rights(1 << 0);
     pub const WRITE: Rights = Rights(1 << 1);
     pub const GRANT: Rights = Rights(1 << 2);
-    pub const ALL: Rights = Rights(0b111);
+    pub const GRANT_REPLY: Rights = Rights(1 << 3);
+    pub const ALL: Rights = Rights(0b1111);
 
     /// Parse untrusted bits (e.g. from a syscall argument).
     pub const fn from_bits(bits: u8) -> Option<Rights> {

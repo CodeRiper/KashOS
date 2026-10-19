@@ -88,6 +88,26 @@ pub fn print_active_caps() {
                 CapKind::IOPort { start_port, end_port } => {
                     (alloc::format!("IOPort({}-{})", start_port, end_port), String::from("hw-port"))
                 }
+                CapKind::Reply { tcb_id, is_valid } => {
+                    (alloc::format!("Reply({})", if is_valid { "valid" } else { "spent" }), alloc::format!("tcb:{:#x}", tcb_id))
+                }
+                CapKind::PageTable { paddr, level } => {
+                    (alloc::format!("PageTable(L{})", level), alloc::format!("pa:{:#x}", paddr))
+                }
+                CapKind::VSpace { cr3, asid } => {
+                    (alloc::format!("VSpace(asid:{})", asid), alloc::format!("cr3:{:#x}", cr3))
+                }
+                CapKind::IrqControl => (String::from("IrqControl"), String::from("root-irq")),
+                CapKind::IrqHandler { irq } => {
+                    (alloc::format!("IrqHandler({})", irq), String::from("hw-irq"))
+                }
+                CapKind::IoPortControl => (String::from("IoPortCtrl"), String::from("root-io")),
+                CapKind::IOSpace { pci_bdf, domain_id } => {
+                    (alloc::format!("IOSpace(dom:{})", domain_id), alloc::format!("bdf:{:#x}", pci_bdf))
+                }
+                CapKind::Vcpu { vcpu_id } => {
+                    (alloc::format!("Vcpu({})", vcpu_id), String::from("virt-cpu"))
+                }
                 CapKind::Null => (String::from("Null"), String::from("none")),
             };
             let parent_str = match slot.parent {

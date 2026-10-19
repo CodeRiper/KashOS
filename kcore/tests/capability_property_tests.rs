@@ -11,17 +11,8 @@ use kcore::{Cap, CapSpace, Rights};
 
 #[test]
 fn property_test_rights_monotonicity_exhaustive() {
-    // Test all combinations of Rights (Read, Write, Grant)
-    let all_bits = [
-        Rights::NONE,
-        Rights::READ,
-        Rights::WRITE,
-        Rights::GRANT,
-        Rights::READ.union(Rights::WRITE),
-        Rights::READ.union(Rights::GRANT),
-        Rights::WRITE.union(Rights::GRANT),
-        Rights::ALL,
-    ];
+    // Test all 16 combinations of seL4 Rights (Read, Write, Grant, GrantReply)
+    let all_bits: [Rights; 16] = core::array::from_fn(|i| Rights::from_bits(i as u8).unwrap());
 
     for &parent_rights in &all_bits {
         for &requested_rights in &all_bits {
@@ -139,5 +130,62 @@ fn property_test_zero_remanence_sanitization() {
     // Invariant: Exhaustive scan confirms zero remanence
     let non_zero_count = memory_buffer.iter().filter(|&&b| b != 0).count();
     assert_eq!(non_zero_count, 0, "Remanence violation: non-zero byte detected after scrub");
+}
+
+#[test]
+fn property_test_rights_algebra_and_sel4_orthogonal_invariants() {
+    // 1. Bitwise validity and rejection of unknown bits
+    for b in 0..=15u8 {
+        let r = Rights::from_bits(b);
+        assert!(r.is_some(), "Valid seL4 4-bit rights pattern rejected: {:#x}", b);
+        assert_eq!(r.unwrap().bits(), b);
+    }
+    for b in 16..=255u8 {
+        assert!(Rights::from_bits(b).is_none(), "Unknown bits above 0b1111 accepted: {:#x}", b);
+    }
+
+    // 2. Orthogonal rights definitions
+    assert_eq!(Rights::NONE.bits(), 0x0);
+    assert_eq!(Rights::READ.bits(), 0x1);
+    assert_eq!(Rights::WRITE.bits(), 0x2);
+    assert_eq!(Rights::GRANT.bits(), 0x4);
+    assert_eq!(Rights::GRANT_REPLY.bits(), 0x8);
+    assert_eq!(Rights::ALL.bits(), 0xF);
+
+    // 3. Algebraic properties: commutativity, associativity, idempotence
+    let all_rights: [Rights; 16] = core::array::from_fn(|i| Rights::from_bits(i as u8).unwrap());
+    for &a in &all_rights {
+        // Idempotence
+        assert_eq!(a.union(a), a);
+        assert_eq!(a.intersect(a), a);
+        assert_eq!(a | a, a);
+        assert_eq!(a & a, a);
+
+        // Identity
+        assert_eq!(a.union(Rights::NONE), a);
+        assert_eq!(a.intersect(Rights::ALL), a);
+
+        for &b in &all_rights {
+            // Commutativity
+            assert_eq!(a.union(b), b.union(a));
+            assert_eq!(a.intersect(b), b.intersect(a));
+            assert_eq!(a | b, b | a);
+            assert_eq!(a & b, b & a);
+
+            // Subsumption and containment
+            let u = a | b;
+            let i = a & b;
+            assert!(u.contains(a));
+            assert!(u.contains(b));
+            assert!(a.contains(i));
+            assert!(b.contains(i));
+
+            // Distributivity with third element
+            for &c in &all_rights[..4] {
+                assert_eq!(a & (b | c), (a & b) | (a & c));
+                assert_eq!(a | (b & c), (a | b) & (a | c));
+            }
+        }
+    }
 }
 
