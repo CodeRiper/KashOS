@@ -398,6 +398,13 @@ pub fn init(kernel_stack_top: u64) {
     tpm::early_init();
     smp::init(apic::bsp_id());
 
+    // Boot secondary CPU cores (APs) via INIT-SIPI-SIPI sequence
+    let mut kernel_cr3: u64 = 0;
+    unsafe {
+        core::arch::asm!("mov {0}, cr3", out(reg) kernel_cr3, options(nostack));
+    }
+    smp::boot_secondary_cores(kernel_cr3);
+
     // Initialize preemptive task manager with initial kernel stack
     crate::task::init(kernel_stack_top);
 

@@ -125,3 +125,27 @@ fn no_task_ready_yields_none_and_idle_is_a_valid_steady_state() {
     assert_eq!(s.on_timer_tick(1000), None);
     assert!(s.current_task().is_none());
 }
+
+#[test]
+fn task_cpu_affinity_filtering_and_pinning() {
+    let mut s = QoSScheduler::new();
+    let t0 = s.create_task(100, QoSClass::UserInteractive, 0).unwrap();
+    let t1 = s.create_task(101, QoSClass::RealTimeIO, 0).unwrap();
+
+    // Default affinity allows all cores
+    assert!(s.can_run_on_core(t0, 0));
+    assert!(s.can_run_on_core(t0, 3));
+
+    // Pin t0 to Core 0 only (mask = 1 << 0)
+    s.set_task_affinity(t0, 1 << 0).unwrap();
+    assert!(s.can_run_on_core(t0, 0));
+    assert!(!s.can_run_on_core(t0, 1));
+    assert!(!s.can_run_on_core(t0, 3));
+
+    // Pin t1 to Core 2 and Core 3 (mask = (1 << 2) | (1 << 3))
+    s.set_task_affinity(t1, (1 << 2) | (1 << 3)).unwrap();
+    assert!(!s.can_run_on_core(t1, 0));
+    assert!(!s.can_run_on_core(t1, 1));
+    assert!(s.can_run_on_core(t1, 2));
+    assert!(s.can_run_on_core(t1, 3));
+}

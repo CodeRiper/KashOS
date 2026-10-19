@@ -81,6 +81,8 @@ pub struct TaskControlBlock {
     pub cr3: u64,
     /// Dedicated 16 KiB per-thread kernel stack loaded into TSS.RSP0.
     pub rsp0: u64,
+    /// CPU affinity bitmask (bit N = Core N permitted; !0u64 = all cores permitted).
+    pub cpu_affinity: u64,
     pub slice_budget_us: u32,
     pub consumed_slice_us: u32,
     pub in_use: bool,
@@ -94,6 +96,7 @@ impl TaskControlBlock {
         context_handle: 0,
         cr3: 0,
         rsp0: 0,
+        cpu_affinity: !0u64,
         slice_budget_us: 0,
         consumed_slice_us: 0,
         in_use: false,
@@ -186,12 +189,27 @@ impl QoSScheduler {
                 context_handle,
                 cr3,
                 rsp0,
+                cpu_affinity: !0u64,
                 slice_budget_us: 0,
                 consumed_slice_us: 0,
                 in_use: true,
             };
         }
         Ok(idx)
+    }
+
+    /// Sets the CPU core affinity mask for a task.
+    pub fn set_task_affinity(&mut self, idx: usize, affinity_mask: u64) -> Result<(), SchedError> {
+        let t = self.tasks.get_mut(idx).ok_or(SchedError::NoSuchTask)?;
+        t.cpu_affinity = if affinity_mask == 0 { !0u64 } else { affinity_mask };
+        Ok(())
+    }
+
+    /// Checks if a task is permitted to run on the specified CPU core ID.
+    pub fn can_run_on_core(&self, idx: usize, core_id: usize) -> bool {
+        self.tasks.get(idx)
+            .map(|t| (t.cpu_affinity & (1 << (core_id % 64))) != 0)
+            .unwrap_or(false)
     }
 
     pub fn terminate_task(&mut self, idx: usize) -> Result<(), SchedError> {
