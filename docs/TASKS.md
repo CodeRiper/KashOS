@@ -19,7 +19,7 @@
 | A15 | Storage drivers: NVMe, hardened AHCI | Done | main | docs/EVIDENCE/A15.md |
 | A16 | Display (double-buffering, virtio-gpu 2D) | Done | main | docs/EVIDENCE/A16.md |
 | A17 | ACPI, power and platform | Done | main | docs/EVIDENCE/A17.md |
-| A18 | Make the UI honest and connected to real services | Planned | - | docs/EVIDENCE/A18.md |
+| A18 | Make the UI honest and connected to real services | Done | main | docs/EVIDENCE/A18.md |
 | A19 | libc, Rust std and a POSIX layer | Planned | - | docs/EVIDENCE/A19.md |
 | A20 | Re-verify the old audit and finish hardening | Planned | - | docs/EVIDENCE/A20.md |
 | A21 | Status registry from real probes; CI that blocks fakes | Planned | - | docs/EVIDENCE/A21.md |

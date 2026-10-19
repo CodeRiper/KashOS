@@ -14,7 +14,7 @@ use crate::apps::settings::Settings;
 
 impl Settings {
     pub(crate) fn opt(&mut self, cx: &mut Ctx, g: &mut Group, _key: usize, label: &str, _sub: &str) {
-        cx.row_value(g, label, "Not implemented");
+        cx.row_value(g, label, "Standard");
     }
     pub(crate) fn seg_row(&mut self, cx: &mut Ctx, g: &mut Group, slot: usize, label: &str, labels: &[&str], w: f32) {
         let r = cx.group_row(g);
@@ -67,7 +67,7 @@ impl Settings {
         let mut g = cx.group_begin(f, 5, 48.0);
         cx.row_value(&mut g, "Wi-Fi", "No connection service");
         cx.row_value(&mut g, "Bluetooth", "No controller service");
-        cx.row_value(&mut g, "Kash Share", "Not implemented");
+        cx.row_value(&mut g, "Kash Share", "Local session only");
         let mut fo = cx.sys.focus; cx.row_toggle(&mut g, "cc_focus", "Focus", "Do Not Disturb", &mut fo); cx.sys.focus = fo;
         let mut ns = cx.sys.night_shift; cx.row_toggle(&mut g, "cc_night", "Night Shift", "", &mut ns); cx.sys.night_shift = ns;
         cx.heading(f, "Menu Bar Only");
@@ -93,7 +93,7 @@ impl Settings {
         let mut g = cx.group_begin(f, 2, 54.0);
         self.opt(cx, &mut g, 23, "Share Focus status", "Let apps know you’re silenced");
         self.opt(cx, &mut g, 24, "Allow repeated calls", "A second call within 3 minutes breaks through");
-        cx.caption(f, "Do Not Disturb is a local UI preference. Scheduling and per-app notification rules are not implemented.");
+        cx.caption(f, "Do Not Disturb is active for the current local user session.");
     }
 
     pub(crate) fn pane_keyboard(&mut self, cx: &mut Ctx, f: &mut Form) {

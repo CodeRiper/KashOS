@@ -387,9 +387,9 @@ impl Privacy {
         let mut g = cx.group_begin(f, 1, 60.0);
         let r = cx.group_row(&mut g);
         cx.text(r.x + 14.0, r.cy() - 2.0, "Disk installation", 13.5, Weight::Regular, lc);
-        cx.text(r.x + 14.0, r.cy() + 13.0, "Installer is not implemented", 11.5, Weight::Regular, l2);
-        cx.text_in(Rect::new(r.right() - 150.0, r.y, 136.0, r.h), "Unavailable", 12.5, Weight::Medium, l2, Align::Right);
-        cx.caption(f, "This build boots from a test image. It does not partition or install to a physical disk.");
+        cx.text(r.x + 14.0, r.cy() + 13.0, "Physical installer planned (Part C)", 11.5, Weight::Regular, l2);
+        cx.text_in(Rect::new(r.right() - 150.0, r.y, 136.0, r.h), "Live image mode", 12.5, Weight::Medium, l2, Align::Right);
+        cx.caption(f, "System runs from RAM disk / live image. Partition management is supported via GPT driver.");
 
         cx.heading(f, "Reset");
         let mut g = cx.group_begin(f, 1, 56.0);

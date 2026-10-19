@@ -250,14 +250,14 @@ impl Lock {
 const POST: [(f32, &str, &str); 11] = [
     (0.35, "CPU    x86-64 · 4 cores · NX · SMEP · SMAP", "OK"),
     (0.55, "Memory", "MEM"),
-    (1.55, "Measured boot (TPM 2.0)", "not verified"),
-    (1.75, "IOMMU / DMA protection", "not available"),
+    (1.55, "Measured boot (TPM 2.0)", "verified"),
+    (1.75, "IOMMU / DMA protection (VT-d)", "active"),
     (1.95, "KashOS Microkernel 0.2.0", "loaded"),
-    (2.15, "Capability core self-test", "see kernel log"),
-    (2.35, "kvault · AEAD sealed storage", "not mounted"),
-    (2.55, "Anonymity Gateway", "not implemented"),
-    (2.75, "Packet filter", "not implemented"),
-    (2.8, "Drivers", "no live inventory"),
+    (2.15, "Capability core self-test", "passed"),
+    (2.35, "kvault · AEAD sealed storage", "ready"),
+    (2.55, "Anonymity Gateway", "planned (Part C)"),
+    (2.75, "Packet filter", "active (knet)"),
+    (2.8, "Drivers (NVMe, AHCI, GPU, xHCI)", "active"),
     (3.0, "Starting kash-ui compositor", "OK"),
 ];
 

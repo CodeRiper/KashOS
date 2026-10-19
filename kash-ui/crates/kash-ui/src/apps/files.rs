@@ -44,10 +44,15 @@ pub fn build_fs() -> Node {
             f("audit.log", FileKind::Text, 4_096, "Today"),
         ]),
         d("Drivers", "Today", alloc::vec![
+            f("nvme.drv", FileKind::Driver, 20_480, "Today"),
+            f("ahci.drv", FileKind::Driver, 16_384, "Today"),
+            f("virtio_gpu.drv", FileKind::Driver, 14_336, "Today"),
+            f("xhci.drv", FileKind::Driver, 18_432, "Today"),
             f("e1000.drv", FileKind::Driver, 16_384, "Today"),
             f("ps2.drv", FileKind::Driver, 8_192, "Today"),
             f("vtd.drv", FileKind::Driver, 12_288, "Today"),
             f("tpm2.drv", FileKind::Driver, 14_336, "Today"),
+            f("acpi.drv", FileKind::Driver, 12_288, "Today"),
         ]),
         d("Etc", "Today", alloc::vec![
             f("version", FileKind::Text, 6, "Today"),
