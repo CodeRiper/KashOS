@@ -737,3 +737,65 @@ impl TcpIpStack {
     }
 }
 
+// ── NIC Framing and Packet Format Models ──────────────────────────────────
+
+/// Realtek RTL8139 4-byte receive packet header layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rtl8139PacketHeader {
+    pub status: u16,
+    pub length: u16,
+}
+
+impl Rtl8139PacketHeader {
+    pub fn parse(bytes: [u8; 4]) -> Self {
+        Self {
+            status: u16::from_le_bytes([bytes[0], bytes[1]]),
+            length: u16::from_le_bytes([bytes[2], bytes[3]]),
+        }
+    }
+
+    pub fn is_ok(&self) -> bool {
+        (self.status & 1) != 0 && self.length >= 4 && self.length <= 1792
+    }
+
+    pub fn packet_data_len(&self) -> usize {
+        (self.length as usize).saturating_sub(4)
+    }
+}
+
+/// VirtIO-Net 10-byte legacy packet header layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct VirtioNetHdr {
+    pub flags: u8,
+    pub gso_type: u8,
+    pub hdr_len: u16,
+    pub gso_size: u16,
+    pub csum_start: u16,
+    pub csum_offset: u16,
+}
+
+impl VirtioNetHdr {
+    pub fn to_bytes(&self) -> [u8; 10] {
+        let mut b = [0u8; 10];
+        b[0] = self.flags;
+        b[1] = self.gso_type;
+        b[2..4].copy_from_slice(&self.hdr_len.to_le_bytes());
+        b[4..6].copy_from_slice(&self.gso_size.to_le_bytes());
+        b[6..8].copy_from_slice(&self.csum_start.to_le_bytes());
+        b[8..10].copy_from_slice(&self.csum_offset.to_le_bytes());
+        b
+    }
+
+    pub fn from_bytes(bytes: [u8; 10]) -> Self {
+        Self {
+            flags: bytes[0],
+            gso_type: bytes[1],
+            hdr_len: u16::from_le_bytes([bytes[2], bytes[3]]),
+            gso_size: u16::from_le_bytes([bytes[4], bytes[5]]),
+            csum_start: u16::from_le_bytes([bytes[6], bytes[7]]),
+            csum_offset: u16::from_le_bytes([bytes[8], bytes[9]]),
+        }
+    }
+}
+
+

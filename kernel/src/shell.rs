@@ -393,7 +393,7 @@ impl KashShell {
                 kprintln!("  [apic] Local APIC Timer & Clock Calibration: {}", reg.apic_timer.label());
                 kprintln!("  [entropy] Hardware Entropy (RDRAND/VirtIO-RNG): {}", reg.hw_entropy.label());
                 kprintln!("  [iommu] VT-d / DMA Containment: {}", reg.vtd_iommu.label());
-                kprintln!("  [net] VirtIO-Net: {} | e1000: {}", reg.nic_virtio.label(), reg.nic_e1000.label());
+                kprintln!("  [net] VirtIO-Net: {} | e1000: {} | RTL8139: {}", reg.nic_virtio.label(), reg.nic_e1000.label(), reg.nic_rtl8139.label());
                 kprintln!("  [gfx] Linear Framebuffer Surface: {}", reg.linear_framebuffer.label());
             }
 

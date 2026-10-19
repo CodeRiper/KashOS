@@ -20,14 +20,14 @@ pub fn print_service_map(platform: &Platform) {
     kprintln!("║ T0 Silicon   TPM: [{:<6}]              IOMMU [{:<13}]  ║", reg.tpm2_crtm.label(), reg.vtd_iommu.label());
     kprintln!("║ T1 Kernel    monolithic prototype; capability isolation incomplete ║");
     kprintln!("║ T2 Storage   kvault root authenticated store [{:<13}]  ║", reg.kvault_fs.label());
-    let net_label = if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() {
+    let net_label = if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() || reg.nic_rtl8139.is_real() {
         "REAL (Hardware)"
     } else {
         "NOT AVAILABLE"
     };
     kprintln!("║ T3 Services  smoltcp / Net: [{:<14}]                  ║", net_label);
-    kprintln!("║ T4 Drivers   e1000:[{:<6}] VirtIO:[{:<6}] PS/2:[{:<4}]   ║",
-              reg.nic_e1000.label(), reg.nic_virtio.label(), reg.ps2_input.label());
+    kprintln!("║ T4 Drivers   e1000:[{:<6}] VirtIO:[{:<6}] RTL:[{:<4}]     ║",
+              reg.nic_e1000.label(), reg.nic_virtio.label(), reg.nic_rtl8139.label());
     kprintln!("║ T5 Enclaves  Capsules: [{:<8}] Sandbox: [{:<8}]        ║",
               reg.kapp_capsules.label(), reg.pledge_unveil.label());
     kprintln!("╠══════════════════════════════════════════════════════════════╣");
@@ -116,7 +116,7 @@ impl DriverMap {
         let reg = crate::status::get();
         DriverMap {
             nvme_sata: DriverStatus::Absent,
-            ethernet:  if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() { DriverStatus::Native } else { DriverStatus::Absent },
+            ethernet:  if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() || reg.nic_rtl8139.is_real() { DriverStatus::Native } else { DriverStatus::Absent },
             wifi_vm:   DriverStatus::Absent,
             usb_vm:    DriverStatus::Absent,
             gpu_vm:    if reg.linear_framebuffer.is_real() { DriverStatus::Native } else { DriverStatus::Absent },
@@ -184,7 +184,7 @@ impl EnclaveMap {
 /// Report network integration state without presenting generated identity data as live networking.
 pub fn print_network_config(_seed: u64) {
     let reg = crate::status::get();
-    if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() {
+    if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() || reg.nic_rtl8139.is_real() {
         kprintln!("[net] knet TCP/IP stack active; default-deny packet filter & fail-closed kill switch armed");
         kprintln!("[net] Layer-2 MAC address randomized via bare-metal CSPRNG; physical OUI tracking blocked");
     } else {

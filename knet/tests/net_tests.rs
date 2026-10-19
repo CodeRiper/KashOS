@@ -158,3 +158,45 @@ fn smol_net_stack_device_and_socket_test() {
     assert_eq!(&tx_frame[12..14], &0x0800u16.to_be_bytes()); // IPv4 EtherType
 }
 
+#[test]
+fn test_rtl8139_packet_header_parsing_and_invariants() {
+    use knet::Rtl8139PacketHeader;
+
+    // Construct packet header: status 1 (ROK), length 64 (60 bytes payload + 4 bytes CRC)
+    let header_bytes = [0x01, 0x00, 0x40, 0x00];
+    let parsed = Rtl8139PacketHeader::parse(header_bytes);
+    assert_eq!(parsed.status, 1);
+    assert_eq!(parsed.length, 64);
+    assert!(parsed.is_ok());
+    assert_eq!(parsed.packet_data_len(), 60);
+
+    // Corrupt packet without ROK bit
+    let bad_status = [0x00, 0x00, 0x40, 0x00];
+    assert!(!Rtl8139PacketHeader::parse(bad_status).is_ok());
+
+    // Corrupt packet with length < 4 (smaller than CRC)
+    let bad_len = [0x01, 0x00, 0x02, 0x00];
+    assert!(!Rtl8139PacketHeader::parse(bad_len).is_ok());
+}
+
+#[test]
+fn test_virtio_net_header_serialization_roundtrip() {
+    use knet::VirtioNetHdr;
+
+    let hdr = VirtioNetHdr {
+        flags: 0,
+        gso_type: 0,
+        hdr_len: 14,
+        gso_size: 1500,
+        csum_start: 14,
+        csum_offset: 16,
+    };
+
+    let bytes = hdr.to_bytes();
+    assert_eq!(bytes.len(), 10);
+
+    let parsed = VirtioNetHdr::from_bytes(bytes);
+    assert_eq!(parsed, hdr);
+}
+
+

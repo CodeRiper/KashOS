@@ -262,16 +262,83 @@ impl E1000Device {
         self.bytes_rx.fetch_add(len as u64, Ordering::Relaxed);
         Some(copy_len)
     }
+
+    pub fn is_link_up(&self) -> bool {
+        if self.mmio_base != 0 {
+            let status = unsafe { self.read32(E1000_REG_STATUS) };
+            (status & E1000_STATUS_LU) != 0
+        } else {
+            self.is_up
+        }
+    }
 }
 
 // ── 2. VirtIO-Net Paravirtualized Network Driver ────────────────────────────
+
+pub const VIRTIO_PCI_HOST_FEATURES: u16  = 0x00;
+pub const VIRTIO_PCI_GUEST_FEATURES: u16 = 0x04;
+pub const VIRTIO_PCI_QUEUE_PFN: u16      = 0x08;
+pub const VIRTIO_PCI_QUEUE_NUM: u16      = 0x0C;
+pub const VIRTIO_PCI_QUEUE_SEL: u16      = 0x0E;
+pub const VIRTIO_PCI_QUEUE_NOTIFY: u16   = 0x10;
+pub const VIRTIO_PCI_STATUS: u16         = 0x12;
+pub const VIRTIO_PCI_ISR: u16            = 0x13;
+
+pub const VIRTIO_STATUS_ACKNOWLEDGE: u8  = 1;
+pub const VIRTIO_STATUS_DRIVER: u8       = 2;
+pub const VIRTIO_STATUS_DRIVER_OK: u8    = 4;
+
+#[repr(C, align(16))]
+#[derive(Clone, Copy, Default)]
+pub struct VirtqDesc {
+    pub addr: u64,
+    pub len: u32,
+    pub flags: u16,
+    pub next: u16,
+}
+
+pub const VIRTQ_DESC_F_NEXT: u16  = 1;
+pub const VIRTQ_DESC_F_WRITE: u16 = 2;
+
+#[repr(C)]
+pub struct VirtqAvail {
+    pub flags: u16,
+    pub idx: u16,
+    pub ring: [u16; 8],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct VirtqUsedElem {
+    pub id: u32,
+    pub len: u32,
+}
+
+#[repr(C)]
+pub struct VirtqUsed {
+    pub flags: u16,
+    pub idx: u16,
+    pub ring: [VirtqUsedElem; 8],
+}
 
 pub struct VirtioNetDevice {
     pub io_base: u16,
     pub mac_address: [u8; 6],
     pub is_up: bool,
+    tx_cur: usize,
+    rx_last_used: u16,
+    pub rx_desc: [VirtqDesc; 8],
+    pub tx_desc: [VirtqDesc; 8],
+    pub rx_avail: VirtqAvail,
+    pub tx_avail: VirtqAvail,
+    pub rx_used: VirtqUsed,
+    pub tx_used: VirtqUsed,
+    pub rx_buffers: [[u8; 1536]; 8],
+    pub tx_buffers: [[u8; 1536]; 8],
     pub packets_rx: AtomicU64,
     pub packets_tx: AtomicU64,
+    pub bytes_rx: AtomicU64,
+    pub bytes_tx: AtomicU64,
 }
 
 impl VirtioNetDevice {
@@ -280,12 +347,73 @@ impl VirtioNetDevice {
             io_base,
             mac_address: [0x52, 0x54, 0x00, 0x12, 0x34, 0x56], // QEMU VirtIO default
             is_up: false,
+            tx_cur: 0,
+            rx_last_used: 0,
+            rx_desc: [VirtqDesc::default(); 8],
+            tx_desc: [VirtqDesc::default(); 8],
+            rx_avail: VirtqAvail { flags: 0, idx: 0, ring: [0; 8] },
+            tx_avail: VirtqAvail { flags: 0, idx: 0, ring: [0; 8] },
+            rx_used: VirtqUsed { flags: 0, idx: 0, ring: [VirtqUsedElem::default(); 8] },
+            tx_used: VirtqUsed { flags: 0, idx: 0, ring: [VirtqUsedElem::default(); 8] },
+            rx_buffers: [[0u8; 1536]; 8],
+            tx_buffers: [[0u8; 1536]; 8],
             packets_rx: AtomicU64::new(0),
             packets_tx: AtomicU64::new(0),
+            bytes_rx: AtomicU64::new(0),
+            bytes_tx: AtomicU64::new(0),
         }
     }
 
     pub fn init(&mut self) -> Result<(), &'static str> {
+        if self.io_base == 0 {
+            return Err("Invalid I/O port base");
+        }
+
+        unsafe {
+            // 1. Reset device
+            crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, 0);
+
+            // 2. Acknowledge device
+            crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE);
+
+            // 3. Set Driver status
+            crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER);
+
+            // 4. Read MAC address from VirtIO config space (offset 0x14..0x19)
+            for i in 0..6 {
+                let byte = crate::arch::x86_64::pci::inb(self.io_base + 0x14 + i as u16);
+                if byte != 0 && byte != 0xFF {
+                    self.mac_address[i] = byte;
+                }
+            }
+
+            // 5. Setup RX Virtqueue (Queue 0)
+            crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_SEL, 0);
+            let rx_phys = self.rx_desc.as_ptr() as usize as u32;
+            crate::arch::x86_64::pci::outl(self.io_base + VIRTIO_PCI_QUEUE_PFN, rx_phys >> 12);
+
+            // Populate RX Descriptors
+            for i in 0..8 {
+                let buf_phys = self.rx_buffers[i].as_ptr() as usize as u64;
+                self.rx_desc[i].addr = buf_phys;
+                self.rx_desc[i].len = 1536;
+                self.rx_desc[i].flags = VIRTQ_DESC_F_WRITE;
+                self.rx_avail.ring[i] = i as u16;
+            }
+            self.rx_avail.idx = 8;
+
+            // 6. Setup TX Virtqueue (Queue 1)
+            crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_SEL, 1);
+            let tx_phys = self.tx_desc.as_ptr() as usize as u32;
+            crate::arch::x86_64::pci::outl(self.io_base + VIRTIO_PCI_QUEUE_PFN, tx_phys >> 12);
+
+            // 7. Driver OK
+            crate::arch::x86_64::pci::outb(
+                self.io_base + VIRTIO_PCI_STATUS,
+                VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_DRIVER_OK,
+            );
+        }
+
         self.is_up = true;
         crate::kprintln!(
             "[virtio-net] VirtIO split-queue network adapter ready — MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
@@ -296,20 +424,123 @@ impl VirtioNetDevice {
     }
 
     pub fn transmit_frame(&mut self, frame: &[u8]) -> Result<(), ()> {
+        let hdr_size = 10; // VirtIO net header size
+        let max_frame = 1536 - hdr_size;
+        if frame.len() > max_frame {
+            return Err(());
+        }
+
+        let desc_idx = self.tx_cur;
+        let buf = &mut self.tx_buffers[desc_idx];
+        
+        // Zero out the 10-byte VirtioNetHdr
+        buf[..hdr_size].fill(0);
+        // Copy Ethernet payload immediately after header
+        buf[hdr_size..hdr_size + frame.len()].copy_from_slice(frame);
+
+        let total_len = (hdr_size + frame.len()) as u32;
+        self.tx_desc[desc_idx].addr = buf.as_ptr() as usize as u64;
+        self.tx_desc[desc_idx].len = total_len;
+        self.tx_desc[desc_idx].flags = 0;
+
+        let avail_slot = (self.tx_avail.idx % 8) as usize;
+        self.tx_avail.ring[avail_slot] = desc_idx as u16;
+        self.tx_avail.idx = self.tx_avail.idx.wrapping_add(1);
+
+        if self.io_base != 0 {
+            unsafe {
+                // Notify TX queue (Queue 1)
+                crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_NOTIFY, 1);
+            }
+        }
+
+        self.tx_cur = (self.tx_cur + 1) % 8;
         self.packets_tx.fetch_add(1, Ordering::Relaxed);
-        let _ = frame;
+        self.bytes_tx.fetch_add(frame.len() as u64, Ordering::Relaxed);
         Ok(())
+    }
+
+    pub fn receive_frame(&mut self, out_buf: &mut [u8]) -> Option<usize> {
+        let current_used_idx = self.rx_used.idx;
+        if self.rx_last_used == current_used_idx {
+            return None;
+        }
+
+        let slot = (self.rx_last_used % 8) as usize;
+        let elem = self.rx_used.ring[slot];
+        self.rx_last_used = self.rx_last_used.wrapping_add(1);
+
+        let desc_id = (elem.id % 8) as usize;
+        let hdr_size = 10;
+        let packet_len = (elem.len as usize).saturating_sub(hdr_size);
+        let copy_len = packet_len.min(out_buf.len());
+
+        let buf = &self.rx_buffers[desc_id];
+        if hdr_size + copy_len <= buf.len() {
+            out_buf[..copy_len].copy_from_slice(&buf[hdr_size..hdr_size + copy_len]);
+        } else {
+            return None;
+        }
+
+        // Re-queue descriptor in Available ring
+        let avail_slot = (self.rx_avail.idx % 8) as usize;
+        self.rx_avail.ring[avail_slot] = desc_id as u16;
+        self.rx_avail.idx = self.rx_avail.idx.wrapping_add(1);
+
+        self.packets_rx.fetch_add(1, Ordering::Relaxed);
+        self.bytes_rx.fetch_add(copy_len as u64, Ordering::Relaxed);
+        Some(copy_len)
+    }
+
+    pub fn is_link_up(&self) -> bool {
+        self.is_up
     }
 }
 
 // ── 3. Realtek RTL-8139 Fast Ethernet Driver ──────────────────────────────
 
+pub const RTL8139_REG_MAC0: u16      = 0x00;
+pub const RTL8139_REG_TSD0: u16      = 0x10;
+pub const RTL8139_REG_TSAD0: u16     = 0x20;
+pub const RTL8139_REG_RBSTART: u16   = 0x30;
+pub const RTL8139_REG_CR: u16        = 0x37;
+pub const RTL8139_REG_CAPR: u16      = 0x38;
+pub const RTL8139_REG_CBR: u16       = 0x3A;
+pub const RTL8139_REG_IMR: u16       = 0x3C;
+pub const RTL8139_REG_ISR: u16       = 0x3E;
+pub const RTL8139_REG_TCR: u16       = 0x40;
+pub const RTL8139_REG_RCR: u16       = 0x44;
+pub const RTL8139_REG_CONFIG1: u16   = 0x52;
+pub const RTL8139_REG_MSR: u16       = 0x58;
+
+pub const RTL8139_CR_BUFE: u8        = 1 << 0;
+pub const RTL8139_CR_TE: u8          = 1 << 2;
+pub const RTL8139_CR_RE: u8          = 1 << 3;
+pub const RTL8139_CR_RST: u8         = 1 << 4;
+
+pub const RTL8139_RCR_AAP: u32       = 1 << 0;
+pub const RTL8139_RCR_APM: u32       = 1 << 1;
+pub const RTL8139_RCR_AM: u32        = 1 << 2;
+pub const RTL8139_RCR_AB: u32        = 1 << 3;
+pub const RTL8139_RCR_WRAP: u32      = 1 << 7;
+
+pub const RTL8139_TSD_OWN: u32       = 1 << 13;
+pub const RTL8139_TSD_TOK: u32       = 1 << 15;
+
+pub const RTL8139_RX_BUF_LEN: usize  = 8192 + 16 + 1500;
+
 pub struct Rtl8139Device {
     pub io_base: u16,
     pub mac_address: [u8; 6],
     pub is_up: bool,
+    tx_cur: usize,
+    rx_offset: usize,
+    pub rx_buffer: Box<[u8; RTL8139_RX_BUF_LEN]>,
+    pub tx_buffers: [[u8; TX_BUFFER_SIZE]; 4],
     pub packets_rx: AtomicU64,
     pub packets_tx: AtomicU64,
+    pub bytes_rx: AtomicU64,
+    pub bytes_tx: AtomicU64,
 }
 
 impl Rtl8139Device {
@@ -318,8 +549,14 @@ impl Rtl8139Device {
             io_base,
             mac_address: [0; 6],
             is_up: false,
+            tx_cur: 0,
+            rx_offset: 0,
+            rx_buffer: Box::new([0u8; RTL8139_RX_BUF_LEN]),
+            tx_buffers: [[0u8; TX_BUFFER_SIZE]; 4],
             packets_rx: AtomicU64::new(0),
             packets_tx: AtomicU64::new(0),
+            bytes_rx: AtomicU64::new(0),
+            bytes_tx: AtomicU64::new(0),
         }
     }
 
@@ -328,13 +565,13 @@ impl Rtl8139Device {
             return Err("Invalid I/O port base");
         }
         unsafe {
-            // Power on the device (Config1 register = 0)
-            crate::arch::x86_64::pci::outb(self.io_base + 0x52, 0x00);
+            // Power on device (Config1 = 0)
+            crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CONFIG1, 0x00);
 
             // Software reset
-            crate::arch::x86_64::pci::outb(self.io_base + 0x37, 0x10);
+            crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CR, RTL8139_CR_RST);
             let mut spins = 0;
-            while (crate::arch::x86_64::pci::inb(self.io_base + 0x37) & 0x10) != 0 {
+            while (crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_CR) & RTL8139_CR_RST) != 0 {
                 spins += 1;
                 if spins > 100_000 {
                     break;
@@ -346,8 +583,16 @@ impl Rtl8139Device {
                 self.mac_address[i] = crate::arch::x86_64::pci::inb(self.io_base + i as u16);
             }
 
-            // Enable Transmitter and Receiver (RE | TE = 0x0C)
-            crate::arch::x86_64::pci::outb(self.io_base + 0x37, 0x0C);
+            // Program RX buffer physical address
+            let rx_phys = self.rx_buffer.as_ptr() as usize as u32;
+            crate::arch::x86_64::pci::outl(self.io_base + RTL8139_REG_RBSTART, rx_phys);
+
+            // Program Receive Configuration Register: Accept Broadcast, Multicast, Match, All, WRAP
+            let rcr = RTL8139_RCR_AAP | RTL8139_RCR_APM | RTL8139_RCR_AM | RTL8139_RCR_AB | RTL8139_RCR_WRAP;
+            crate::arch::x86_64::pci::outl(self.io_base + RTL8139_REG_RCR, rcr);
+
+            // Enable Transmitter and Receiver
+            crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CR, RTL8139_CR_RE | RTL8139_CR_TE);
         }
         self.is_up = true;
         crate::kprintln!(
@@ -360,9 +605,86 @@ impl Rtl8139Device {
     }
 
     pub fn transmit_frame(&mut self, frame: &[u8]) -> Result<(), ()> {
+        if frame.len() > TX_BUFFER_SIZE {
+            return Err(());
+        }
+        if self.io_base == 0 {
+            return Err(());
+        }
+
+        let desc = self.tx_cur;
+        let tsd_port = self.io_base + RTL8139_REG_TSD0 + (desc as u16 * 4);
+        let tsad_port = self.io_base + RTL8139_REG_TSAD0 + (desc as u16 * 4);
+
+        let tsd = unsafe { crate::arch::x86_64::pci::inl(tsd_port) };
+        if (tsd & RTL8139_TSD_OWN) == 0 && (tsd & RTL8139_TSD_TOK) == 0 && tsd != 0 {
+            return Err(());
+        }
+
+        self.tx_buffers[desc][..frame.len()].copy_from_slice(frame);
+        let tx_phys = self.tx_buffers[desc].as_ptr() as usize as u32;
+
+        unsafe {
+            crate::arch::x86_64::pci::outl(tsad_port, tx_phys);
+            crate::arch::x86_64::pci::outl(tsd_port, frame.len() as u32);
+        }
+
+        self.tx_cur = (self.tx_cur + 1) % 4;
         self.packets_tx.fetch_add(1, Ordering::Relaxed);
-        let _ = frame;
+        self.bytes_tx.fetch_add(frame.len() as u64, Ordering::Relaxed);
         Ok(())
+    }
+
+    pub fn receive_frame(&mut self, out_buf: &mut [u8]) -> Option<usize> {
+        if self.io_base == 0 {
+            return None;
+        }
+
+        let cr = unsafe { crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_CR) };
+        if (cr & RTL8139_CR_BUFE) != 0 {
+            return None;
+        }
+
+        let offset = self.rx_offset;
+        if offset + 4 > self.rx_buffer.len() {
+            return None;
+        }
+
+        let status = u16::from_le_bytes([self.rx_buffer[offset], self.rx_buffer[offset + 1]]);
+        let length = u16::from_le_bytes([self.rx_buffer[offset + 2], self.rx_buffer[offset + 3]]) as usize;
+
+        if (status & 1) == 0 || length < 4 || length > 1792 {
+            return None;
+        }
+
+        let data_len = length.saturating_sub(4);
+        let copy_len = data_len.min(out_buf.len());
+        let data_start = offset + 4;
+
+        if data_start + copy_len <= self.rx_buffer.len() {
+            out_buf[..copy_len].copy_from_slice(&self.rx_buffer[data_start..data_start + copy_len]);
+        } else {
+            return None;
+        }
+
+        self.rx_offset = (self.rx_offset + length + 4 + 3) & !3;
+        self.rx_offset %= 8192;
+
+        unsafe {
+            crate::arch::x86_64::pci::outw(self.io_base + RTL8139_REG_CAPR, (self.rx_offset as u16).wrapping_sub(16));
+        }
+
+        self.packets_rx.fetch_add(1, Ordering::Relaxed);
+        self.bytes_rx.fetch_add(copy_len as u64, Ordering::Relaxed);
+        Some(copy_len)
+    }
+
+    pub fn is_link_up(&self) -> bool {
+        if self.io_base == 0 {
+            return self.is_up;
+        }
+        let msr = unsafe { crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_MSR) };
+        (msr & (1 << 2)) == 0
     }
 }
 
@@ -431,10 +753,20 @@ pub fn init() {
         );
     }
 
+    if let Some(ref rtl) = rtl8139 {
+        crate::status::update(|s| s.nic_rtl8139 = crate::status::ComponentStatus::Real);
+        crate::kprintln!(
+            "[nic] Realtek RTL8139 Fast Ethernet initialized: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            rtl.mac_address[0], rtl.mac_address[1], rtl.mac_address[2],
+            rtl.mac_address[3], rtl.mac_address[4], rtl.mac_address[5]
+        );
+    }
+
     if e1000.is_none() && virtio.is_none() && rtl8139.is_none() {
         crate::status::update(|s| {
             s.nic_e1000 = crate::status::ComponentStatus::NotAvailable;
             s.nic_virtio = crate::status::ComponentStatus::NotAvailable;
+            s.nic_rtl8139 = crate::status::ComponentStatus::NotAvailable;
         });
         crate::kprintln!("[nic] No PCI network card detected (Intel e1000 / VirtIO-Net / RTL8139 NOT AVAILABLE)");
     }
@@ -465,7 +797,19 @@ pub fn receive(out_buf: &mut [u8]) -> Option<usize> {
     unsafe {
         if let Some(ref mut nic) = GLOBAL_NIC {
             if let Some(ref mut e1000) = nic.e1000 {
-                return e1000.receive_frame(out_buf);
+                if let Some(len) = e1000.receive_frame(out_buf) {
+                    return Some(len);
+                }
+            }
+            if let Some(ref mut virtio) = nic.virtio {
+                if let Some(len) = virtio.receive_frame(out_buf) {
+                    return Some(len);
+                }
+            }
+            if let Some(ref mut rtl) = nic.rtl8139 {
+                if let Some(len) = rtl.receive_frame(out_buf) {
+                    return Some(len);
+                }
             }
         }
     }
@@ -488,3 +832,32 @@ pub fn get_mac_address() -> [u8; 6] {
     }
     [0x02, 0x4B, 0x41, 0x53, 0x48, 0x01]
 }
+
+pub fn is_link_up() -> bool {
+    unsafe {
+        if let Some(ref nic) = GLOBAL_NIC {
+            if let Some(ref e1000) = nic.e1000 {
+                return e1000.is_link_up();
+            }
+            if let Some(ref virtio) = nic.virtio {
+                return virtio.is_link_up();
+            }
+            if let Some(ref rtl) = nic.rtl8139 {
+                return rtl.is_link_up();
+            }
+        }
+    }
+    false
+}
+
+pub fn active_driver_name() -> &'static str {
+    unsafe {
+        if let Some(ref nic) = GLOBAL_NIC {
+            if nic.e1000.is_some() { return "Intel e1000 (82540EM)"; }
+            if nic.virtio.is_some() { return "VirtIO-Net"; }
+            if nic.rtl8139.is_some() { return "Realtek RTL-8139"; }
+        }
+    }
+    "None"
+}
+

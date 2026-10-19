@@ -8,7 +8,7 @@
 | A4 | Real TPM 2.0 driver (TIS first, CRB second) | Done | main | docs/EVIDENCE/A4.md |
 | A5 | Measured boot, sealing and anti-rollback | Done | main | docs/EVIDENCE/A5.md |
 | A6 | Real TCP/IP with smoltcp | Done | main | docs/EVIDENCE/A6.md |
-| A7 | NIC drivers: real, many, tested | Planned | - | docs/EVIDENCE/A7.md |
+| A7 | NIC drivers: real, many, tested | Done | main | docs/EVIDENCE/A7.md |
 | A8 | TLS and HTTPS | Planned | - | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Planned | - | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Planned | - | docs/EVIDENCE/A10.md |
