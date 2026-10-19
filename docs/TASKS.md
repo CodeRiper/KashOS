@@ -14,7 +14,7 @@
 | A10 | Move out of Ring 0: real user-space services | Done | main | docs/EVIDENCE/A10.md |
 | A11 | SMP and scheduler | Done | main | docs/EVIDENCE/A11.md |
 | A12 | Persistent filesystem and disk layout | Done | main | docs/EVIDENCE/A12.md |
-| A13 | USB: xHCI, HID and mass storage | Planned | - | docs/EVIDENCE/A13.md |
+| A13 | USB: xHCI, HID and mass storage | Done | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Planned | - | docs/EVIDENCE/A14.md |
 | A15 | Storage drivers: NVMe, hardened AHCI | Planned | - | docs/EVIDENCE/A15.md |
 | A16 | Display (double-buffering, virtio-gpu 2D) | Planned | - | docs/EVIDENCE/A16.md |

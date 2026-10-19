@@ -342,3 +342,168 @@ fn raw_disk_fallback_when_no_partition_table_found() {
     assert_eq!(vault.sector_count, 10_000);
 }
 
+#[test]
+fn usb_msc_cbw_csw_serialization_and_invariants() {
+    use kblock::usb_msc::{
+        CommandBlockWrapper, CommandStatusWrapper, CBW_FLAG_DATA_IN, CBW_SIGNATURE,
+        CSW_SIGNATURE, CSW_STATUS_PASSED, SCSI_CMD_READ_10,
+    };
+
+    let mut cb = [0u8; 16];
+    cb[0] = SCSI_CMD_READ_10;
+    cb[2] = 0x00;
+    cb[3] = 0x00;
+    cb[4] = 0x08;
+    cb[5] = 0x00; // LBA 2048
+    cb[7] = 0x00;
+    cb[8] = 0x08; // 8 sectors
+
+    let cbw = CommandBlockWrapper {
+        signature: CBW_SIGNATURE,
+        tag: 0x1234_5678,
+        data_transfer_len: 4096,
+        flags: CBW_FLAG_DATA_IN,
+        lun: 0,
+        cb_length: 10,
+        cb,
+    };
+
+    let bytes = cbw.to_bytes();
+    assert_eq!(bytes.len(), 31);
+    assert_eq!(&bytes[0..4], b"USBC");
+
+    let parsed_cbw = CommandBlockWrapper::from_bytes(&bytes).expect("failed to parse valid CBW");
+    let cbw_sig = parsed_cbw.signature;
+    let cbw_tag = parsed_cbw.tag;
+    let cbw_len = parsed_cbw.data_transfer_len;
+    let cbw_flags = parsed_cbw.flags;
+    let cbw_cmd = parsed_cbw.cb[0];
+    assert_eq!(cbw_sig, CBW_SIGNATURE);
+    assert_eq!(cbw_tag, 0x1234_5678);
+    assert_eq!(cbw_len, 4096);
+    assert_eq!(cbw_flags, CBW_FLAG_DATA_IN);
+    assert_eq!(cbw_cmd, SCSI_CMD_READ_10);
+
+    let csw = CommandStatusWrapper {
+        signature: CSW_SIGNATURE,
+        tag: 0x1234_5678,
+        data_residue: 0,
+        status: CSW_STATUS_PASSED,
+    };
+
+    let csw_bytes = csw.to_bytes();
+    assert_eq!(csw_bytes.len(), 13);
+    assert_eq!(&csw_bytes[0..4], b"USBS");
+
+    let parsed_csw = CommandStatusWrapper::from_bytes(&csw_bytes).expect("failed to parse valid CSW");
+    let csw_sig = parsed_csw.signature;
+    let csw_tag = parsed_csw.tag;
+    let csw_status = parsed_csw.status;
+    assert_eq!(csw_sig, CSW_SIGNATURE);
+    assert_eq!(csw_tag, 0x1234_5678);
+    assert_eq!(csw_status, CSW_STATUS_PASSED);
+}
+
+struct MockUsbTransport {
+    storage: Vec<u8>,
+    last_tag: u32,
+    last_lba: u64,
+    last_count: u16,
+    is_write: bool,
+}
+
+impl MockUsbTransport {
+    fn new(sectors: usize) -> Self {
+        Self {
+            storage: vec![0u8; sectors * 512],
+            last_tag: 0,
+            last_lba: 0,
+            last_count: 0,
+            is_write: false,
+        }
+    }
+}
+
+impl kblock::usb_msc::UsbBulkTransport for MockUsbTransport {
+    fn bulk_out(&mut self, _ep: u8, data: &[u8]) -> Result<(), BlockError> {
+        if data.len() == 31 {
+            // CBW
+            let mut cbw_buf = [0u8; 31];
+            cbw_buf.copy_from_slice(data);
+            let cbw = kblock::usb_msc::CommandBlockWrapper::from_bytes(&cbw_buf).unwrap();
+            self.last_tag = cbw.tag;
+            let cmd = cbw.cb[0];
+            if cmd == kblock::usb_msc::SCSI_CMD_READ_10 {
+                let lba = ((cbw.cb[2] as u64) << 24) | ((cbw.cb[3] as u64) << 16) | ((cbw.cb[4] as u64) << 8) | (cbw.cb[5] as u64);
+                let count = ((cbw.cb[7] as u16) << 8) | (cbw.cb[8] as u16);
+                self.last_lba = lba;
+                self.last_count = count;
+                self.is_write = false;
+            } else if cmd == kblock::usb_msc::SCSI_CMD_WRITE_10 {
+                let lba = ((cbw.cb[2] as u64) << 24) | ((cbw.cb[3] as u64) << 16) | ((cbw.cb[4] as u64) << 8) | (cbw.cb[5] as u64);
+                let count = ((cbw.cb[7] as u16) << 8) | (cbw.cb[8] as u16);
+                self.last_lba = lba;
+                self.last_count = count;
+                self.is_write = true;
+            }
+        } else if self.is_write {
+            // Data Out
+            let start = (self.last_lba as usize) * 512;
+            let end = start + data.len();
+            if end <= self.storage.len() {
+                self.storage[start..end].copy_from_slice(data);
+            }
+        }
+        Ok(())
+    }
+
+    fn bulk_in(&mut self, _ep: u8, buf: &mut [u8]) -> Result<usize, BlockError> {
+        if buf.len() == 8 {
+            // READ CAPACITY (10) response
+            let total_sectors = (self.storage.len() / 512) as u32;
+            let last_lba = total_sectors - 1;
+            buf[0..4].copy_from_slice(&last_lba.to_be_bytes());
+            buf[4..8].copy_from_slice(&512u32.to_be_bytes());
+            Ok(8)
+        } else if buf.len() == 13 {
+            // CSW
+            let csw = kblock::usb_msc::CommandStatusWrapper {
+                signature: kblock::usb_msc::CSW_SIGNATURE,
+                tag: self.last_tag,
+                data_residue: 0,
+                status: kblock::usb_msc::CSW_STATUS_PASSED,
+            };
+            buf.copy_from_slice(&csw.to_bytes());
+            Ok(13)
+        } else {
+            // Data In
+            let start = (self.last_lba as usize) * 512;
+            let end = start + buf.len();
+            if end <= self.storage.len() {
+                buf.copy_from_slice(&self.storage[start..end]);
+            }
+            Ok(buf.len())
+        }
+    }
+}
+
+#[test]
+fn usb_mass_storage_device_scsi_roundtrip() {
+    let transport = Box::new(MockUsbTransport::new(2048));
+    let mut dev = kblock::UsbMassStorageDevice::with_transport(transport, 0x81, 0x02);
+
+    let capacity = dev.probe_capacity().expect("probe capacity failed");
+    assert_eq!(capacity, 2048);
+    assert_eq!(dev.sector_size, 512);
+
+    let write_data = [0x42u8; 512];
+    dev.write_sectors(10, 1, &write_data).expect("write failed");
+
+    let mut read_data = [0u8; 512];
+    dev.read_sectors(10, 1, &mut read_data).expect("read failed");
+    assert_eq!(read_data, write_data);
+
+    dev.flush_cache().expect("flush cache failed");
+}
+
+

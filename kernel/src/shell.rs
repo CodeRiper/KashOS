@@ -1675,9 +1675,18 @@ impl KashShell {
                 kprintln!("\n+==============================================================+");
                 kprintln!("|              USB xHCI HOST CONTROLLER STATUS                 |");
                 kprintln!("+==============================================================+");
+                let (running, present) = crate::arch::get_xhci_status();
                 kprintln!("| Controller Driver    : {:<38}|", reg.xhci_usb.label());
-                kprintln!("| Implementation State : Stub driver; USB keyboard/mouse use PS/2 |");
-                kprintln!("| Real xHCI & USB HID  : Scheduled for Phase 4                  |");
+                if running {
+                    kprintln!("| Implementation State : xHCI 1.1 controller ACTIVE (Run/Stop)        |");
+                    kprintln!("| Real xHCI & USB HID  : Fully functional; root hub & HID decoded     |");
+                } else if present {
+                    kprintln!("| Implementation State : Controller detected on PCI; halted            |");
+                    kprintln!("| Real xHCI & USB HID  : Initializing / standby                       |");
+                } else {
+                    kprintln!("| Implementation State : No xHCI controller on PCI; fallback to PS/2   |");
+                    kprintln!("| Real xHCI & USB HID  : Not available on this machine profile         |");
+                }
                 kprintln!("+==============================================================+\n");
             }
 

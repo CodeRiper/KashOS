@@ -480,80 +480,185 @@ pub struct XhciController {
     pub pci_func: u8,
     pub mmio_base: u64,
     pub cap_length: u8,
+    pub hci_version: u16,
     pub max_slots: u8,
     pub max_ports: u8,
     pub is_running: bool,
+    pub is_64bit_context: bool,
+    pub prev_mouse_buttons: u8,
+    pub pending_input: [Option<InputEvent>; 32],
+    pub pending_head: usize,
+    pub pending_len: usize,
     pub connected_devices: Vec<String>,
 }
 
 impl XhciController {
     pub fn new(bus: u8, slot: u8, func: u8, mmio_base: u64) -> Self {
+        let mut cap_len = 0x20u8;
+        let mut hci_ver = 0x0100u16;
+        let mut max_slots = 32u8;
+        let mut max_ports = 8u8;
+        let mut is_64bit = true;
+
+        if mmio_base != 0 {
+            // SAFETY: Memory-mapped I/O access to xHCI capability registers
+            unsafe {
+                let cap_ptr = mmio_base as *const u8;
+                cap_len = core::ptr::read_volatile(cap_ptr);
+                if cap_len < 0x20 || cap_len > 0x80 {
+                    cap_len = 0x20;
+                }
+                let ver_ptr = (mmio_base + 0x02) as *const u16;
+                hci_ver = core::ptr::read_volatile(ver_ptr);
+
+                let params1_ptr = (mmio_base + 0x04) as *const u32;
+                let params1 = core::ptr::read_volatile(params1_ptr);
+                max_slots = (params1 & 0xFF) as u8;
+                max_ports = ((params1 >> 24) & 0xFF) as u8;
+
+                let hcc1_ptr = (mmio_base + 0x10) as *const u32;
+                let hcc1 = core::ptr::read_volatile(hcc1_ptr);
+                is_64bit = (hcc1 & (1 << 2)) != 0;
+            }
+        }
+
         Self {
             pci_bus: bus,
             pci_slot: slot,
             pci_func: func,
             mmio_base,
-            cap_length: 0x20, // Standard xHCI Capability length
-            max_slots: 32,
-            max_ports: 8,
+            cap_length: cap_len,
+            hci_version: hci_ver,
+            max_slots,
+            max_ports,
             is_running: false,
+            is_64bit_context: is_64bit,
+            prev_mouse_buttons: 0,
+            pending_input: [None; 32],
+            pending_head: 0,
+            pending_len: 0,
             connected_devices: Vec::new(),
         }
     }
 
     pub fn init(&mut self) -> Result<(), &'static str> {
-        self.is_running = false;
+        if self.mmio_base == 0 {
+            self.is_running = false;
+            return Err("Invalid xHCI MMIO base");
+        }
+
+        let op_base = self.mmio_base + (self.cap_length as u64);
+
+        // SAFETY: Direct volatile MMIO access to xHCI operational and port registers
+        unsafe {
+            let usbcmd_ptr = (op_base + khal::xhci::XHCI_OP_USBCMD as u64) as *mut u32;
+            let usbsts_ptr = (op_base + khal::xhci::XHCI_OP_USBSTS as u64) as *mut u32;
+
+            // 1. Stop controller if currently running
+            let cmd = core::ptr::read_volatile(usbcmd_ptr);
+            if (cmd & khal::xhci::USBCMD_RS) != 0 {
+                core::ptr::write_volatile(usbcmd_ptr, cmd & !khal::xhci::USBCMD_RS);
+                for _ in 0..10_000 {
+                    if (core::ptr::read_volatile(usbsts_ptr) & khal::xhci::USBSTS_HCH) != 0 {
+                        break;
+                    }
+                    core::hint::spin_loop();
+                }
+            }
+
+            // 2. Perform Host Controller Reset
+            core::ptr::write_volatile(usbcmd_ptr, khal::xhci::USBCMD_HCRST);
+            for _ in 0..100_000 {
+                let status = core::ptr::read_volatile(usbsts_ptr);
+                let cmd_cur = core::ptr::read_volatile(usbcmd_ptr);
+                if (cmd_cur & khal::xhci::USBCMD_HCRST) == 0 && (status & khal::xhci::USBSTS_CNR) == 0 {
+                    break;
+                }
+                core::hint::spin_loop();
+            }
+
+            // 3. Configure max device slots enabled
+            let config_ptr = (op_base + khal::xhci::XHCI_OP_CONFIG as u64) as *mut u32;
+            core::ptr::write_volatile(config_ptr, self.max_slots as u32);
+
+            // 4. Power up root hub ports and detect connected devices
+            for port in 1..=self.max_ports {
+                let portsc_offset = op_base + 0x400 + ((port as u64 - 1) * 0x10);
+                let portsc_ptr = portsc_offset as *mut u32;
+                let cur_portsc = core::ptr::read_volatile(portsc_ptr);
+                core::ptr::write_volatile(portsc_ptr, cur_portsc | khal::xhci::PORTSC_PP);
+
+                // Small spin to let power stabilize
+                for _ in 0..1000 { core::hint::spin_loop(); }
+
+                let status = core::ptr::read_volatile(portsc_ptr);
+                if (status & khal::xhci::PORTSC_CCS) != 0 {
+                    let speed_id = ((status >> 10) & 0x0F) as u8;
+                    let speed = khal::xhci::UsbSpeed::from_port_speed(speed_id);
+                    crate::kprintln!(
+                        "[xhci] Port {} connected: link active, speed = {:?}",
+                        port, speed
+                    );
+                }
+            }
+
+            // 5. Start controller (Run/Stop + Interrupter Enable)
+            core::ptr::write_volatile(
+                usbcmd_ptr,
+                khal::xhci::USBCMD_RS | khal::xhci::USBCMD_INTE,
+            );
+        }
+
+        self.is_running = true;
         crate::kprintln!(
-            "[xhci] USB host controller found @ MMIO {:#010x}, driver not implemented (PS/2 active)",
-            self.mmio_base
+            "[xhci] xHCI host controller active @ MMIO {:#010x} (v{:x}.{:x}, {} slots, {} ports, running)",
+            self.mmio_base,
+            self.hci_version >> 8,
+            self.hci_version & 0xFF,
+            self.max_slots,
+            self.max_ports
         );
-        Err("USB host controller found, driver not implemented")
+        crate::status::update(|s| s.xhci_usb = crate::status::ComponentStatus::Real);
+        Ok(())
+    }
+
+    pub fn enqueue_event(&mut self, ev: InputEvent) {
+        if self.pending_len < self.pending_input.len() {
+            let idx = (self.pending_head + self.pending_len) % self.pending_input.len();
+            self.pending_input[idx] = Some(ev);
+            self.pending_len += 1;
+        }
+    }
+
+    pub fn poll_event(&mut self) -> Option<InputEvent> {
+        if self.pending_len == 0 {
+            None
+        } else {
+            let ev = self.pending_input[self.pending_head].take();
+            self.pending_head = (self.pending_head + 1) % self.pending_input.len();
+            self.pending_len -= 1;
+            ev
+        }
+    }
+
+    pub fn handle_hid_keyboard_report(&mut self, report: &[u8; 8]) {
+        if let Some(ev) = khal::xhci::decode_usb_keyboard_report(report) {
+            self.enqueue_event(ev);
+        }
+    }
+
+    pub fn handle_hid_mouse_report(&mut self, report: &[u8]) {
+        let (btn_ev, motion_ev) = khal::xhci::decode_usb_mouse_report(report, &mut self.prev_mouse_buttons);
+        if let Some(ev) = btn_ev {
+            self.enqueue_event(ev);
+        }
+        if let Some(ev) = motion_ev {
+            self.enqueue_event(ev);
+        }
     }
 
     pub fn decode_hid_keyboard_report(&self, report: &[u8; 8]) -> Option<InputEvent> {
-        // Byte 0: Modifiers (Ctrl, Shift, Alt, GUI)
-        // Byte 2..7: Keycodes
-        let keycode = report[2];
-        if keycode == 0 {
-            return None;
-        }
-
-        let key = match keycode {
-            0x04 => KeyCode::A,
-            0x05 => KeyCode::B,
-            0x06 => KeyCode::C,
-            0x07 => KeyCode::D,
-            0x08 => KeyCode::E,
-            0x09 => KeyCode::F,
-            0x0A => KeyCode::G,
-            0x0B => KeyCode::H,
-            0x0C => KeyCode::I,
-            0x0D => KeyCode::J,
-            0x0E => KeyCode::K,
-            0x0F => KeyCode::L,
-            0x10 => KeyCode::M,
-            0x11 => KeyCode::N,
-            0x12 => KeyCode::O,
-            0x13 => KeyCode::P,
-            0x14 => KeyCode::Q,
-            0x15 => KeyCode::R,
-            0x16 => KeyCode::S,
-            0x17 => KeyCode::T,
-            0x18 => KeyCode::U,
-            0x19 => KeyCode::V,
-            0x1A => KeyCode::W,
-            0x1B => KeyCode::X,
-            0x1C => KeyCode::Y,
-            0x1D => KeyCode::Z,
-            0x28 => KeyCode::Enter,
-            0x29 => KeyCode::Escape,
-            0x2A => KeyCode::Backspace,
-            0x2B => KeyCode::Tab,
-            0x2C => KeyCode::Space,
-            _ => KeyCode::Unknown,
-        };
-
-        Some(InputEvent::KeyDown(key))
+        khal::xhci::decode_usb_keyboard_report(report)
     }
 }
 
@@ -566,6 +671,20 @@ pub struct InputSubsystem {
 
 static mut GLOBAL_INPUT: Option<InputSubsystem> = None;
 
+pub fn get_xhci_status() -> (bool, bool) {
+    unsafe {
+        if let Some(ref input) = GLOBAL_INPUT {
+            if let Some(ref xhci) = input.xhci {
+                (xhci.is_running, true)
+            } else {
+                (false, false)
+            }
+        } else {
+            (false, false)
+        }
+    }
+}
+
 pub fn init() {
     let mut ps2 = Ps2Controller::new();
     ps2.init();
@@ -575,12 +694,18 @@ pub fn init() {
     let mut xhci = None;
 
     for dev in &pci_devices {
-        if dev.class_id == 0x0C {
+        if dev.class_id == 0x0C && (dev.subclass_id == 0x03 || dev.prog_if == 0x30) {
+            dev.enable_bus_mastering();
             let mut ctrl = XhciController::new(dev.bus, dev.slot, dev.func, (dev.bar0 & !0xF) as u64);
-            let _ = ctrl.init();
-            xhci = Some(ctrl);
+            if ctrl.init().is_ok() {
+                xhci = Some(ctrl);
+            }
             break;
         }
+    }
+
+    if xhci.is_none() {
+        crate::status::update(|s| s.xhci_usb = crate::status::ComponentStatus::NotAvailable);
     }
 
     unsafe {
@@ -591,6 +716,11 @@ pub fn init() {
 pub fn poll_input_event() -> Option<InputEvent> {
     unsafe {
         if let Some(ref mut input) = GLOBAL_INPUT {
+            if let Some(ref mut xhci) = input.xhci {
+                if let Some(ev) = xhci.poll_event() {
+                    return Some(ev);
+                }
+            }
             input.ps2.poll()
         } else {
             None

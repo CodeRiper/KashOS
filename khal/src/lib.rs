@@ -8,6 +8,9 @@
 pub mod vtd;
 pub use vtd::*;
 
+pub mod xhci;
+pub use xhci::*;
+
 // ── Console ──────────────────────────────────────────────────────────────────
 
 /// A write-only byte stream to a hardware console (UART, VGA, etc.).

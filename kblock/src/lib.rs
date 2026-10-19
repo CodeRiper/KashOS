@@ -29,7 +29,7 @@ pub use partition::{
     scan_partitions, DiskPartition, GptHeader, PartitionRole, PartitionScheme,
     GUID_ESP, GUID_KASH_BOOT, GUID_KASH_VAULT, GUID_LINUX_DATA,
 };
-pub use usb_msc::{CommandBlockWrapper, CommandStatusWrapper, UsbMassStorageDevice};
+pub use usb_msc::{CommandBlockWrapper, CommandStatusWrapper, UsbBulkTransport, UsbMassStorageDevice};
 pub use virtio_blk::VirtioBlockDevice;
 
 pub const SECTOR_SIZE: usize = 512;

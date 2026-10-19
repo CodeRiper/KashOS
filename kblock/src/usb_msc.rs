@@ -12,6 +12,8 @@
 //!   - WRITE (10) (0x2A)
 //!   - SYNCHRONIZE CACHE (10) (0x35)
 
+extern crate alloc;
+use alloc::boxed::Box;
 use crate::{BlockError, PersistentBlockDriver};
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -33,7 +35,7 @@ pub const CSW_STATUS_PHASE_ERROR: u8 = 0x02;
 
 /// 31-byte USB Bulk-Only Transport Command Block Wrapper (CBW)
 #[repr(C, packed)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CommandBlockWrapper {
     pub signature: u32,          // 0x43425355 ("USBC")
     pub tag: u32,                // Unique request ID echoed in CSW
@@ -44,14 +46,86 @@ pub struct CommandBlockWrapper {
     pub cb: [u8; 16],            // SCSI Command Descriptor Block (CDB)
 }
 
+impl CommandBlockWrapper {
+    pub fn to_bytes(&self) -> [u8; 31] {
+        let mut buf = [0u8; 31];
+        buf[0..4].copy_from_slice(&self.signature.to_le_bytes());
+        buf[4..8].copy_from_slice(&self.tag.to_le_bytes());
+        buf[8..12].copy_from_slice(&self.data_transfer_len.to_le_bytes());
+        buf[12] = self.flags;
+        buf[13] = self.lun;
+        buf[14] = self.cb_length;
+        buf[15..31].copy_from_slice(&self.cb);
+        buf
+    }
+
+    pub fn from_bytes(buf: &[u8; 31]) -> Option<Self> {
+        let signature = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        if signature != CBW_SIGNATURE {
+            return None;
+        }
+        let tag = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        let data_transfer_len = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
+        let flags = buf[12];
+        let lun = buf[13];
+        let cb_length = buf[14];
+        let mut cb = [0u8; 16];
+        cb.copy_from_slice(&buf[15..31]);
+
+        Some(Self {
+            signature,
+            tag,
+            data_transfer_len,
+            flags,
+            lun,
+            cb_length,
+            cb,
+        })
+    }
+}
+
 /// 13-byte USB Bulk-Only Transport Command Status Wrapper (CSW)
 #[repr(C, packed)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CommandStatusWrapper {
     pub signature: u32,          // 0x53425355 ("USBS")
     pub tag: u32,                // Matching tag from CBW
     pub data_residue: u32,       // Difference between expected and actual data
     pub status: u8,              // 0 = Passed, 1 = Failed, 2 = Phase Error
+}
+
+impl CommandStatusWrapper {
+    pub fn to_bytes(&self) -> [u8; 13] {
+        let mut buf = [0u8; 13];
+        buf[0..4].copy_from_slice(&self.signature.to_le_bytes());
+        buf[4..8].copy_from_slice(&self.tag.to_le_bytes());
+        buf[8..12].copy_from_slice(&self.data_residue.to_le_bytes());
+        buf[12] = self.status;
+        buf
+    }
+
+    pub fn from_bytes(buf: &[u8; 13]) -> Option<Self> {
+        let signature = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        if signature != CSW_SIGNATURE {
+            return None;
+        }
+        let tag = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        let data_residue = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
+        let status = buf[12];
+
+        Some(Self {
+            signature,
+            tag,
+            data_residue,
+            status,
+        })
+    }
+}
+
+/// Abstract transport layer for USB Bulk endpoints
+pub trait UsbBulkTransport: Send + Sync {
+    fn bulk_out(&mut self, ep: u8, data: &[u8]) -> Result<(), BlockError>;
+    fn bulk_in(&mut self, ep: u8, buf: &mut [u8]) -> Result<usize, BlockError>;
 }
 
 pub struct UsbMassStorageDevice {
@@ -62,6 +136,7 @@ pub struct UsbMassStorageDevice {
     pub ep_out: u8,
     tag_counter: AtomicU32,
     pub is_connected: bool,
+    transport: Option<Box<dyn UsbBulkTransport>>,
 }
 
 impl UsbMassStorageDevice {
@@ -74,10 +149,28 @@ impl UsbMassStorageDevice {
             ep_out,
             tag_counter: AtomicU32::new(1),
             is_connected: true,
+            transport: None,
         }
     }
 
-    fn next_tag(&self) -> u32 {
+    pub fn with_transport(transport: Box<dyn UsbBulkTransport>, ep_in: u8, ep_out: u8) -> Self {
+        Self {
+            capacity_sectors: 0,
+            sector_size: 512,
+            lun: 0,
+            ep_in,
+            ep_out,
+            tag_counter: AtomicU32::new(1),
+            is_connected: true,
+            transport: Some(transport),
+        }
+    }
+
+    pub fn set_transport(&mut self, transport: Box<dyn UsbBulkTransport>) {
+        self.transport = Some(transport);
+    }
+
+    pub fn next_tag(&self) -> u32 {
         self.tag_counter.fetch_add(1, Ordering::Relaxed)
     }
 
@@ -153,6 +246,51 @@ impl UsbMassStorageDevice {
             cb,
         }
     }
+
+    /// Queries device capacity using SCSI READ CAPACITY (10) command
+    pub fn probe_capacity(&mut self) -> Result<u64, BlockError> {
+        if !self.is_connected {
+            return Err(BlockError::DeviceNotFound);
+        }
+
+        let tag = self.next_tag();
+        let mut cb = [0u8; 16];
+        cb[0] = SCSI_CMD_READ_CAPACITY_10;
+
+        let cbw = CommandBlockWrapper {
+            signature: CBW_SIGNATURE,
+            tag,
+            data_transfer_len: 8,
+            flags: CBW_FLAG_DATA_IN,
+            lun: self.lun,
+            cb_length: 10,
+            cb,
+        };
+
+        if let Some(ref mut t) = self.transport {
+            t.bulk_out(self.ep_out, &cbw.to_bytes())?;
+            let mut cap_buf = [0u8; 8];
+            t.bulk_in(self.ep_in, &mut cap_buf)?;
+
+            let mut csw_buf = [0u8; 13];
+            t.bulk_in(self.ep_in, &mut csw_buf)?;
+            let csw = CommandStatusWrapper::from_bytes(&csw_buf).ok_or(BlockError::DeviceError)?;
+            if csw.status != CSW_STATUS_PASSED || csw.tag != tag {
+                return Err(BlockError::DeviceError);
+            }
+
+            let last_lba = u32::from_be_bytes([cap_buf[0], cap_buf[1], cap_buf[2], cap_buf[3]]) as u64;
+            let block_len = u32::from_be_bytes([cap_buf[4], cap_buf[5], cap_buf[6], cap_buf[7]]);
+            self.capacity_sectors = last_lba + 1;
+            self.sector_size = block_len;
+            Ok(self.capacity_sectors)
+        } else {
+            // Default 32 MiB baseline when running without physical bulk endpoints
+            self.capacity_sectors = 65536;
+            self.sector_size = 512;
+            Ok(self.capacity_sectors)
+        }
+    }
 }
 
 impl PersistentBlockDriver for UsbMassStorageDevice {
@@ -164,21 +302,53 @@ impl PersistentBlockDriver for UsbMassStorageDevice {
         self.capacity_sectors
     }
 
-    fn read_sectors(&mut self, lba: u64, count: u16, _buf: &mut [u8]) -> Result<(), BlockError> {
+    fn read_sectors(&mut self, lba: u64, count: u16, buf: &mut [u8]) -> Result<(), BlockError> {
         if !self.is_connected {
             return Err(BlockError::DeviceNotFound);
         }
-        let _cbw = self.build_read10_cbw(lba, count);
-        // Dispatch across USB xHCI / EHCI bulk endpoint
+        let cbw = self.build_read10_cbw(lba, count);
+        let tag = cbw.tag;
+
+        if let Some(ref mut t) = self.transport {
+            t.bulk_out(self.ep_out, &cbw.to_bytes())?;
+            let req_bytes = (count as usize) * (self.sector_size as usize);
+            if buf.len() < req_bytes {
+                return Err(BlockError::OutOfBounds);
+            }
+            t.bulk_in(self.ep_in, &mut buf[..req_bytes])?;
+
+            let mut csw_buf = [0u8; 13];
+            t.bulk_in(self.ep_in, &mut csw_buf)?;
+            let csw = CommandStatusWrapper::from_bytes(&csw_buf).ok_or(BlockError::DeviceError)?;
+            if csw.status != CSW_STATUS_PASSED || csw.tag != tag {
+                return Err(BlockError::DeviceError);
+            }
+        }
         Ok(())
     }
 
-    fn write_sectors(&mut self, lba: u64, count: u16, _buf: &[u8]) -> Result<(), BlockError> {
+    fn write_sectors(&mut self, lba: u64, count: u16, buf: &[u8]) -> Result<(), BlockError> {
         if !self.is_connected {
             return Err(BlockError::DeviceNotFound);
         }
-        let _cbw = self.build_write10_cbw(lba, count);
-        // Dispatch across USB xHCI / EHCI bulk endpoint
+        let cbw = self.build_write10_cbw(lba, count);
+        let tag = cbw.tag;
+
+        if let Some(ref mut t) = self.transport {
+            t.bulk_out(self.ep_out, &cbw.to_bytes())?;
+            let req_bytes = (count as usize) * (self.sector_size as usize);
+            if buf.len() < req_bytes {
+                return Err(BlockError::OutOfBounds);
+            }
+            t.bulk_out(self.ep_out, &buf[..req_bytes])?;
+
+            let mut csw_buf = [0u8; 13];
+            t.bulk_in(self.ep_in, &mut csw_buf)?;
+            let csw = CommandStatusWrapper::from_bytes(&csw_buf).ok_or(BlockError::DeviceError)?;
+            if csw.status != CSW_STATUS_PASSED || csw.tag != tag {
+                return Err(BlockError::DeviceError);
+            }
+        }
         Ok(())
     }
 
@@ -186,7 +356,18 @@ impl PersistentBlockDriver for UsbMassStorageDevice {
         if !self.is_connected {
             return Err(BlockError::DeviceNotFound);
         }
-        let _cbw = self.build_sync_cache_cbw();
+        let cbw = self.build_sync_cache_cbw();
+        let tag = cbw.tag;
+
+        if let Some(ref mut t) = self.transport {
+            t.bulk_out(self.ep_out, &cbw.to_bytes())?;
+            let mut csw_buf = [0u8; 13];
+            t.bulk_in(self.ep_in, &mut csw_buf)?;
+            let csw = CommandStatusWrapper::from_bytes(&csw_buf).ok_or(BlockError::DeviceError)?;
+            if csw.status != CSW_STATUS_PASSED || csw.tag != tag {
+                return Err(BlockError::DeviceError);
+            }
+        }
         Ok(())
     }
 }

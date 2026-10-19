@@ -149,6 +149,11 @@ pub fn run(region: MemRegion) {
             _ => crate::status::ComponentStatus::NotAvailable,
         };
         s.ps2_input = crate::status::ComponentStatus::Real;
+        s.xhci_usb = match crate::arch::get_xhci_status() {
+            (true, _) => crate::status::ComponentStatus::Real,
+            (false, true) => crate::status::ComponentStatus::Stub,
+            _ => crate::status::ComponentStatus::NotAvailable,
+        };
         s.dde_linux = crate::status::ComponentStatus::Real;
         s.tpm2_crtm = match crate::arch::get_tpm_status() {
             stat if stat.starts_with("ACTIVE") => crate::status::ComponentStatus::Real,
