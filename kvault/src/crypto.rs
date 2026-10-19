@@ -101,6 +101,14 @@ pub fn subkey(parent: &Key, info: &[u8]) -> VaultResult<Key> {
     Ok(out)
 }
 
+/// Derives a 32-byte key deterministically from a passphrase and salt using HKDF-SHA256 with domain separation.
+pub fn derive_key(passphrase: &[u8], salt: &[u8; 32], info: &[u8]) -> VaultResult<Key> {
+    let hk = Hkdf::<Sha256>::new(Some(salt), passphrase);
+    let mut out = Zeroizing::new([0u8; 32]);
+    hk.expand(info, &mut *out).map_err(|_| VaultError::Kdf)?;
+    Ok(out)
+}
+
 /// Domain-separated additional authenticated data.
 pub fn aad(domain: &str, vol: &[u8; 16], a: u64, b: u64, c: u64) -> Vec<u8> {
     let mut v = Vec::with_capacity(domain.len() + 16 + 24);

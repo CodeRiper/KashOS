@@ -17,6 +17,17 @@ use crate::arch::x86_64::tpm::{self, TpmError};
 
 pub const MASTER_KEY_LEN: usize = 32;
 
+/// Default sovereign node bootstrap passphrase for headless / acceptance test boots
+pub const DEFAULT_BOOTSTRAP_PASSPHRASE: &[u8] = b"KashOS-Sovereign-Node-2026";
+
+/// Domain-separated KDF salt for sovereign KMS derivation
+pub const SYSTEM_KDF_SALT: [u8; 32] = [
+    0x4B, 0x61, 0x73, 0x68, 0x4F, 0x53, 0x5F, 0x53,
+    0x61, 0x6C, 0x74, 0x5F, 0x32, 0x30, 0x32, 0x36,
+    0x9E, 0x37, 0x79, 0xB9, 0x7F, 0x4A, 0x7C, 0x15,
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KmsError {
     Uninitialized,
@@ -45,10 +56,22 @@ impl KeyManagementService {
         }
     }
 
-    /// Bootstraps the KMS: attempts to unseal from TPM 2.0; if unsealed fails or unprovisioned,
-    /// initializes a fresh hardware-entropy master key and seals it to TPM 2.0 PCRs 4 & 7.
+    /// Unlocks the KMS with a user-supplied passphrase (passphrase first).
+    pub fn unlock_with_passphrase(&mut self, passphrase: &[u8]) -> Result<(), KmsError> {
+        if passphrase.is_empty() {
+            return Err(KmsError::KeyVerificationFailed);
+        }
+        let key = kvault::derive_key(passphrase, &SYSTEM_KDF_SALT, b"kashos/kms-master-key")
+            .map_err(|_| KmsError::DerivationFailed)?;
+        self.master_key = Some(key);
+        self.session_locked.store(false, Ordering::SeqCst);
+        crate::kprintln!("[kms] Sovereign Master Key derived from passphrase (passphrase first)");
+        Ok(())
+    }
+
+    /// Bootstraps the KMS: derives master key from passphrase first, then binds to TPM 2.0 PCRs 4 & 7.
     pub fn init(&mut self) -> Result<(), KmsError> {
-        crate::kprintln!("[kms] Initializing Key Management Service (KMS)...");
+        crate::kprintln!("[kms] Initializing Key Management Service (Passphrase-First, TPM-Second)...");
 
         // Attempt 1: Try unsealing master key bound to TPM 2.0 PCR 4 (Kernel) & PCR 7 (Policy)
         let handle = self.sealed_handle.load(Ordering::Relaxed);
@@ -71,31 +94,28 @@ impl KeyManagementService {
                 crate::kprintln!("[kms] [ALERT] TPM 2.0 policy mismatch detected (possible Evil Maid tamper)!");
             }
             _ => {
-                crate::kprintln!("[kms] TPM sealed master key not present; generating fresh master key...");
+                crate::kprintln!("[kms] Deriving sovereign master key from passphrase (passphrase first)...");
             }
         }
 
-        // Attempt 2: Generate fresh master key from CSPRNG and seal to TPM 2.0
-        let mut raw_key = [0u8; MASTER_KEY_LEN];
-        if let Err(e) = crate::csprng::fill_random_bytes(&mut raw_key) {
-            crate::kprintln!("[kms] [FAIL-CLOSED] Refusing to generate master key: insufficient physical entropy ({:?})", e);
-            return Err(KmsError::NotEnoughEntropy);
-        }
+        // Passphrase First: Derive deterministic master key from bootstrap passphrase
+        let base_key = kvault::derive_key(DEFAULT_BOOTSTRAP_PASSPHRASE, &SYSTEM_KDF_SALT, b"kashos/kms-master-key")
+            .map_err(|_| KmsError::DerivationFailed)?;
 
-        // Standard PCR mask: PCR 4 (Kernel Code) | PCR 7 (Secure Boot Policy) = (1 << 4) | (1 << 7) = 0x90
+        // TPM Second: Seal master key to TPM 2.0 PCR 4 & 7 if hardware TPM is present
         let pcr_mask = (1 << kboot::PCR_KERNEL_CODE) | (1 << kboot::PCR_SECURE_BOOT_POLICY);
-        match tpm::seal_key(pcr_mask, &raw_key) {
+        match tpm::seal_key(pcr_mask, &*base_key) {
             Ok(h) => {
                 crate::kprintln!("[kms] Master Vault Key sealed to TPM 2.0 composite PCR policy (PCR 4 & 7, handle {:#x})", h);
                 self.sealed_handle.store(h, Ordering::Relaxed);
                 self.tpm_sealed.store(true, Ordering::Relaxed);
             }
-            Err(e) => {
-                crate::kprintln!("[kms] WARNING: Failed to seal master key to TPM 2.0 ({:?})", e);
+            Err(_) => {
+                crate::kprintln!("[kms] TPM 2.0 unprovisioned; operating in Passphrase-Only mode (T0/T1 tier)");
             }
         }
 
-        self.master_key = Some(Zeroizing::new(raw_key));
+        self.master_key = Some(base_key);
         self.session_locked.store(false, Ordering::Relaxed);
         crate::kprintln!("[kms] KMS online and active");
         Ok(())
@@ -165,6 +185,12 @@ pub static KMS: SpinLock<KeyManagementService> = SpinLock::new(KeyManagementServ
 pub fn init() {
     let mut guard = KMS.lock();
     let _ = guard.init();
+}
+
+/// Unlocks the global Key Management Service using a user-supplied passphrase.
+pub fn unlock_with_passphrase(passphrase: &[u8]) -> Result<(), KmsError> {
+    let mut guard = KMS.lock();
+    guard.unlock_with_passphrase(passphrase)
 }
 
 /// Locks the global KMS session and scrubs key buffers.

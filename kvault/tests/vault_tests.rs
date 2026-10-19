@@ -453,3 +453,20 @@ fn open_failure_does_not_mutate_or_format_device() {
     assert_eq!(fail.device.raw(), initial_bytes.as_slice());
 }
 
+#[test]
+fn derive_key_is_deterministic_and_domain_separated() {
+    let salt = [0x5Au8; 32];
+    let pw = b"test-user-passphrase";
+    let k1 = derive_key(pw, &salt, b"domain-a").unwrap();
+    let k2 = derive_key(pw, &salt, b"domain-a").unwrap();
+    let k3 = derive_key(pw, &salt, b"domain-b").unwrap();
+
+    // Deterministic across calls with same parameters
+    assert_eq!(*k1, *k2);
+    // Non-zero key
+    assert_ne!(*k1, [0u8; 32]);
+    // Domain separated
+    assert_ne!(*k1, *k3);
+}
+
+
