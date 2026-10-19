@@ -11,7 +11,7 @@
 | A7 | NIC drivers: real, many, tested | Done | main | docs/EVIDENCE/A7.md |
 | A8 | TLS and HTTPS | Done | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Done | main | docs/EVIDENCE/A9.md |
-| A10 | Move out of Ring 0: real user-space services | Planned | - | docs/EVIDENCE/A10.md |
+| A10 | Move out of Ring 0: real user-space services | Done | main | docs/EVIDENCE/A10.md |
 | A11 | SMP and scheduler | Planned | - | docs/EVIDENCE/A11.md |
 | A12 | Persistent filesystem and disk layout | Planned | - | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Planned | - | docs/EVIDENCE/A13.md |

@@ -458,3 +458,8 @@ pub fn run(fb: FramebufferInfo) -> ! {
         }
     }
 }
+
+/// Launches the user-mode desktop session compositor.
+pub fn run_desktop_session(fb: FramebufferInfo) -> ! {
+    run(fb)
+}

@@ -68,13 +68,14 @@ mod security;
 pub mod sectools;
 #[allow(unsafe_code)]
 mod selftest;
+pub mod session;
 #[allow(unsafe_code)]
 pub mod status;
 #[allow(unsafe_code)]
 pub mod sync;
 #[allow(unsafe_code)]
 pub mod task;
-mod shell;
+pub mod shell;
 pub mod csprng;
 #[allow(unsafe_code)]
 pub mod entropy;
@@ -312,21 +313,13 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
 
     print_progress_bar(95, "Finalizing kernel services...");
 
-    // ── Step 9: Virtual File System & Interactive Shell / UI ─────────────────
-    let mut shell = shell::KashShell::new();
-    print_progress_bar(100, "Kernel initialization complete. Starting kernel shell or desktop.");
+    // ── Step 9: User-Space Session & Services (Task A10 / Finding F10) ────────
+    print_progress_bar(100, "Kernel initialization complete. Launching user-space services.");
 
     // Rule R1: Print the single source-of-truth status registry banner
     status::print_boot_banner();
 
-    if let Some(fb) = arch::framebuffer() {
-        kprintln!("[boot] Linear Framebuffer active ({}x{} @ {:#x}). Launching Kash UI desktop shell...",
-                  fb.width, fb.height, fb.base_paddr);
-        gui::run(fb);
-    } else {
-        kprintln!("[boot] Launching the kernel shell on the available console...");
-        shell.run_interactive_terminal()
-    }
+    session::launch_user_session(arch::framebuffer());
 }
 
 // ── Panic handler ─────────────────────────────────────────────────────────────
