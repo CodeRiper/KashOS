@@ -3,7 +3,7 @@ import os
 import sys
 
 def create_release_zip():
-    zip_name = "KashOS_v0.1.0_Complete_Release.zip"
+    zip_name = "KashOS_v0.2.0_Complete_Release.zip"
     print(f"[+] Creating release bundle: {zip_name}...")
     
     if os.path.exists(zip_name):

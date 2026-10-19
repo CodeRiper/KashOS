@@ -1,6 +1,7 @@
 [package]
 name = "kcore"
-version = "0.1.0"
+version = "0.2.0"
+authors = ["Akash <akash.official.j@gmail.com>"]
 edition = "2021"
 description = "Capability + kernel-object-memory core. no_std, no heap, no unsafe."
 

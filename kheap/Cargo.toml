@@ -1,6 +1,7 @@
 [package]
 name = "kheap"
-version = "0.1.0"
+version = "0.2.0"
+authors = ["Akash <akash.official.j@gmail.com>"]
 edition = "2021"
 description = "Intrusive free-list heap allocator with coalescing. Replaces the bump-only allocator the architecture audit correctly flagged as unable to recycle freed memory."
 

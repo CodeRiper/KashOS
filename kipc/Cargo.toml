@@ -1,6 +1,7 @@
 [package]
 name = "kipc"
-version = "0.1.0"
+version = "0.2.0"
+authors = ["Akash <akash.official.j@gmail.com>"]
 edition = "2021"
 description = "Lock-free SPSC shared-memory ring buffer for IPC between isolated components."
 

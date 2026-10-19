@@ -1,6 +1,7 @@
 [package]
 name = "kernel"
 version = "0.2.0"
+authors = ["Akash <akash.official.j@gmail.com>"]
 edition = "2021"
 build = "build.rs"
 

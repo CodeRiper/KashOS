@@ -1,6 +1,7 @@
 [package]
 name = "kpaging"
-version = "0.1.0"
+version = "0.2.0"
+authors = ["Akash <akash.official.j@gmail.com>"]
 edition = "2021"
 description = "4-level page tables (x86-64) / translation tables (AArch64). Hardware-touching: unsafe is used, every block has a SAFETY comment."
 

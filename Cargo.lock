@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "kash-ui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fontdue",
  "libm",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "kblock"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "khal",
 ]
@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "kcore"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "kernel"
@@ -393,19 +393,19 @@ dependencies = [
 
 [[package]]
 name = "khal"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "kheap"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "kipc"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "knet"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "khal",
  "smoltcp",
@@ -413,18 +413,18 @@ dependencies = [
 
 [[package]]
 name = "kpaging"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kpaging",
 ]
 
 [[package]]
 name = "kscheduler"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "kvault"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
