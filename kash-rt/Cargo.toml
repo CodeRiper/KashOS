@@ -1,0 +1,15 @@
+[package]
+name = "kash-rt"
+version = "0.2.0"
+authors = ["Akash <akash.official.j@gmail.com>"]
+edition = "2021"
+description = "KashOS userland runtime, CRT0, libc POSIX layer, and relibc adaptation."
+
+[dependencies]
+
+[dev-dependencies]
+kash-rt = { path = ".", features = ["host_testing"] }
+
+[features]
+default = []
+host_testing = []

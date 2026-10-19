@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kcore", "kvault", "khal", "knet", "kpaging", "kipc", "kscheduler", "kheap", "kblock", "kboot", "kernel", "kash-ui/crates/kash-ui"]
+members = ["kcore", "kvault", "khal", "knet", "kpaging", "kipc", "kscheduler", "kheap", "kblock", "kboot", "kernel", "kash-ui/crates/kash-ui", "kash-rt"]
 
 [profile.release]
 opt-level = 2

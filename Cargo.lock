@@ -346,6 +346,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kash-rt"
+version = "0.2.0"
+dependencies = [
+ "kash-rt",
+]
+
+[[package]]
 name = "kash-ui"
 version = "0.2.0"
 dependencies = [
