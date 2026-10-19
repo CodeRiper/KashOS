@@ -370,6 +370,11 @@ pub fn find_ahci() -> Option<PciDevice> {
     scan_bus().into_iter().find(|d| d.is_ahci_sata())
 }
 
+/// Finds the first NVMe SSD controller if present.
+pub fn find_nvme() -> Option<PciDevice> {
+    scan_bus().into_iter().find(|d| d.is_nvme())
+}
+
 /// Finds the first supported Network Interface Card (e1000, VirtIO, RTL8139).
 pub fn find_nic() -> Option<PciDevice> {
     scan_bus().into_iter().find(|d| d.is_e1000() || d.is_virtio_net() || d.is_rtl8139())

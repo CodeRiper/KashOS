@@ -92,21 +92,31 @@ impl PersistentBlockDriver for FallbackRamDriver {
 
 static SCHEDULER: SpinLock<Option<KBlockScheduler>> = SpinLock::new(None);
 
+/// Returns the name of the currently active persistent block driver.
+pub fn active_driver_name() -> &'static str {
+    let sched_lock = SCHEDULER.lock();
+    if let Some(ref sched) = *sched_lock {
+        sched.driver.driver_name()
+    } else {
+        "None"
+    }
+}
+
 /// Initializes the hardware block storage subsystem and elevator scheduler.
 pub fn init() {
     let mut sched_lock = SCHEDULER.lock();
     if sched_lock.is_none() {
-        // Storage probe order: AHCI (SATA) -> VirtIO-Block -> Legacy PATA/IDE -> Volatile RAM
+        // Storage probe order: NVMe SSD -> AHCI (SATA) -> VirtIO-Block -> Legacy PATA/IDE -> Volatile RAM
         let driver: Box<dyn PersistentBlockDriver> = {
-            // Attempt 1: Probe PCI for SATA AHCI Controller (inspired by Redox OS ahcid)
-            if let Some(ahci_dev) = crate::arch::find_ahci() {
-                if let Some(abar) = ahci_dev.bar_mem_address(5) {
-                    ahci_dev.enable_bus_mastering();
-                    let mut ahci = kblock::AhciController::new(abar);
-                    if let Ok(sectors) = ahci.probe() {
-                        crate::kprintln!("[kblock] SATA AHCI Controller active at MMIO {:#x} ({} sectors, {} MiB)",
-                                         abar, sectors, (sectors * 512) / (1024 * 1024));
-                        Some(Box::new(ahci) as Box<dyn PersistentBlockDriver>)
+            // Attempt 0: Probe PCI for NVMe SSD Controller
+            if let Some(nvme_dev) = crate::arch::find_nvme() {
+                if let Some(bar0) = nvme_dev.bar_mem_address(0) {
+                    nvme_dev.enable_bus_mastering();
+                    let mut nvme = kblock::NvmeController::new(bar0);
+                    if let Ok(sectors) = nvme.init() {
+                        crate::kprintln!("[kblock] NVMe SSD active at MMIO {:#x} ({} sectors, {} MiB)",
+                                         bar0, sectors, (sectors * 512) / (1024 * 1024));
+                        Some(Box::new(nvme) as Box<dyn PersistentBlockDriver>)
                     } else {
                         None
                     }
@@ -116,6 +126,26 @@ pub fn init() {
             } else {
                 None
             }
+            .or_else(|| {
+                // Attempt 1: Probe PCI for SATA AHCI Controller (inspired by Redox OS ahcid)
+                if let Some(ahci_dev) = crate::arch::find_ahci() {
+                    if let Some(abar) = ahci_dev.bar_mem_address(5) {
+                        ahci_dev.enable_bus_mastering();
+                        let mut ahci = kblock::AhciController::new(abar);
+                        if let Ok(sectors) = ahci.probe() {
+                            crate::kprintln!("[kblock] SATA AHCI Controller active at MMIO {:#x} ({} sectors, {} MiB)",
+                                             abar, sectors, (sectors * 512) / (1024 * 1024));
+                            Some(Box::new(ahci) as Box<dyn PersistentBlockDriver>)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
             .or_else(|| {
                 // Attempt 2: Probe PCI for VirtIO-Block device
                 let pci_devs = crate::arch::scan_pci();

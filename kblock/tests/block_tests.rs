@@ -506,4 +506,65 @@ fn usb_mass_storage_device_scsi_roundtrip() {
     dev.flush_cache().expect("flush cache failed");
 }
 
+#[test]
+fn nvme_controller_driver_trait_operations() {
+    let mut nvme = kblock::NvmeController::new(0);
+    assert_eq!(nvme.driver_name(), "NVMe PCIe High-Speed SSD");
+    assert_eq!(nvme.capacity_sectors(), 33_554_432);
+
+    let mut buf = [0u8; 512];
+    assert!(nvme.read_sectors(0, 1, &mut buf).is_ok());
+    assert!(nvme.write_sectors(0, 1, &buf).is_ok());
+    assert!(nvme.flush_cache().is_ok());
+
+    // Out of bounds buffer length rejected
+    let mut small_buf = [0u8; 100];
+    assert_eq!(nvme.read_sectors(0, 1, &mut small_buf), Err(BlockError::OutOfBounds));
+}
+
+#[test]
+fn nvme_admin_io_queue_circular_wrap() {
+    use kblock::nvme::{NvmeCommand, NvmeCompletion, NvmeQueue};
+    let mut q = NvmeQueue::new(2, 4, 1); // Stride = 1 (8 bytes per doorbell)
+    // SQ2 Doorbell: 0x1000 + (2 * 2) * 8 = 0x1020
+    assert_eq!(q.sq_doorbell_offset, 0x1020);
+    // CQ2 Doorbell: 0x1000 + (2 * 2 + 1) * 8 = 0x1028
+    assert_eq!(q.cq_doorbell_offset, 0x1028);
+
+    for i in 0..8 {
+        let mut cmd = NvmeCommand::default();
+        cmd.command_id = i as u16;
+        let tail = q.submit(cmd);
+        assert_eq!(tail, ((i + 1) % 4) as u16);
+
+        // Phase bit in CQ starts at 1 (true) for first 4 items, then inverts to 0 (false)
+        let expected_phase = if i < 4 { 1 } else { 0 };
+        q.cq[(i % 4) as usize] = NvmeCompletion {
+            dw0: 0,
+            dw1: 0,
+            sq_head: tail,
+            sq_id: 2,
+            command_id: i as u16,
+            status: expected_phase, // bit 0 = phase
+        };
+
+        let res = q.poll_completion(i as u16);
+        assert!(res.is_ok());
+    }
+}
+
+#[test]
+fn ahci_hba_cmd_table_and_flush_command() {
+    use kblock::ahci::{HbaCmdTable, ATA_CMD_FLUSH_EXT, ATA_CMD_FLUSH_CACHE};
+    assert_eq!(ATA_CMD_FLUSH_EXT, 0xEA);
+    assert_eq!(ATA_CMD_FLUSH_CACHE, 0xE7);
+
+    let table = HbaCmdTable::default();
+    assert_eq!(table.cfis.len(), 64);
+    assert_eq!(table.acmd.len(), 16);
+    assert_eq!(table.reserved.len(), 48);
+    assert_eq!(table.prdt.len(), 1);
+    assert_eq!(core::mem::align_of::<HbaCmdTable>(), 128);
+}
+
 

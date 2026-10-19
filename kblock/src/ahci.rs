@@ -187,6 +187,29 @@ impl AhciController {
     }
 }
 
+pub const ATA_CMD_FLUSH_EXT: u8    = 0xEA;
+pub const ATA_CMD_FLUSH_CACHE: u8  = 0xE7;
+
+#[repr(C, align(128))]
+#[derive(Clone, Copy)]
+pub struct HbaCmdTable {
+    pub cfis: [u8; 64],
+    pub acmd: [u8; 16],
+    pub reserved: [u8; 48],
+    pub prdt: [HbaPrdtEntry; 1],
+}
+
+impl Default for HbaCmdTable {
+    fn default() -> Self {
+        Self {
+            cfis: [0u8; 64],
+            acmd: [0u8; 16],
+            reserved: [0u8; 48],
+            prdt: [HbaPrdtEntry::default(); 1],
+        }
+    }
+}
+
 impl PersistentBlockDriver for AhciController {
     fn driver_name(&self) -> &'static str {
         "SATA AHCI PCIe Controller (FIS DMA)"
@@ -218,6 +241,10 @@ impl PersistentBlockDriver for AhciController {
                         return Err(BlockError::DeviceError);
                     }
 
+                    // Clear pending interrupt and error status
+                    core::ptr::write_volatile(&mut port.is, core::ptr::read_volatile(&port.is));
+                    core::ptr::write_volatile(&mut port.serr, core::ptr::read_volatile(&port.serr));
+
                     // Build Command FIS (FisRegH2D)
                     let mut fis = FisRegH2D::default();
                     fis.fis_type = 0x27; // Register FIS - Host to Device
@@ -235,13 +262,28 @@ impl PersistentBlockDriver for AhciController {
 
                     let clb = ((port.clbu as u64) << 32) | (port.clb as u64);
                     if clb != 0 {
-                        let cmd_header = &*(clb as *const HbaCmdHeader);
+                        let cmd_header = &mut *(clb as *mut HbaCmdHeader);
+                        cmd_header.flags = (core::mem::size_of::<FisRegH2D>() / 4) as u16; // 5 dwords, read direction
+                        cmd_header.prdtl = 1; // 1 PRD entry
+                        cmd_header.prdbc = 0;
+
                         let ctba = ((cmd_header.ctbau as u64) << 32) | (cmd_header.ctba as u64);
                         if ctba != 0 {
                             let cfis_ptr = ctba as *mut [u8; 64];
                             let mut cfis_buf = [0u8; 64];
                             fis.write_to_bytes(&mut cfis_buf);
                             core::ptr::write_volatile(cfis_ptr, cfis_buf);
+
+                            // Populate PRDT entry at offset 0x80 (128 bytes)
+                            let prdt_ptr = (ctba + 128) as *mut HbaPrdtEntry;
+                            let buf_paddr = buf.as_ptr() as usize as u64;
+                            let prdt_entry = HbaPrdtEntry {
+                                dba: (buf_paddr & 0xFFFF_FFFF) as u32,
+                                dbau: ((buf_paddr >> 32) & 0xFFFF_FFFF) as u32,
+                                reserved: 0,
+                                dbc: ((total_bytes - 1) as u32) | (1 << 31), // Interrupt on completion
+                            };
+                            core::ptr::write_volatile(prdt_ptr, prdt_entry);
                         }
                     }
 
@@ -256,6 +298,12 @@ impl PersistentBlockDriver for AhciController {
                             return Err(BlockError::Timeout);
                         }
                         core::hint::spin_loop();
+                    }
+
+                    // Verify no error status occurred
+                    let tfd_final = core::ptr::read_volatile(&port.tfd);
+                    if (tfd_final & HBA_PORT_TFD_ERR) != 0 {
+                        return Err(BlockError::DeviceError);
                     }
                 }
             }
@@ -283,6 +331,10 @@ impl PersistentBlockDriver for AhciController {
                         return Err(BlockError::DeviceError);
                     }
 
+                    // Clear pending interrupt and error status
+                    core::ptr::write_volatile(&mut port.is, core::ptr::read_volatile(&port.is));
+                    core::ptr::write_volatile(&mut port.serr, core::ptr::read_volatile(&port.serr));
+
                     // Build Command FIS (FisRegH2D)
                     let mut fis = FisRegH2D::default();
                     fis.fis_type = 0x27;
@@ -300,7 +352,81 @@ impl PersistentBlockDriver for AhciController {
 
                     let clb = ((port.clbu as u64) << 32) | (port.clb as u64);
                     if clb != 0 {
-                        let cmd_header = &*(clb as *const HbaCmdHeader);
+                        let cmd_header = &mut *(clb as *mut HbaCmdHeader);
+                        cmd_header.flags = ((core::mem::size_of::<FisRegH2D>() / 4) as u16) | (1 << 6); // Write bit set
+                        cmd_header.prdtl = 1;
+                        cmd_header.prdbc = 0;
+
+                        let ctba = ((cmd_header.ctbau as u64) << 32) | (cmd_header.ctba as u64);
+                        if ctba != 0 {
+                            let cfis_ptr = ctba as *mut [u8; 64];
+                            let mut cfis_buf = [0u8; 64];
+                            fis.write_to_bytes(&mut cfis_buf);
+                            core::ptr::write_volatile(cfis_ptr, cfis_buf);
+
+                            // Populate PRDT entry at offset 0x80 (128 bytes)
+                            let prdt_ptr = (ctba + 128) as *mut HbaPrdtEntry;
+                            let buf_paddr = buf.as_ptr() as usize as u64;
+                            let prdt_entry = HbaPrdtEntry {
+                                dba: (buf_paddr & 0xFFFF_FFFF) as u32,
+                                dbau: ((buf_paddr >> 32) & 0xFFFF_FFFF) as u32,
+                                reserved: 0,
+                                dbc: ((total_bytes - 1) as u32) | (1 << 31),
+                            };
+                            core::ptr::write_volatile(prdt_ptr, prdt_entry);
+                        }
+                    }
+
+                    core::ptr::write_volatile(&mut port.ci, 1 << 0);
+
+                    let mut spins = 0;
+                    while (core::ptr::read_volatile(&port.ci) & (1 << 0)) != 0 {
+                        spins += 1;
+                        if spins > 1_000_000 {
+                            return Err(BlockError::Timeout);
+                        }
+                        core::hint::spin_loop();
+                    }
+
+                    let tfd_final = core::ptr::read_volatile(&port.tfd);
+                    if (tfd_final & HBA_PORT_TFD_ERR) != 0 {
+                        return Err(BlockError::DeviceError);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn flush_cache(&mut self) -> Result<(), BlockError> {
+        if self.active_port.is_none() {
+            return Err(BlockError::DeviceNotFound);
+        }
+
+        if self.abar_paddr != 0 {
+            unsafe {
+                let hba = &mut *(self.abar_paddr as *mut HbaMem);
+                if let Some(port_idx) = self.active_port {
+                    let port = &mut hba.ports[port_idx as usize];
+
+                    let tfd = core::ptr::read_volatile(&port.tfd);
+                    if (tfd & (HBA_PORT_TFD_BSY | HBA_PORT_TFD_DRQ)) != 0 {
+                        return Err(BlockError::DeviceError);
+                    }
+
+                    let mut fis = FisRegH2D::default();
+                    fis.fis_type = 0x27;
+                    fis.pmport_c = 1 << 7;
+                    fis.command = ATA_CMD_FLUSH_EXT;
+                    fis.device = 1 << 6;
+
+                    let clb = ((port.clbu as u64) << 32) | (port.clb as u64);
+                    if clb != 0 {
+                        let cmd_header = &mut *(clb as *mut HbaCmdHeader);
+                        cmd_header.flags = (core::mem::size_of::<FisRegH2D>() / 4) as u16;
+                        cmd_header.prdtl = 0;
+                        cmd_header.prdbc = 0;
+
                         let ctba = ((cmd_header.ctbau as u64) << 32) | (cmd_header.ctba as u64);
                         if ctba != 0 {
                             let cfis_ptr = ctba as *mut [u8; 64];
@@ -320,13 +446,54 @@ impl PersistentBlockDriver for AhciController {
                         }
                         core::hint::spin_loop();
                     }
+
+                    let tfd_final = core::ptr::read_volatile(&port.tfd);
+                    if (tfd_final & HBA_PORT_TFD_ERR) != 0 {
+                        return Err(BlockError::DeviceError);
+                    }
                 }
             }
         }
         Ok(())
     }
+}
 
-    fn flush_cache(&mut self) -> Result<(), BlockError> {
-        Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fis_reg_h2d_construction() {
+        let mut fis = FisRegH2D::default();
+        fis.fis_type = 0x27;
+        fis.pmport_c = 0x80;
+        fis.command = ATA_CMD_READ_DMA_EXT;
+        fis.device = 0x40;
+        fis.lba0 = 0x12;
+        fis.lba1 = 0x34;
+        fis.count_low = 8;
+
+        let mut buf = [0u8; 64];
+        fis.write_to_bytes(&mut buf);
+        assert_eq!(buf[0], 0x27);
+        assert_eq!(buf[1], 0x80);
+        assert_eq!(buf[2], ATA_CMD_READ_DMA_EXT);
+        assert_eq!(buf[4], 0x12);
+        assert_eq!(buf[5], 0x34);
+        assert_eq!(buf[12], 8);
+    }
+
+    #[test]
+    fn test_prdt_entry_bitmask() {
+        let entry = HbaPrdtEntry {
+            dba: 0x1000_0000,
+            dbau: 0,
+            reserved: 0,
+            dbc: (4096 - 1) | (1 << 31),
+        };
+        assert_eq!(entry.dba, 0x1000_0000);
+        assert_eq!(entry.dbc & 0x003F_FFFF, 4095);
+        assert_ne!(entry.dbc & (1 << 31), 0);
     }
 }
+

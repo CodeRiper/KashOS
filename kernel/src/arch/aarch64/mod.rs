@@ -352,6 +352,10 @@ pub fn find_ahci() -> Option<PciDevice> {
     None
 }
 
+pub fn find_nvme() -> Option<PciDevice> {
+    None
+}
+
 pub fn find_nic() -> Option<PciDevice> {
     None
 }

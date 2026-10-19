@@ -114,8 +114,21 @@ impl DriverStatus {
 impl DriverMap {
     pub fn new() -> Self {
         let reg = crate::status::get();
+        let storage_name = crate::blockdev::active_driver_name();
+        let nvme_sata = if storage_name.contains("NVMe")
+            || storage_name.contains("AHCI")
+            || storage_name.contains("SATA")
+            || storage_name.contains("VirtIO")
+            || storage_name.contains("PATA")
+            || storage_name.contains("IDE")
+        {
+            DriverStatus::Native
+        } else {
+            DriverStatus::Absent
+        };
+
         DriverMap {
-            nvme_sata: DriverStatus::Absent,
+            nvme_sata,
             ethernet:  if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() || reg.nic_rtl8139.is_real() { DriverStatus::Native } else { DriverStatus::Absent },
             wifi_vm:   DriverStatus::Absent,
             usb_vm:    DriverStatus::Absent,
