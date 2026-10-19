@@ -98,6 +98,10 @@ impl NetworkDiagnostics {
                         ip[0], ip[1], ip[2], ip[3], seq, ms_int, ms_frac
                     );
                 }
+                Err(crate::net::NetError::NotAvailable) => {
+                    crate::kprintln!("ping: network not available");
+                    return;
+                }
                 Err(crate::net::NetError::KillSwitchBlocked) => {
                     crate::kprintln!("ping: sendmsg: Operation blocked by fail-closed kill-switch (Gateway Down)");
                     break;
@@ -140,10 +144,6 @@ impl NetworkDiagnostics {
             crate::kprintln!("lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536");
             crate::kprintln!("        inet 127.0.0.1  netmask 255.0.0.0");
             crate::kprintln!("        loop  txqueuelen 1000 (Local Loopback Ring)");
-            crate::kprintln!();
-            crate::kprintln!("tor0: flags=4099<UP,POINTOPOINT,RUNNING>  mtu 1420");
-            crate::kprintln!("        inet 10.14.0.1  netmask 255.255.0.0  destination 10.14.0.2");
-            crate::kprintln!("        tunnel  txqueuelen 500 (Fail-Closed Tor Anonymity Gateway)");
         } else {
             crate::kprintln!("eth0: flags=0<>  link down (no active network interface discovered)");
         }
@@ -171,39 +171,32 @@ impl NetworkDiagnostics {
 
     pub fn tcpdump() {
         crate::kprintln!("[tcpdump] Listening on eth0 (Intel e1000 / VirtIO / RTL8139), capture size 1514 bytes:");
-        crate::kprintln!("13:20:01.104218 IP 192.168.1.100.50000 > 204.8.99.100.80: Flags [S], seq 11204812, win 65535, length 0");
-        crate::kprintln!("13:20:01.148590 IP 204.8.99.100.80 > 192.168.1.100.50000: Flags [S.], seq 48192011, ack 11204813, win 65535, length 0");
-        crate::kprintln!("13:20:01.148620 IP 192.168.1.100.50000 > 204.8.99.100.80: Flags [.], ack 1, win 65535, length 0");
-        crate::kprintln!("13:20:01.149102 IP 192.168.1.100.50000 > 204.8.99.100.80: Flags [P.], seq 1:148, ack 1, win 65535: HTTP: GET / HTTP/1.1");
-        crate::kprintln!("13:20:01.196320 IP 204.8.99.100.80 > 192.168.1.100.50000: Flags [P.], seq 1:512, ack 148, win 65535: HTTP: HTTP/1.1 200 OK");
         let stats = crate::net::get_stats().unwrap_or_default();
         crate::kprintln!(
-            "[tcpdump] Captured {} packet(s), {} blocked by security kill-switch",
-            stats.packets_sent + stats.packets_recv, stats.killswitch_drops
+            "[tcpdump] Captured {} packet(s) ({} sent, {} recv), {} blocked by security kill-switch",
+            stats.packets_sent + stats.packets_recv,
+            stats.packets_sent,
+            stats.packets_recv,
+            stats.killswitch_drops
         );
     }
 
     pub fn traceroute(host: &str) {
-        let ip = crate::net::dns_resolve(host).unwrap_or([204, 8, 99, 100]);
-        crate::kprintln!("traceroute to {} ({}.{}.{}.{}), 30 hops max, 60 byte packets (Tor Stream-Isolated):",
-            host, ip[0], ip[1], ip[2], ip[3]);
-        crate::kprintln!(" 1  192.168.1.1 (gateway.local)  0.28 ms  0.24 ms  0.22 ms");
-        crate::kprintln!(" 2  185.220.101.5 (tor-entry-guard.onion)  18.42 ms  17.91 ms  18.10 ms");
-        crate::kprintln!(" 3  195.154.122.8 (tor-middle-relay.onion)  32.15 ms  31.84 ms  32.02 ms");
-        crate::kprintln!(" 4  204.8.99.100 (tor-exit-authority.onion)  46.72 ms  45.91 ms  46.20 ms");
-        crate::kprintln!(" 5  {}.{}.{}.{} ({})  48.12 ms  47.88 ms  48.04 ms",
-            ip[0], ip[1], ip[2], ip[3], host);
+        crate::kprintln!("traceroute to {}: network not available (raw socket routing pending Task A6)", host);
     }
 
     pub fn curl_wget(url: &str) {
-        crate::kprintln!("[http-client] Connecting to '{}' via Tor Anonymity Gateway...", url);
+        crate::kprintln!("[http-client] Connecting to '{}'...", url);
         match crate::net::http_get(url) {
             Ok(response) => {
                 crate::kprintln!("[http-client] Response received (200 OK):");
                 crate::kprintln!("{}", response);
             }
+            Err(crate::net::NetError::NotAvailable) => {
+                crate::kprintln!("curl: (7) network not available");
+            }
             Err(crate::net::NetError::KillSwitchBlocked) => {
-                crate::kprintln!("curl: (7) Failed to connect: Network kill-switch dropped traffic (Anonymity Gateway Down)");
+                crate::kprintln!("curl: (7) Failed to connect: Network kill-switch dropped traffic (Gateway Down)");
             }
             Err(crate::net::NetError::PacketFiltered) => {
                 crate::kprintln!("curl: (9) Access denied by packet filter firewall (Trackers Blocked)");

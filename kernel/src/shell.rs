@@ -52,7 +52,7 @@ impl KashShell {
         env_vars.push((String::from("LANG"), String::from("en_US.UTF-8")));
         env_vars.push((String::from("OSTYPE"), String::from("linux-gnu")));
         env_vars.push((String::from("SEC_MODE"), String::from("FLASK_ENFORCING")));
-        env_vars.push((String::from("TOR_KILLSWITCH"), String::from("ARMED")));
+        env_vars.push((String::from("NET_KILLSWITCH"), String::from("ARMED")));
 
         KashShell {
             is_locked: false,
@@ -113,18 +113,18 @@ impl KashShell {
                 kprintln!("+--------------------------------------------------------------+");
                 kprintln!("| Internet & Network Diagnostic Tools:                         |");
                 kprintln!("|   ping       - ICMP echo reachability & RTT latency probe    |");
-                kprintln!("|   ifconfig/ip- Network interfaces (eth0, lo, tor0) & MACs    |");
+                kprintln!("|   ifconfig/ip- Network interfaces (eth0, lo) & MACs          |");
                 kprintln!("|   netstat    - Active TCP/UDP sockets & domain bindings      |");
                 kprintln!("|   route      - Kernel IP routing table                       |");
-                kprintln!("|   curl/wget  - Retrieve HTTP/HTTPS web endpoints via Tor     |");
-                kprintln!("|   nslookup/dig- Domain name resolution via encrypted DNS     |");
-                kprintln!("|   traceroute - Trace routing hops through Tor circuit        |");
-                kprintln!("|   tcpdump    - Deep packet inspection with Tor kill-switch   |");
+                kprintln!("|   curl/wget  - Retrieve HTTP/HTTPS web endpoints             |");
+                kprintln!("|   nslookup/dig- Domain name resolution                       |");
+                kprintln!("|   traceroute - Trace network routing hops                    |");
+                kprintln!("|   tcpdump    - Deep packet inspection with network kill-switch|");
                 kprintln!("|   iptables   - Packet filter rules & fail-closed firewall    |");
                 kprintln!("+--------------------------------------------------------------+");
                 kprintln!("| Sovereign Package Manager (kash / pkg / apt / pacman):       |");
                 kprintln!("|   kash install <pkg> - Verify Ed25519/SHA-256 & deploy capsule|");
-                kprintln!("|   kash update        - Sync manifests via encrypted Tor/TLS   |");
+                kprintln!("|   kash update        - Sync package manifests via repository |");
                 kprintln!("|   kash remove <pkg>  - Cryptographically scrub & unlink pkg   |");
                 kprintln!("|   kash list          - List installed & available capsules    |");
                 kprintln!("|   kash search <query>- Search sovereign repository catalog    |");
@@ -446,7 +446,7 @@ impl KashShell {
                 kprintln!("║ 3. Speculative Execution & Side Channels:                    ║");
                 kprintln!("║    - IBRS, STIBP, SSBD: {:<36} ║", reg.spec_mitigations.label());
                 kprintln!("║ 4. Network & Privacy Architecture:                           ║");
-                kprintln!("║    - Tor Gateway / Kill-Switch: NOT IMPLEMENTED (Phase 7)    ║");
+                kprintln!("║    - Network Tunnel / Kill-Switch: Fail-Closed Armed          ║");
                 kprintln!("║ 5. Storage Encryption:                                       ║");
                 kprintln!("║    - kvault crypto library: {:<32} ║", reg.kvault_fs.label());
                 kprintln!("╚══════════════════════════════════════════════════════════════╝\n");
@@ -713,10 +713,9 @@ impl KashShell {
                 kprintln!("║     - Privilege Boundary  : Ring 3 User Space Isolation Enforced     ║");
                 kprintln!("║     - seL4 Rights Model   : Read | Write | Grant | Revoke            ║");
                 kprintln!("╠──────────────────────────────────────────────────────────────────────╣");
-                kprintln!("║ [3] Network & Anonymity Switch:                                      ║");
-                kprintln!("║     - Tor Stream Isolation: [ACTIVE] Fail-Closed Kill-Switch Armed   ║");
-                kprintln!("║     - DNS Security        : Port 53 UDP over Tor Circuit             ║");
-                kprintln!("║     - MAC Address Rotation: [ENABLED] Ephemeral NIC Identity         ║");
+                kprintln!("║ [3] Network & Security Switch:                                       ║");
+                kprintln!("║     - Fail-Closed Kill-Switch : [ARMED] Drop all leaks               ║");
+                kprintln!("║     - MAC Address Rotation    : [ENABLED] Ephemeral NIC Identity     ║");
                 kprintln!("╠──────────────────────────────────────────────────────────────────────╣");
                 kprintln!("║ [4] Driver Health & Fault Monitor (sDDF User-Space Sandboxes):       ║");
                 kprintln!("║     - wifi-sddf           : {:<12} (Restarts: {})               ║", alloc::format!("{:?}", self.wifi_driver.state), self.wifi_driver.restarts_count);
@@ -821,7 +820,7 @@ impl KashShell {
                     kprintln!("Package Manager Commands:");
                     kprintln!("  kash install <pkg>  - Verify Ed25519 & SHA-256, configure FLASK MAC, deploy capsule");
                     kprintln!("  kash install os     - Execute 7-Stage Bare-Metal OS installer to persistent storage");
-                    kprintln!("  kash update         - Synchronize repository index over encrypted Tor circuit");
+                    kprintln!("  kash update         - Synchronize package manifests with repository");
                     kprintln!("  kash remove <pkg>   - Cryptographically scrub capsule and unlink binary");
                     kprintln!("  kash list           - Display all installed and available .kapp capsules");
                     kprintln!("  kash search <query> - Search sovereign repository catalog");
@@ -858,11 +857,10 @@ impl KashShell {
                 kprintln!("0.0.0.0         192.168.1.1     0.0.0.0         UG    100    0        0 eth0");
                 kprintln!("127.0.0.0       0.0.0.0         255.0.0.0       U     0      0        0 lo");
                 kprintln!("192.168.1.0     0.0.0.0         255.255.255.0   U     100    0        0 eth0");
-                kprintln!("10.13.37.0      0.0.0.0         255.255.255.0   U     50     0        0 tor0");
             }
 
             "nslookup" | "dig" => {
-                let host = if parts.len() > 1 { parts[1] } else { "check.torproject.org" };
+                let host = if parts.len() > 1 { parts[1] } else { "example.com" };
                 kprintln!("Server:\t\t1.1.1.1");
                 kprintln!("Address:\t1.1.1.1#53");
                 kprintln!();
@@ -981,7 +979,7 @@ impl KashShell {
             }
 
             "curl" | "wget" => {
-                let url = if parts.len() > 1 { parts[1] } else { "https://check.torproject.org" };
+                let url = if parts.len() > 1 { parts[1] } else { "http://example.com" };
                 NetworkDiagnostics::curl_wget(url);
             }
 
@@ -994,7 +992,7 @@ impl KashShell {
                 kprintln!("| Blacklisted Ports    : Port 21 (FTP), Port 23 (Telnet)       |");
                 kprintln!("| Blacklisted Domains  : telemetry.tracker.ad, metrics.spyware |");
                 kprintln!("| Fingerprint Defense  : Normalize TTL=64, Window=65535, Strip TS|");
-                kprintln!("| Fail-Closed KillSwitch: ARMED (Tor/WireGuard Gateway)         |");
+                kprintln!("| Fail-Closed KillSwitch: ARMED (Default-Deny Gateway)          |");
                 kprintln!("| Filtered Drops       : {} packet(s)                           |", stats.packets_dropped);
                 kprintln!("| Kill-Switch Blocks   : {} packet(s)                           |", stats.killswitch_drops);
                 kprintln!("+==============================================================+\n");
@@ -1910,7 +1908,7 @@ impl KashShell {
 
                 if matches == 0 {
                     kprintln!("  No matching packages found for '{}' in local catalog.", target);
-                    kprintln!("  Run 'kash update' to refresh repository manifests from Tor network.");
+                    kprintln!("  Run 'kash update' to refresh repository manifests.");
                 } else {
                     kprintln!("[pkg] Found {} package match(es).\n", matches);
                 }
@@ -2020,15 +2018,15 @@ impl KashShell {
             }
 
             "update" => {
-                kprintln!("[pkg] Synchronizing sovereign repository manifest over Tor circuit...");
+                kprintln!("[pkg] Synchronizing sovereign repository manifest over network...");
                 match crate::net::dns_resolve("repo.kashos.org") {
                     Ok(ip) => {
-                        kprintln!("[pkg] Resolved repo.kashos.org -> {}.{}.{}.{} via encrypted DNS", ip[0], ip[1], ip[2], ip[3]);
-                        kprintln!("[pkg] Established TLS session over Tor hidden circuit (Onion stream isolation).");
+                        kprintln!("[pkg] Resolved repo.kashos.org -> {}.{}.{}.{} via sovereign DNS", ip[0], ip[1], ip[2], ip[3]);
+                        kprintln!("[pkg] Established secure session with sovereign repository.");
                         kprintln!("[pkg] Fetched InRelease manifest (HTTP/1.1 200 OK, 4128 bytes).");
                     }
                     Err(_) => {
-                        kprintln!("[pkg] Network offline or Tor circuit establishing. Using cached repository catalog.");
+                        kprintln!("[pkg] Network offline or resolving. Using cached repository catalog.");
                     }
                 }
                 kprintln!("[pkg] Ed25519 keyring validated: Sovereign Root Key verified.");

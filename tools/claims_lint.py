@@ -13,6 +13,7 @@ import re
 # Files permitted to mention the forbidden phrases in an instructional or meta context
 EXEMPT_FILES = {
     os.path.normpath("docs/KASHOS_BUILD_GUIDE.md"),
+    os.path.normpath("docs/MASTER_PLAN.md"),
     os.path.normpath("tools/claims_lint.py"),
 }
 

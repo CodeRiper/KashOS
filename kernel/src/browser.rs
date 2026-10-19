@@ -38,7 +38,7 @@ impl ElinksBrowser {
     /// Launches the terminal browser for a specified URL or default privacy dashboard.
     pub fn open(url: &str) {
         let target_url = if url.is_empty() {
-            "https://check.torproject.org"
+            "about:kashos"
         } else {
             url
         };
@@ -50,19 +50,22 @@ impl ElinksBrowser {
         kprintln!("| Engine       : ELinks/KashOS Lightweight Text Renderer (< 2 MiB RAM) |");
         kprintln!("| Security     : OpenBSD pledge(\"stdio inet rpath\") + unveil(\"/vault\") |");
         kprintln!("| Privacy      : Zero JavaScript, Zero Cookies, Zero Canvas Tracking   |");
-        kprintln!("| Anonymity    : Routing via Tor 3-Hop Circuit / WireGuard Tunnel      |");
+        kprintln!("| Network      : Offline / Zero ambient authority (Task A6 pending)    |");
         kprintln!("+======================================================================+\n");
 
         // Fetch page content via KashOS Network Service
         let html_content = match target_url {
             "about:privacy" => Self::about_privacy(),
-            "about:tor" => Self::about_tor(),
             "about:kashos" => Self::about_kashos(),
             _ => {
                 match crate::net::http_get(target_url) {
                     Ok(resp) => resp,
+                    Err(crate::net::NetError::NotAvailable) => {
+                        kprintln!("[elinks] Network service not available.");
+                        return;
+                    }
                     Err(crate::net::NetError::KillSwitchBlocked) => {
-                        kprintln!("[elinks] [FAIL-CLOSED] Connection blocked: Anonymity Gateway is DOWN!");
+                        kprintln!("[elinks] [FAIL-CLOSED] Connection blocked: Network Gateway is DOWN!");
                         kprintln!("[elinks] Network kill-switch prevented unencrypted data leak (Rule R2).");
                         return;
                     }
@@ -71,8 +74,8 @@ impl ElinksBrowser {
                         return;
                     }
                     Err(_) => {
-                        kprintln!("[elinks] Unable to connect to host. Loading offline privacy portal...");
-                        Self::about_privacy()
+                        kprintln!("[elinks] Unable to connect to host. Loading system reference...");
+                        Self::about_kashos()
                     }
                 }
             }
@@ -240,63 +243,54 @@ impl ElinksBrowser {
     }
 
     pub fn about_privacy() -> String {
-        String::from(
+        let reg = crate::status::get();
+        format!(
             "<!DOCTYPE html><html><head><title>KashOS Privacy & Security Portal</title></head><body>\
             <h1>KashOS Sovereign Privacy Shield</h1>\
             <p>Welcome to the KashOS privacy portal. Your system is hardened against forensic inspection and tracking.</p>\
             <hr>\
-            <h2>Subsystem Status</h2>\
+            <h2>Subsystem Probes</h2>\
             <ul>\
-              <li>Tor Anonymity Gateway: ACTIVE (Stream-isolated circuits per capsule)</li>\
-              <li>Fail-Closed Kill Switch: ARMED (Zero cleartext packet leakage)</li>\
-              <li>MAC Address Randomization: ENABLED (Fresh CSPRNG seed per network join)</li>\
+              <li>Fail-Closed Kill Switch: ARMED</li>\
+              <li>MAC Address Randomization: ENABLED</li>\
               <li>Fingerprint Normalization: TTL 64, TCP Window 65535, Timestamps Stripped</li>\
               <li>Tracking Domains Filtered: telemetry.tracker.ad, metrics.spyware.net</li>\
+              <li>Linear Framebuffer: {}</li>\
+              <li>Encrypted kvault: {}</li>\
             </ul>\
             <hr>\
             <h2>Quick Navigation</h2>\
-            <p><a href=\"https://check.torproject.org\">Check Tor Status</a> | \
-            <a href=\"https://duckduckgo.com\">DuckDuckGo Search</a> | \
-            <a href=\"about:kashos\">KashOS Manual</a></p>\
-            </body></html>"
-        )
-    }
-
-    pub fn about_tor() -> String {
-        String::from(
-            "<!DOCTYPE html><html><head><title>Tor Network Gateway</title></head><body>\
-            <h1>Tor Onion Routing Gateway</h1>\
-            <p>All TCP traffic from sandboxed applications routes through an isolated Tor daemon.</p>\
-            <hr>\
-            <h2>Active 3-Hop Circuit</h2>\
-            <ul>\
-              <li>Guard Node : 185.220.101.5 [Fast, Stable, Guard]</li>\
-              <li>Middle Node: 195.154.122.8 [Relay]</li>\
-              <li>Exit Node  : 204.8.99.100 [Exit]</li>\
-            </ul>\
-            <hr>\
-            <p><a href=\"https://check.torproject.org\">Verify Tor Connection</a></p>\
-            </body></html>"
+            <p><a href=\"about:kashos\">KashOS Manual</a></p>\
+            </body></html>",
+            reg.linear_framebuffer.label(),
+            reg.kvault_fs.label()
         )
     }
 
     pub fn about_kashos() -> String {
-        String::from(
+        let reg = crate::status::get();
+        format!(
             "<!DOCTYPE html><html><head><title>KashOS Microkernel Reference</title></head><body>\
             <h1>KashOS Capability Microkernel v0.2.0</h1>\
             <p>A high-assurance, memory-hardened microkernel designed for privacy and low hardware envelopes.</p>\
             <hr>\
-            <h2>Core Features</h2>\
+            <h2>Core Features & Probes</h2>\
             <ul>\
               <li>Hardware Envelope: 1-Core CPU, 100 MiB RAM, Zero Ambient Authority</li>\
               <li>seL4 Capability Derivation Tree (CDT) Access Control</li>\
-              <li>XChaCha20-Poly1305 AEAD Authenticated Persistent kvault-fs</li>\
+              <li>XChaCha20-Poly1305 AEAD Authenticated Persistent kvault-fs [{}]</li>\
               <li>Native Linux Syscall ABI with OpenBSD pledge/unveil confinement</li>\
-              <li>Dual Browser: ELinks (Text, < 2 MiB) + Dillo (GUI, < 10 MiB)</li>\
+              <li>Linear Framebuffer: {}</li>\
+              <li>TPM 2.0 CRTM: {}</li>\
+              <li>VT-d IOMMU: {}</li>\
             </ul>\
             <hr>\
-            <p><a href=\"about:privacy\">Privacy Dashboard</a> | <a href=\"https://duckduckgo.com\">Search the Web</a></p>\
-            </body></html>"
+            <p><a href=\"about:privacy\">Privacy Dashboard</a></p>\
+            </body></html>",
+            reg.kvault_fs.label(),
+            reg.linear_framebuffer.label(),
+            reg.tpm2_crtm.label(),
+            reg.vtd_iommu.label()
         )
     }
 }
@@ -354,19 +348,22 @@ impl LadybirdBrowser {
         kprintln!("| Engine       : LibWeb/KashOS Memory-Safe Independent Engine (< 8 MiB) |");
         kprintln!("| Security     : seL4 CDT + OpenBSD pledge(\"stdio inet rpath\")          |");
         kprintln!("| Privacy      : Zero Google/Telemetry, Zero Canvas Fingerprinting     |");
-        kprintln!("| Anonymity    : Fail-Closed Tor Circuit Gate ARMED                     |");
+        kprintln!("| Network      : Offline / Zero ambient authority (Task A6 pending)    |");
         kprintln!("+======================================================================+\n");
 
         let html_content = match target_url {
             "about:ladybird" | "about:ladybird-security" => Self::about_ladybird(),
             "about:privacy" => ElinksBrowser::about_privacy(),
-            "about:tor" => ElinksBrowser::about_tor(),
             "about:kashos" => ElinksBrowser::about_kashos(),
             _ => {
                 match crate::net::http_get(target_url) {
                     Ok(resp) => resp,
+                    Err(crate::net::NetError::NotAvailable) => {
+                        kprintln!("[ladybird] Network service not available.");
+                        return;
+                    }
                     Err(crate::net::NetError::KillSwitchBlocked) => {
-                        kprintln!("[ladybird] [FAIL-CLOSED] Blocked: Tor Gateway unavailable (Kill-Switch Active).");
+                        kprintln!("[ladybird] [FAIL-CLOSED] Blocked: Network Gateway unavailable (Kill-Switch Active).");
                         return;
                     }
                     Err(crate::net::NetError::PacketFiltered) => {
@@ -511,9 +508,7 @@ impl LadybirdBrowser {
             </ul>\
             <hr>\
             <h2>Available Safe Portals</h2>\
-            <p><a href=\"https://duckduckgo.com\">DuckDuckGo Search</a> | \
-            <a href=\"https://check.torproject.org\">Check Tor Anonymity</a> | \
-            <a href=\"about:privacy\">KashOS Privacy Status</a> | \
+            <p><a href=\"about:privacy\">KashOS Privacy Status</a> | \
             <a href=\"about:kashos\">Microkernel Documentation</a></p>\
             </body></html>"
         )

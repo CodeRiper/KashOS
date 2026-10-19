@@ -21,7 +21,7 @@ pub fn print_service_map(platform: &Platform) {
     kprintln!("║ T1 Kernel    monolithic prototype; capability isolation incomplete ║");
     kprintln!("║ T2 Storage   kvault root authenticated store [{:<13}]  ║", reg.kvault_fs.label());
     let net_label = if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() {
-        "REAL (Tor/VPN)"
+        "REAL (Hardware)"
     } else {
         "NOT AVAILABLE"
     };
@@ -173,7 +173,7 @@ impl EnclaveMap {
         kprintln!("[tier5] execution enclaves:");
         kprintln!("  DebianBox    {} (Hermetic Debian Package Sandbox)", s(self.debian_box));
         kprintln!("  OffensiveVM  {} (Isolated security testing domain, Part E)", s(self.offensive));
-        kprintln!("  CommsVM      {} (P2P chat, Tor gateway)", s(self.comms));
+        kprintln!("  CommsVM      {} (P2P chat, secure gateway)", s(self.comms));
         kprintln!("  DesktopVM    {}", s(self.desktop));
         kprintln!("  TelemetryVM  {}", s(self.telemetry));
     }
@@ -185,7 +185,7 @@ impl EnclaveMap {
 pub fn print_network_config(_seed: u64) {
     let reg = crate::status::get();
     if reg.nic_e1000.is_real() || reg.nic_virtio.is_real() {
-        kprintln!("[net] smoltcp TCP/IP stack active; default-deny packet filter & Tor/WireGuard kill switch armed");
+        kprintln!("[net] knet TCP/IP stack active; default-deny packet filter & fail-closed kill switch armed");
         kprintln!("[net] Layer-2 MAC address randomized via bare-metal CSPRNG; physical OUI tracking blocked");
     } else {
         kprintln!("[net] networking running over loopback queue; no physical NIC detected");
