@@ -121,3 +121,40 @@ fn tcp_ip_stack_socket_lifecycle() {
     stack.close(sock_id);
     assert_eq!(stack.sockets.len(), 0);
 }
+
+#[test]
+fn smol_net_stack_device_and_socket_test() {
+    let mac = MacAddr([0x02, 0x4B, 0x41, 0x53, 0x48, 0x02]);
+    let mut stack = SmolNetStack::new(mac, 0xDEADBEEF);
+
+    assert_eq!(stack.leased_ip, None);
+    assert_eq!(stack.gateway_ip, None);
+    assert!(!stack.is_tcp_connected());
+
+    // Initially tx_ring is empty
+    assert!(stack.device.tx_ring.is_empty());
+
+    // Assign IP address to interface (simulating DHCP lease)
+    stack.iface.update_ip_addrs(|addrs| {
+        let _ = addrs.push(smoltcp::wire::IpCidr::new(
+            smoltcp::wire::IpAddress::Ipv4(smoltcp::wire::Ipv4Address::new(10, 0, 2, 15)),
+            24,
+        ));
+    });
+
+    // Connect TCP socket towards remote server
+    let res = stack.tcp_connect([10, 0, 2, 2], 80, 49152);
+    assert!(res.is_ok());
+
+
+    // Polling triggers SYN transmission into tx_ring
+    stack.poll(10);
+    assert!(!stack.device.tx_ring.is_empty());
+
+    let mut tx_frame = [0u8; 1514];
+    let tx_len = stack.device.tx_ring.pop(&mut tx_frame).expect("expected SYN packet");
+    assert!(tx_len >= 54); // Ethernet (14) + IP (20) + TCP (20)
+    assert_eq!(&tx_frame[6..12], &mac.0); // Source MAC equals stack MAC
+    assert_eq!(&tx_frame[12..14], &0x0800u16.to_be_bytes()); // IPv4 EtherType
+}
+

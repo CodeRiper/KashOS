@@ -356,6 +356,225 @@ impl PacketRing {
 
 pub use smoltcp;
 
+// ── smoltcp Device & Native Stack Integration ──────────────────────────────
+
+/// Device driver adapter bridging `PacketRing` with `smoltcp::phy::Device`.
+pub struct RingDevice {
+    pub rx_ring: PacketRing,
+    pub tx_ring: PacketRing,
+}
+
+impl RingDevice {
+    pub const fn new() -> Self {
+        Self {
+            rx_ring: PacketRing::new(),
+            tx_ring: PacketRing::new(),
+        }
+    }
+}
+
+pub struct RingRxToken<'a> {
+    frame: &'a mut RawFrame,
+}
+
+impl<'a> smoltcp::phy::RxToken for RingRxToken<'a> {
+    fn consume<R, F>(self, f: F) -> R
+    where
+        F: FnOnce(&[u8]) -> R,
+    {
+        f(&self.frame.data[..self.frame.len])
+    }
+}
+
+
+pub struct RingTxToken<'a> {
+    tx_ring: &'a mut PacketRing,
+}
+
+impl<'a> smoltcp::phy::TxToken for RingTxToken<'a> {
+    fn consume<R, F>(self, len: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let mut frame_buf = [0u8; MAX_PACKET_SIZE];
+        let slice = &mut frame_buf[..len.min(MAX_PACKET_SIZE)];
+        let res = f(slice);
+        let _ = self.tx_ring.push(slice);
+        res
+    }
+}
+
+impl smoltcp::phy::Device for RingDevice {
+    type RxToken<'a> = RingRxToken<'a> where Self: 'a;
+    type TxToken<'a> = RingTxToken<'a> where Self: 'a;
+
+    fn receive(&mut self, _timestamp: smoltcp::time::Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        if self.rx_ring.head == self.rx_ring.tail {
+            return None;
+        }
+        let tail = self.rx_ring.tail;
+        self.rx_ring.tail = (self.rx_ring.tail + 1) % RING_CAPACITY;
+        let frame = &mut self.rx_ring.buffer[tail];
+        Some((
+            RingRxToken { frame },
+            RingTxToken { tx_ring: &mut self.tx_ring },
+        ))
+    }
+
+
+    fn transmit(&mut self, _timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
+        Some(RingTxToken { tx_ring: &mut self.tx_ring })
+    }
+
+    fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
+        let mut caps = smoltcp::phy::DeviceCapabilities::default();
+        caps.max_transmission_unit = 1500;
+        caps.medium = smoltcp::phy::Medium::Ethernet;
+        caps
+    }
+}
+
+/// Authoritative smoltcp native network stack with DHCPv4, DNS, ICMP and TCP sockets.
+pub struct SmolNetStack {
+    pub device: RingDevice,
+    pub iface: smoltcp::iface::Interface,
+    pub sockets: smoltcp::iface::SocketSet<'static>,
+    pub dhcp_handle: smoltcp::iface::SocketHandle,
+    pub dns_handle: smoltcp::iface::SocketHandle,
+    pub tcp_handle: smoltcp::iface::SocketHandle,
+    pub icmp_handle: smoltcp::iface::SocketHandle,
+    pub leased_ip: Option<[u8; 4]>,
+    pub gateway_ip: Option<[u8; 4]>,
+    pub dns_servers: Vec<[u8; 4]>,
+}
+
+impl SmolNetStack {
+    pub fn new(mac: MacAddr, seed: u64) -> Self {
+        let mut device = RingDevice::new();
+        let eth_addr = smoltcp::wire::EthernetAddress(mac.0);
+        let hw_addr = smoltcp::wire::HardwareAddress::Ethernet(eth_addr);
+        let mut config = smoltcp::iface::Config::new(hw_addr);
+        config.random_seed = seed;
+
+        let iface = smoltcp::iface::Interface::new(config, &mut device, smoltcp::time::Instant::from_millis(0));
+
+        let mut sockets = smoltcp::iface::SocketSet::new(alloc::vec::Vec::new());
+
+        // 1. DHCPv4 client socket
+        let dhcp_socket = smoltcp::socket::dhcpv4::Socket::new();
+        let dhcp_handle = sockets.add(dhcp_socket);
+
+        // 2. DNS client socket
+        let dns_socket = smoltcp::socket::dns::Socket::new(&[], alloc::vec::Vec::new());
+        let dns_handle = sockets.add(dns_socket);
+
+        // 3. TCP client socket (4 KiB RX / 4 KiB TX)
+        let tcp_rx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 4096]);
+        let tcp_tx = smoltcp::socket::tcp::SocketBuffer::new(alloc::vec![0u8; 4096]);
+        let tcp_socket = smoltcp::socket::tcp::Socket::new(tcp_rx, tcp_tx);
+        let tcp_handle = sockets.add(tcp_socket);
+
+        // 4. ICMP socket
+        let icmp_rx = smoltcp::socket::icmp::PacketBuffer::new(
+            alloc::vec![smoltcp::socket::icmp::PacketMetadata::EMPTY; 4],
+            alloc::vec![0u8; 1024],
+        );
+        let icmp_tx = smoltcp::socket::icmp::PacketBuffer::new(
+            alloc::vec![smoltcp::socket::icmp::PacketMetadata::EMPTY; 4],
+            alloc::vec![0u8; 1024],
+        );
+        let icmp_socket = smoltcp::socket::icmp::Socket::new(icmp_rx, icmp_tx);
+        let icmp_handle = sockets.add(icmp_socket);
+
+        Self {
+            device,
+            iface,
+            sockets,
+            dhcp_handle,
+            dns_handle,
+            tcp_handle,
+            icmp_handle,
+            leased_ip: None,
+            gateway_ip: None,
+            dns_servers: Vec::new(),
+        }
+    }
+
+    /// Polls the network stack with the current timestamp in milliseconds.
+    pub fn poll(&mut self, timestamp_ms: i64) {
+        let timestamp = smoltcp::time::Instant::from_millis(timestamp_ms);
+        let _ = self.iface.poll(timestamp, &mut self.device, &mut self.sockets);
+
+        // Process DHCP events
+        let dhcp_socket = self.sockets.get_mut::<smoltcp::socket::dhcpv4::Socket>(self.dhcp_handle);
+        if let Some(event) = dhcp_socket.poll() {
+            match event {
+                smoltcp::socket::dhcpv4::Event::Configured(config) => {
+                    self.iface.update_ip_addrs(|addrs| {
+                        addrs.clear();
+                        let _ = addrs.push(smoltcp::wire::IpCidr::Ipv4(config.address));
+                    });
+                    self.leased_ip = Some(config.address.address().octets());
+                    if let Some(router) = config.router {
+                        self.gateway_ip = Some(router.octets());
+                        let _ = self.iface.routes_mut().add_default_ipv4_route(router);
+                    }
+                    self.dns_servers.clear();
+                    for s in &config.dns_servers {
+                        self.dns_servers.push(s.octets());
+                    }
+                }
+                smoltcp::socket::dhcpv4::Event::Deconfigured => {
+                    self.iface.update_ip_addrs(|addrs| addrs.clear());
+                    self.leased_ip = None;
+                    self.gateway_ip = None;
+                }
+            }
+        }
+    }
+
+    /// Connects the TCP socket to a remote IP and port.
+    pub fn tcp_connect(&mut self, remote_ip: [u8; 4], remote_port: u16, local_port: u16) -> Result<(), ()> {
+        let remote_addr = smoltcp::wire::Ipv4Address::from_octets(remote_ip);
+        let tcp_socket = self.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.tcp_handle);
+        tcp_socket
+            .connect(self.iface.context(), (remote_addr, remote_port), local_port)
+            .map_err(|_| ())
+    }
+
+    /// Checks if the TCP socket is connected (established).
+    pub fn is_tcp_connected(&self) -> bool {
+        let tcp_socket = self.sockets.get::<smoltcp::socket::tcp::Socket>(self.tcp_handle);
+        tcp_socket.is_active() && tcp_socket.state() == smoltcp::socket::tcp::State::Established
+    }
+
+    /// Sends data through the TCP socket.
+    pub fn tcp_send(&mut self, data: &[u8]) -> Result<usize, ()> {
+        let tcp_socket = self.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.tcp_handle);
+        if !tcp_socket.can_send() {
+            return Err(());
+        }
+        tcp_socket.send_slice(data).map_err(|_| ())
+    }
+
+    /// Receives data from the TCP socket.
+    pub fn tcp_recv(&mut self, buf: &mut [u8]) -> Result<usize, ()> {
+        let tcp_socket = self.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.tcp_handle);
+        if !tcp_socket.can_recv() {
+            return Err(());
+        }
+        tcp_socket.recv_slice(buf).map_err(|_| ())
+    }
+
+    /// Closes the TCP socket.
+    pub fn tcp_close(&mut self) {
+        let tcp_socket = self.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.tcp_handle);
+        tcp_socket.close();
+    }
+}
+
+
+
 // ── TCP/IP Socket Table Model ───────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

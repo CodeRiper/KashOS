@@ -60,6 +60,7 @@ pub struct NetStats {
 /// The Authoritative Kernel Network Stack & Security Proxy.
 pub struct NetworkService {
     pub stack: TcpIpStack,
+    pub smol: knet::SmolNetStack,
     pub filter: FilterTable,
     pub gateway: AnonymityGateway,
     pub identity: NetworkIdentity,
@@ -77,6 +78,7 @@ impl NetworkService {
         let netmask = [255, 255, 255, 0];
 
         let stack = TcpIpStack::new(mac, ip, gateway_ip, netmask);
+        let smol = knet::SmolNetStack::new(mac, seed);
         let mut filter = FilterTable::new();
 
         // Baseline Security Rules:
@@ -95,6 +97,7 @@ impl NetworkService {
 
         Self {
             stack,
+            smol,
             filter,
             gateway,
             identity,
@@ -103,6 +106,7 @@ impl NetworkService {
             killswitch_armed: true,
         }
     }
+
 
     /// Rotates the local Layer-2 MAC address using a fresh cryptographic hardware seed.
     pub fn rotate_mac(&mut self, new_seed: u64) -> MacAddr {
@@ -516,3 +520,44 @@ pub fn list_sockets() -> Result<Vec<SocketInfo>, NetError> {
     let service = net_lock.as_ref().ok_or(NetError::NotInitialized)?;
     Ok(service.get_socket_table())
 }
+
+/// Returns current DHCP lease status and assigned IPv4 address.
+pub fn dhcp_status() -> Option<[u8; 4]> {
+    let net_lock = NET_SERVICE.lock();
+    net_lock.as_ref().and_then(|s| s.smol.leased_ip)
+}
+
+/// Connects native smoltcp socket to remote IPv4 destination.
+pub fn tcp_connect(remote_ip: [u8; 4], remote_port: u16, local_port: u16) -> Result<(), NetError> {
+    let mut net_lock = NET_SERVICE.lock();
+    let service = net_lock.as_mut().ok_or(NetError::NotInitialized)?;
+    service.smol.tcp_connect(remote_ip, remote_port, local_port).map_err(|_| NetError::ConnectionFailed)
+}
+
+/// Transmits data through native smoltcp TCP socket.
+pub fn tcp_send(data: &[u8]) -> Result<usize, NetError> {
+    let mut net_lock = NET_SERVICE.lock();
+    let service = net_lock.as_mut().ok_or(NetError::NotInitialized)?;
+    service.smol.tcp_send(data).map_err(|_| NetError::IoError)
+}
+
+/// Receives data from native smoltcp TCP socket.
+pub fn tcp_recv(buf: &mut [u8]) -> Result<usize, NetError> {
+    let mut net_lock = NET_SERVICE.lock();
+    let service = net_lock.as_mut().ok_or(NetError::NotInitialized)?;
+    service.smol.tcp_recv(buf).map_err(|_| NetError::IoError)
+}
+
+/// Resolves a domain name to an IPv4 address (Task A6 API).
+pub fn resolve(host: &str) -> Result<[u8; 4], NetError> {
+    dns_resolve(host)
+}
+
+/// Advances network interface and processes pending RX/TX frames.
+pub fn poll(now_ms: i64) {
+    let mut net_lock = NET_SERVICE.lock();
+    if let Some(service) = net_lock.as_mut() {
+        service.smol.poll(now_ms);
+    }
+}
+
