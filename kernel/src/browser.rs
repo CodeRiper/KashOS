@@ -55,7 +55,6 @@ impl ElinksBrowser {
 
         // Fetch page content via KashOS Network Service
         let html_content = match target_url {
-            "about:privacy" => Self::about_privacy(),
             "about:kashos" => Self::about_kashos(),
             _ => {
                 match crate::net::http_get(target_url) {
@@ -242,31 +241,6 @@ impl ElinksBrowser {
         }
     }
 
-    pub fn about_privacy() -> String {
-        let reg = crate::status::get();
-        format!(
-            "<!DOCTYPE html><html><head><title>KashOS Privacy & Security Portal</title></head><body>\
-            <h1>KashOS Sovereign Privacy Shield</h1>\
-            <p>Welcome to the KashOS privacy portal. Your system is hardened against forensic inspection and tracking.</p>\
-            <hr>\
-            <h2>Subsystem Probes</h2>\
-            <ul>\
-              <li>Fail-Closed Kill Switch: ARMED</li>\
-              <li>MAC Address Randomization: ENABLED</li>\
-              <li>Fingerprint Normalization: TTL 64, TCP Window 65535, Timestamps Stripped</li>\
-              <li>Tracking Domains Filtered: telemetry.tracker.ad, metrics.spyware.net</li>\
-              <li>Linear Framebuffer: {}</li>\
-              <li>Encrypted kvault: {}</li>\
-            </ul>\
-            <hr>\
-            <h2>Quick Navigation</h2>\
-            <p><a href=\"about:kashos\">KashOS Manual</a></p>\
-            </body></html>",
-            reg.linear_framebuffer.label(),
-            reg.kvault_fs.label()
-        )
-    }
-
     pub fn about_kashos() -> String {
         let reg = crate::status::get();
         format!(
@@ -285,7 +259,7 @@ impl ElinksBrowser {
               <li>VT-d IOMMU: {}</li>\
             </ul>\
             <hr>\
-            <p><a href=\"about:privacy\">Privacy Dashboard</a></p>\
+            <p><a href=\"about:kashos\">KashOS Manual</a></p>\
             </body></html>",
             reg.kvault_fs.label(),
             reg.linear_framebuffer.label(),
@@ -353,7 +327,6 @@ impl LadybirdBrowser {
 
         let html_content = match target_url {
             "about:ladybird" | "about:ladybird-security" => Self::about_ladybird(),
-            "about:privacy" => ElinksBrowser::about_privacy(),
             "about:kashos" => ElinksBrowser::about_kashos(),
             _ => {
                 match crate::net::http_get(target_url) {
@@ -508,7 +481,7 @@ impl LadybirdBrowser {
             </ul>\
             <hr>\
             <h2>Available Safe Portals</h2>\
-            <p><a href=\"about:privacy\">KashOS Privacy Status</a> | \
+            <p><a href=\"about:kashos\">KashOS Status</a> | \
             <a href=\"about:kashos\">Microkernel Documentation</a></p>\
             </body></html>"
         )
