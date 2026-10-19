@@ -351,6 +351,97 @@ pub fn verify_payload_integrity(payload: &[u8], expected_hash: &[u8; 32]) -> boo
     verify_measured_boot_hash(&actual, expected_hash)
 }
 
+// ── TCG PC Client Event Log Definitions ─────────────────────────────────────
+
+pub const EV_PREBOOT_CERT: u32 = 0x00000000;
+pub const EV_POST_CODE: u32 = 0x00000001;
+pub const EV_SEPARATOR: u32 = 0x00000004;
+pub const EV_ACTION: u32 = 0x00000005;
+pub const EV_EVENT_TAG: u32 = 0x00000006;
+pub const EV_S_CRTM_CONTENTS: u32 = 0x00000007;
+pub const EV_S_CRTM_VERSION: u32 = 0x00000008;
+pub const EV_CPU_MICROCODE: u32 = 0x00000009;
+pub const EV_PLATFORM_CONFIG_FLAGS: u32 = 0x0000000A;
+pub const EV_TABLE_OF_DEVICES: u32 = 0x0000000B;
+pub const EV_COMPACT_HASH: u32 = 0x0000000C;
+pub const EV_IPL: u32 = 0x0000000D;
+pub const EV_IPL_PARTITION_DATA: u32 = 0x0000000E;
+pub const EV_NONHOST_CODE: u32 = 0x0000000F;
+pub const EV_NONHOST_CONFIG: u32 = 0x00000010;
+pub const EV_NONHOST_INFO: u32 = 0x00000011;
+
+/// Standard TCG PC Client Event Log record.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct TcgEventLogEntry {
+    pub pcr_index: u32,
+    pub event_type: u32,
+    pub digest: [u8; 32],
+    pub event_size: u32,
+    pub event_data: [u8; 48],
+}
+
+impl TcgEventLogEntry {
+    pub const fn empty() -> Self {
+        Self {
+            pcr_index: 0,
+            event_type: 0,
+            digest: [0u8; 32],
+            event_size: 0,
+            event_data: [0u8; 48],
+        }
+    }
+
+    pub fn new(pcr_index: u32, event_type: u32, digest: [u8; 32], desc: &[u8]) -> Self {
+        let mut event_data = [0u8; 48];
+        let len = desc.len().min(48);
+        let mut i = 0;
+        while i < len {
+            event_data[i] = desc[i];
+            i += 1;
+        }
+        Self {
+            pcr_index,
+            event_type,
+            digest,
+            event_size: len as u32,
+            event_data,
+        }
+    }
+
+    pub fn description(&self) -> &str {
+        core::str::from_utf8(&self.event_data[..self.event_size as usize]).unwrap_or("<invalid utf8>")
+    }
+}
+
+// ── Anti-Rollback Monotonic Epoch Protection ────────────────────────────────
+
+/// Current security epoch for KashOS release.
+/// v0.2.0 establishes security epoch 2.
+pub const KASH_SECURITY_EPOCH: u64 = 2;
+
+/// Standard TPM 2.0 NV Index for Operating System Anti-Rollback Counter.
+pub const TPM2_NV_INDEX_ANTI_ROLLBACK: u32 = 0x0150_0001;
+
+/// Errors returned during anti-rollback verification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RollbackError {
+    RollbackDetected { expected_min: u64, found: u64 },
+    NvStorageError,
+}
+
+/// Verifies that a candidate image security epoch satisfies monotonic anti-rollback constraints.
+pub fn verify_anti_rollback(current_epoch: u64, candidate_epoch: u64) -> Result<(), RollbackError> {
+    if candidate_epoch < current_epoch {
+        Err(RollbackError::RollbackDetected {
+            expected_min: current_epoch,
+            found: candidate_epoch,
+        })
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,5 +543,28 @@ mod tests {
         fb.pitch = 1920 * 4;
         fb.bits_per_pixel = 32;
         assert!(fb.is_valid());
+    }
+
+    #[test]
+    fn test_tcg_event_log_entry() {
+        let digest = [0x5Au8; 32];
+        let entry = TcgEventLogEntry::new(PCR_KERNEL_CODE as u32, EV_S_CRTM_CONTENTS, digest, b"Microkernel ELF");
+        assert_eq!(entry.pcr_index, PCR_KERNEL_CODE as u32);
+        assert_eq!(entry.event_type, EV_S_CRTM_CONTENTS);
+        assert_eq!(entry.digest, digest);
+        assert_eq!(entry.description(), "Microkernel ELF");
+    }
+
+    #[test]
+    fn test_anti_rollback_monotonicity() {
+        // Same epoch is allowed
+        assert!(verify_anti_rollback(KASH_SECURITY_EPOCH, KASH_SECURITY_EPOCH).is_ok());
+        // Higher epoch (upgrade) is allowed
+        assert!(verify_anti_rollback(KASH_SECURITY_EPOCH, KASH_SECURITY_EPOCH + 1).is_ok());
+        // Lower epoch (rollback) MUST fail closed
+        assert!(matches!(
+            verify_anti_rollback(KASH_SECURITY_EPOCH, KASH_SECURITY_EPOCH - 1),
+            Err(RollbackError::RollbackDetected { expected_min: 2, found: 1 })
+        ));
     }
 }

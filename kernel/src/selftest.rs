@@ -975,7 +975,21 @@ fn test_tpm2_pcr_measurements_and_reproducibility() {
     check!(pcr7_boot1 == pcr7_boot2);
     check!(pcr9_boot1 == pcr9_boot2);
 
-    kprintln!("[selftest] PASS: T22 TPM 2.0 PCR Measurement & Clean-Boot Reproducibility: PCR 0, 1, 2, 4, 7, 9 extended, 100% bit-for-bit reproducible across clean boots");
+    // Verify TCG Event Log entries were recorded
+    check!(dev.event_count >= 12);
+    check!(dev.event_log[0].pcr_index == kboot::PCR_CRTM_FIRMWARE as u32);
+    check!(dev.event_log[0].event_type == kboot::EV_S_CRTM_CONTENTS);
+    check!(dev.event_log[0].description() == "CRTM Platform Firmware");
+
+    // Verify Anti-Rollback monotonic security epoch enforcement
+    check!(dev.check_anti_rollback(kboot::KASH_SECURITY_EPOCH).is_ok());
+    check!(dev.check_anti_rollback(kboot::KASH_SECURITY_EPOCH + 1).is_ok());
+    check!(dev.check_anti_rollback(kboot::KASH_SECURITY_EPOCH - 1).is_err());
+    check!(dev.ratify_anti_rollback(kboot::KASH_SECURITY_EPOCH + 1).is_ok());
+    check!(dev.monotonic_counter == kboot::KASH_SECURITY_EPOCH + 1);
+    check!(dev.check_anti_rollback(kboot::KASH_SECURITY_EPOCH).is_err());
+
+    kprintln!("[selftest] PASS: T22 TPM 2.0 PCR Measurement, TCG Event Log & Anti-Rollback: PCR 0, 1, 2, 4, 7, 9 extended, TCG event log verified, anti-rollback monotonic epoch ratified");
 }
 
 /// Test 23: Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate

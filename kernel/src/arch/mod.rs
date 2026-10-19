@@ -8,6 +8,7 @@ pub use x86_64::{
     init_vtd, get_iommu_status, init_tpm, get_tpm_status, init_input, poll_input_event, init_nic, nic_transmit, nic_receive, nic_mac, rdtsc,
     framebuffer, fill_gradient_test, clear_framebuffer, read_rtc_unix_seconds, elapsed_seconds, tsc_frequency_hz, sse_selftest,
     print_hardware_report, detect_hardware_tier, HardwareTier,
+    print_pcr_report, print_tcg_event_log, print_anti_rollback_status, get_security_epoch, verify_and_ratify_epoch,
 };
 
 #[cfg(target_arch = "aarch64")]

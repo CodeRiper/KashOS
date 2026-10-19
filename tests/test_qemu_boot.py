@@ -68,6 +68,7 @@ def test_t0_boot():
     required_markers = {
         "mmu_wx": False,
         "sel4_cap": False,
+        "test_t22": False,
         "test_t40": False,
         "test_t44": False,
         "shell_ready": False,
@@ -94,6 +95,8 @@ def test_t0_boot():
                 required_markers["mmu_wx"] = True
             if "[cap] Initialized seL4 root untyped" in line:
                 required_markers["sel4_cap"] = True
+            if "T22 TPM 2.0 PCR Measurement" in line:
+                required_markers["test_t22"] = True
             if "T40 Formal Invariant" in line or "T40" in line:
                 required_markers["test_t40"] = True
             if "T44 Hostile Process Containment" in line:
@@ -103,6 +106,10 @@ def test_t0_boot():
                 print("\n[+] Shell prompt reached! Sending interactive verification commands...")
                 # Send hardware report command
                 proc.stdin.write(b"hardware-report\n")
+                proc.stdin.flush()
+                time.sleep(0.5)
+                # Send tpm status command
+                proc.stdin.write(b"tpm\n")
                 proc.stdin.flush()
                 time.sleep(0.5)
                 # Send capability retype test command

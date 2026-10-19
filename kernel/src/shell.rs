@@ -769,6 +769,20 @@ impl KashShell {
                 crate::cap::print_active_caps();
             }
 
+            "tpm" | "measured-boot" => {
+                if parts.len() > 1 && (parts[1] == "pcr" || parts[1] == "pcrs") {
+                    crate::arch::print_pcr_report();
+                } else if parts.len() > 1 && (parts[1] == "eventlog" || parts[1] == "log") {
+                    crate::arch::print_tcg_event_log();
+                } else if parts.len() > 1 && (parts[1] == "rollback" || parts[1] == "anti-rollback") {
+                    crate::arch::print_anti_rollback_status();
+                } else {
+                    crate::arch::print_pcr_report();
+                    crate::arch::print_tcg_event_log();
+                    crate::arch::print_anti_rollback_status();
+                }
+            }
+
             "kash" => {
                 if parts.len() > 1 {
                     match parts[1] {

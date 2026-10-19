@@ -425,6 +425,11 @@ pub fn tsc_frequency_hz() -> u64 { 1_000_000_000 }
 pub fn read_rtc_unix_seconds() -> u64 { 1776340000 }
 pub fn enable_sse() {}
 pub fn sse_selftest() {}
+pub fn print_pcr_report() {}
+pub fn print_tcg_event_log() {}
+pub fn print_anti_rollback_status() {}
+pub fn get_security_epoch() -> u64 { 2 }
+pub fn verify_and_ratify_epoch(_cand: u64) -> Result<(), kboot::RollbackError> { Ok(()) }
 
 
 
