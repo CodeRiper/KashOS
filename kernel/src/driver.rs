@@ -236,24 +236,22 @@ impl DriverSupervisor {
         self.verify_io_port(pid, port, is_write)?;
 
         // Execute hardware port access safely
-        unsafe {
-            if is_write {
-                match size {
-                    1 => crate::arch::x86_64::pci::outb(port, val as u8),
-                    2 => crate::arch::x86_64::pci::outw(port, val as u16),
-                    4 => crate::arch::x86_64::pci::outl(port, val),
-                    _ => return Err(KError::InvalidArgument),
-                }
-                Ok(0)
-            } else {
-                let res = match size {
-                    1 => crate::arch::x86_64::pci::inb(port) as u32,
-                    2 => crate::arch::x86_64::pci::inw(port) as u32,
-                    4 => crate::arch::x86_64::pci::inl(port),
-                    _ => return Err(KError::InvalidArgument),
-                };
-                Ok(res)
+        if is_write {
+            match size {
+                1 => crate::arch::x86_64::pci::outb(port, val as u8),
+                2 => crate::arch::x86_64::pci::outw(port, val as u16),
+                4 => crate::arch::x86_64::pci::outl(port, val),
+                _ => return Err(KError::InvalidArgument),
             }
+            Ok(0)
+        } else {
+            let res = match size {
+                1 => crate::arch::x86_64::pci::inb(port) as u32,
+                2 => crate::arch::x86_64::pci::inw(port) as u32,
+                4 => crate::arch::x86_64::pci::inl(port),
+                _ => return Err(KError::InvalidArgument),
+            };
+            Ok(res)
         }
     }
 

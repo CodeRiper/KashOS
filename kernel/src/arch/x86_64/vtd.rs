@@ -46,21 +46,19 @@ pub struct PcieAcsVerifier;
 
 impl PcieAcsVerifier {
     /// Reads a 32-bit word from PCI configuration space.
-    unsafe fn pci_read32(bus: u8, dev: u8, func: u8, offset: u8) -> u32 {
+    fn pci_read32(bus: u8, dev: u8, func: u8, offset: u8) -> u32 {
         let address = 0x8000_0000u32
             | ((bus as u32) << 16)
             | ((dev as u32) << 11)
             | ((func as u32) << 8)
             | ((offset as u32) & 0xFC);
-        unsafe {
-            crate::arch::x86_64::pci::outl(0xCF8, address);
-            crate::arch::x86_64::pci::inl(0xCFC)
-        }
+        crate::arch::x86_64::pci::outl(0xCF8, address);
+        crate::arch::x86_64::pci::inl(0xCFC)
     }
 
     /// Reads a 16-bit word from PCI configuration space.
-    unsafe fn pci_read16(bus: u8, dev: u8, func: u8, offset: u8) -> u16 {
-        let val32 = unsafe { Self::pci_read32(bus, dev, func, offset) };
+    fn pci_read16(bus: u8, dev: u8, func: u8, offset: u8) -> u16 {
+        let val32 = Self::pci_read32(bus, dev, func, offset);
         ((val32 >> ((offset & 2) * 8)) & 0xFFFF) as u16
     }
 
@@ -69,7 +67,7 @@ impl PcieAcsVerifier {
     /// device's or the host's memory without passing through the IOMMU.
     pub fn probe_acs(bdf: PciBdf) -> (bool, PcieAcsFlags) {
         // Read Status register (offset 0x06) to check Capabilities List bit (bit 4)
-        let status = unsafe { Self::pci_read16(bdf.bus, bdf.dev, bdf.func, 0x06) };
+        let status = Self::pci_read16(bdf.bus, bdf.dev, bdf.func, 0x06);
         if (status & (1 << 4)) == 0 {
             return (false, PcieAcsFlags {
                 source_validation: false,
@@ -86,14 +84,14 @@ impl PcieAcsVerifier {
         // (Note: in standard PCI config space ports 0xCF8/0xCFC, offsets are 0..255.
         // PCIe extended configuration space 0x100-0xFFF is accessed via MMCONFIG / ECAM).
         // For standard PCI ports, we inspect the standard PCI Express Capability structure (Cap ID 0x10).
-        let mut cap_ptr = unsafe { (Self::pci_read32(bdf.bus, bdf.dev, bdf.func, 0x34) & 0xFF) as u8 };
+        let mut cap_ptr = (Self::pci_read32(bdf.bus, bdf.dev, bdf.func, 0x34) & 0xFF) as u8;
         let mut found_pcie = false;
 
         for _ in 0..48 {
             if cap_ptr == 0 || cap_ptr < 0x40 {
                 break;
             }
-            let cap_header = unsafe { Self::pci_read16(bdf.bus, bdf.dev, bdf.func, cap_ptr) };
+            let cap_header = Self::pci_read16(bdf.bus, bdf.dev, bdf.func, cap_ptr);
             let cap_id = (cap_header & 0xFF) as u8;
             let next_ptr = ((cap_header >> 8) & 0xFF) as u8;
 

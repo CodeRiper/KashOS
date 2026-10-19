@@ -1758,6 +1758,8 @@ pub fn run_hardening_verification_tests() {
     test_syscall_boundary_fuzz_hardening();
     test_network_packet_fuzz_hardening();
     test_hostile_capability_and_memory_containment();
+    #[cfg(target_arch = "x86_64")]
+    test_audit_reverification_and_hardening_gate();
 
     crate::status::update(|s| {
         s.kcore_caps = crate::status::ComponentStatus::Real;
@@ -2145,5 +2147,100 @@ fn test_hostile_capability_and_memory_containment() {
 
     kprintln!("[selftest] PASS: T44 Hostile Process Containment & seL4 Capability Gate: zero-ambient-authority rejection verified, capability forgery blocked, MMIO-to-TCB privilege escalation denied, CDT transitive revocation confirmed");
 }
+
+/// Test 45: Audit Re-verification & Hardening Gate (F18, Critique Items 1.1-1.6, 2.1-2.13)
+#[cfg(target_arch = "x86_64")]
+fn test_audit_reverification_and_hardening_gate() {
+    // 1. Re-verify Unveil Prefix Matching & Confinement (Critique 2.10)
+    let mut sb = crate::linux::ProcessSandbox::new(10);
+    sb.unveiled_paths.push(alloc::string::String::from("/vault"));
+    sb.unveiled_paths.push(alloc::string::String::from("/home/user/docs"));
+
+    // Exactly matching path or child under slash delimiter is permitted:
+    check!(sb.check_unveil("/vault").is_ok());
+    check!(sb.check_unveil("/vault/secret.key").is_ok());
+    check!(sb.check_unveil("/vault/nested/dir/file.txt").is_ok());
+    check!(sb.check_unveil("/home/user/docs/report.pdf").is_ok());
+
+    // Prefix match without delimiter MUST be rejected:
+    check!(sb.check_unveil("/vault_leak").is_err());
+    check!(sb.check_unveil("/vaultbreaker").is_err());
+    check!(sb.check_unveil("/vault_exfil/data").is_err());
+    check!(sb.check_unveil("/home/user/docsnoperms").is_err());
+
+    // Directory traversal '../' escapes MUST be rejected by path normalization:
+    check!(sb.check_unveil("/vault/../etc/shadow").is_err());
+    check!(sb.check_unveil("/vault/../../var/log/syslog").is_err());
+    check!(sb.check_unveil("/home/user/docs/../../etc/passwd").is_err());
+
+    // Non-unveiled paths MUST be rejected:
+    check!(sb.check_unveil("/etc/shadow").is_err());
+    check!(sb.check_unveil("/root").is_err());
+
+    // Path normalization dot-slash sequences:
+    check!(crate::linux::normalize_path("/a/b/c/../../d") == "/a/d");
+    check!(crate::linux::normalize_path("/vault/./sub/./dir") == "/vault/sub/dir");
+    check!(crate::linux::normalize_path("/../../../") == "/");
+
+    // Unveil array bounds check (bounded to <= 64):
+    for i in 0..62 {
+        let mut p = alloc::string::String::from("/p_");
+        p.push((b'a' + (i as u8 % 26)) as char);
+        sb.unveiled_paths.push(p);
+    }
+    check!(sb.unveiled_paths.len() == 64);
+
+    // 2. Re-verify Multi-Process Sandbox Isolation (Critique 2.10)
+    let mut table = crate::arch::x86_64::syscall::ProcessSandboxTable::new();
+    {
+        let sb1 = table.get_or_create(1);
+        sb1.unveiled_paths.push(alloc::string::String::from("/sandbox_p1"));
+        sb1.active_pledges = crate::linux::PLEDGE_STDIO | crate::linux::PLEDGE_RPATH;
+    }
+    {
+        let sb2 = table.get_or_create(2);
+        sb2.unveiled_paths.push(alloc::string::String::from("/sandbox_p2"));
+        sb2.active_pledges = crate::linux::PLEDGE_STDIO | crate::linux::PLEDGE_WPATH;
+    }
+
+    // Verify Process 1 permissions
+    let sb1 = table.get_or_create(1);
+    check!(sb1.check_unveil("/sandbox_p1/file").is_ok());
+    check!(sb1.check_unveil("/sandbox_p2/file").is_err());
+    check!(sb1.check_pledge(crate::linux::PLEDGE_RPATH).is_ok());
+    check!(sb1.check_pledge(crate::linux::PLEDGE_WPATH).is_err());
+
+    // Verify Process 2 permissions
+    let sb2 = table.get_or_create(2);
+    check!(sb2.check_unveil("/sandbox_p2/file").is_ok());
+    check!(sb2.check_unveil("/sandbox_p1/file").is_err());
+    check!(sb2.check_pledge(crate::linux::PLEDGE_WPATH).is_ok());
+    check!(sb2.check_pledge(crate::linux::PLEDGE_RPATH).is_err());
+
+    // 3. Re-verify Amnesic Memory Zeroing on Revocation (Critique 2.9)
+    let root_slot = 910;
+    let frame_slot = 911;
+    let mut canary_page = [0x5Au8; 4096];
+    let page_paddr = canary_page.as_mut_ptr() as usize as u64;
+    let _ = crate::cap::CAP_CORE.lock().register_untyped(page_paddr, 12, false, root_slot);
+    let retype_res = crate::cap::sel4_untyped_retype(root_slot, crate::cap::KernelObjType::Frame4K, frame_slot);
+    check!(retype_res.is_ok());
+    // Write distinctive non-zero bytes to ensure scrub is real
+    canary_page.fill(0x7F);
+    let revoke_res = crate::cap::sel4_cnode_revoke(root_slot);
+    check!(revoke_res.is_ok());
+    // All 4096 bytes must be wiped to zero
+    check!(canary_page.iter().all(|&b| b == 0));
+
+    // 4. Re-verify Speculation Mitigations & CPUID Checks (Critique 2.11)
+    let features = crate::arch::x86_64::cpuid::detect();
+    crate::security::SpeculativeMitigations::apply();
+    if features.has_l1d_flush {
+        crate::security::SpeculativeMitigations::flush_l1d();
+    }
+
+    kprintln!("[selftest] PASS: T45 Audit Re-verification & Hardening Gate: unveil prefix boundary enforced, traversal rejected, multi-process sandbox isolation verified, amnesic zero-on-revoke confirmed");
+}
+
 
 

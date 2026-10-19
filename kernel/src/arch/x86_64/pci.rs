@@ -16,7 +16,7 @@ const PCI_CONFIG_ADDRESS: u16 = 0xCF8;
 const PCI_CONFIG_DATA: u16 = 0xCFC;
 
 #[inline(always)]
-pub(crate) unsafe fn outb(port: u16, val: u8) {
+pub(crate) fn outb(port: u16, val: u8) {
     unsafe {
         core::arch::asm!(
             "out dx, al",
@@ -28,7 +28,7 @@ pub(crate) unsafe fn outb(port: u16, val: u8) {
 }
 
 #[inline(always)]
-pub(crate) unsafe fn inb(port: u16) -> u8 {
+pub(crate) fn inb(port: u16) -> u8 {
     let val: u8;
     unsafe {
         core::arch::asm!(
@@ -42,7 +42,7 @@ pub(crate) unsafe fn inb(port: u16) -> u8 {
 }
 
 #[inline(always)]
-pub(crate) unsafe fn outw(port: u16, val: u16) {
+pub(crate) fn outw(port: u16, val: u16) {
     unsafe {
         core::arch::asm!(
             "out dx, ax",
@@ -54,7 +54,7 @@ pub(crate) unsafe fn outw(port: u16, val: u16) {
 }
 
 #[inline(always)]
-pub(crate) unsafe fn inw(port: u16) -> u16 {
+pub(crate) fn inw(port: u16) -> u16 {
     let val: u16;
     unsafe {
         core::arch::asm!(
@@ -68,7 +68,7 @@ pub(crate) unsafe fn inw(port: u16) -> u16 {
 }
 
 #[inline(always)]
-pub(crate) unsafe fn outl(port: u16, val: u32) {
+pub(crate) fn outl(port: u16, val: u32) {
     unsafe {
         core::arch::asm!(
             "out dx, eax",
@@ -80,7 +80,7 @@ pub(crate) unsafe fn outl(port: u16, val: u32) {
 }
 
 #[inline(always)]
-pub(crate) unsafe fn inl(port: u16) -> u32 {
+pub(crate) fn inl(port: u16) -> u32 {
     let val: u32;
     unsafe {
         core::arch::asm!(
@@ -94,50 +94,46 @@ pub(crate) unsafe fn inl(port: u16) -> u32 {
 }
 
 /// Reads a 32-bit dword from PCI configuration space.
-pub unsafe fn pci_read_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
+pub fn pci_read_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     let address = ((bus as u32) << 16)
         | ((slot as u32) << 11)
         | ((func as u32) << 8)
         | ((offset as u32) & 0xFC)
         | 0x8000_0000;
-    unsafe {
-        outl(PCI_CONFIG_ADDRESS, address);
-        inl(PCI_CONFIG_DATA)
-    }
+    outl(PCI_CONFIG_ADDRESS, address);
+    inl(PCI_CONFIG_DATA)
 }
 
 /// Reads a 16-bit word from PCI configuration space.
-pub unsafe fn pci_read_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
-    let val = unsafe { pci_read_u32(bus, slot, func, offset) };
+pub fn pci_read_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
+    let val = pci_read_u32(bus, slot, func, offset);
     ((val >> ((offset & 2) * 8)) & 0xFFFF) as u16
 }
 
 /// Reads an 8-bit byte from PCI configuration space.
-pub unsafe fn pci_read_u8(bus: u8, slot: u8, func: u8, offset: u8) -> u8 {
-    let val = unsafe { pci_read_u32(bus, slot, func, offset) };
+pub fn pci_read_u8(bus: u8, slot: u8, func: u8, offset: u8) -> u8 {
+    let val = pci_read_u32(bus, slot, func, offset);
     ((val >> ((offset & 3) * 8)) & 0xFF) as u8
 }
 
 /// Writes a 32-bit dword to PCI configuration space.
-pub unsafe fn pci_write_u32(bus: u8, slot: u8, func: u8, offset: u8, val: u32) {
+pub fn pci_write_u32(bus: u8, slot: u8, func: u8, offset: u8, val: u32) {
     let address = ((bus as u32) << 16)
         | ((slot as u32) << 11)
         | ((func as u32) << 8)
         | ((offset as u32) & 0xFC)
         | 0x8000_0000;
-    unsafe {
-        outl(PCI_CONFIG_ADDRESS, address);
-        outl(PCI_CONFIG_DATA, val);
-    }
+    outl(PCI_CONFIG_ADDRESS, address);
+    outl(PCI_CONFIG_DATA, val);
 }
 
 /// Writes a 16-bit word to PCI configuration space.
-pub unsafe fn pci_write_u16(bus: u8, slot: u8, func: u8, offset: u8, val: u16) {
-    let old = unsafe { pci_read_u32(bus, slot, func, offset) };
+pub fn pci_write_u16(bus: u8, slot: u8, func: u8, offset: u8, val: u16) {
+    let old = pci_read_u32(bus, slot, func, offset);
     let shift = ((offset & 2) * 8) as u32;
     let mask = !(0xFFFF_u32 << shift);
     let new_val = (old & mask) | ((val as u32) << shift);
-    unsafe { pci_write_u32(bus, slot, func, offset, new_val) };
+    pci_write_u32(bus, slot, func, offset, new_val);
 }
 
 /// Discovered PCI Device descriptor.
@@ -309,8 +305,8 @@ impl PciDevice {
 
 /// Enables Bus Mastering and MMIO/IO spaces for a PCI device.
 pub fn enable_bus_master(bus: u8, slot: u8, func: u8) {
-    let cmd = unsafe { pci_read_u16(bus, slot, func, 0x04) };
-    unsafe { pci_write_u16(bus, slot, func, 0x04, cmd | 0x0007) };
+    let cmd = pci_read_u16(bus, slot, func, 0x04);
+    pci_write_u16(bus, slot, func, 0x04, cmd | 0x0007);
 }
 
 /// Scans PCI buses 0..8, slots 0..32, functions 0..8 and returns all active devices.
@@ -320,30 +316,30 @@ pub fn scan_bus() -> Vec<PciDevice> {
     for bus in 0..8u8 {
         for slot in 0..32u8 {
             // Function 0
-            let vendor_id = unsafe { pci_read_u16(bus, slot, 0, 0) };
+            let vendor_id = pci_read_u16(bus, slot, 0, 0);
             if vendor_id == 0xFFFF || vendor_id == 0x0000 {
                 continue; // No device present
             }
 
-            let header_type = unsafe { pci_read_u8(bus, slot, 0, 0x0E) };
+            let header_type = pci_read_u8(bus, slot, 0, 0x0E);
             let max_func = if (header_type & 0x80) != 0 { 8 } else { 1 };
 
             for func in 0..max_func {
-                let v_id = unsafe { pci_read_u16(bus, slot, func, 0) };
+                let v_id = pci_read_u16(bus, slot, func, 0);
                 if v_id == 0xFFFF || v_id == 0x0000 {
                     continue;
                 }
-                let d_id = unsafe { pci_read_u16(bus, slot, func, 2) };
-                let class_id = unsafe { pci_read_u8(bus, slot, func, 0x0B) };
-                let subclass_id = unsafe { pci_read_u8(bus, slot, func, 0x0A) };
-                let prog_if = unsafe { pci_read_u8(bus, slot, func, 0x09) };
-                let irq_line = unsafe { pci_read_u8(bus, slot, func, 0x3C) };
-                let bar0 = unsafe { pci_read_u32(bus, slot, func, 0x10) };
-                let bar1 = unsafe { pci_read_u32(bus, slot, func, 0x14) };
-                let bar2 = unsafe { pci_read_u32(bus, slot, func, 0x18) };
-                let bar3 = unsafe { pci_read_u32(bus, slot, func, 0x1C) };
-                let bar4 = unsafe { pci_read_u32(bus, slot, func, 0x20) };
-                let bar5 = unsafe { pci_read_u32(bus, slot, func, 0x24) };
+                let d_id = pci_read_u16(bus, slot, func, 2);
+                let class_id = pci_read_u8(bus, slot, func, 0x0B);
+                let subclass_id = pci_read_u8(bus, slot, func, 0x0A);
+                let prog_if = pci_read_u8(bus, slot, func, 0x09);
+                let irq_line = pci_read_u8(bus, slot, func, 0x3C);
+                let bar0 = pci_read_u32(bus, slot, func, 0x10);
+                let bar1 = pci_read_u32(bus, slot, func, 0x14);
+                let bar2 = pci_read_u32(bus, slot, func, 0x18);
+                let bar3 = pci_read_u32(bus, slot, func, 0x1C);
+                let bar4 = pci_read_u32(bus, slot, func, 0x20);
+                let bar5 = pci_read_u32(bus, slot, func, 0x24);
 
                 devices.push(PciDevice {
                     bus,
@@ -399,22 +395,22 @@ pub fn find_virtio_gpu() -> Option<PciDevice> {
 pub fn find_display_bar0() -> Option<u64> {
     for bus in 0..8u8 {
         for slot in 0..32u8 {
-            let vendor_id = unsafe { pci_read_u16(bus, slot, 0, 0) };
+            let vendor_id = pci_read_u16(bus, slot, 0, 0);
             if vendor_id == 0xFFFF || vendor_id == 0x0000 {
                 continue;
             }
 
-            let header_type = unsafe { pci_read_u8(bus, slot, 0, 0x0E) };
+            let header_type = pci_read_u8(bus, slot, 0, 0x0E);
             let max_func = if (header_type & 0x80) != 0 { 8 } else { 1 };
 
             for func in 0..max_func {
-                let v_id = unsafe { pci_read_u16(bus, slot, func, 0) };
+                let v_id = pci_read_u16(bus, slot, func, 0);
                 if v_id == 0xFFFF || v_id == 0x0000 {
                     continue;
                 }
-                let d_id = unsafe { pci_read_u16(bus, slot, func, 2) };
-                let class_id = unsafe { pci_read_u8(bus, slot, func, 0x0B) };
-                let subclass_id = unsafe { pci_read_u8(bus, slot, func, 0x0A) };
+                let d_id = pci_read_u16(bus, slot, func, 2);
+                let class_id = pci_read_u8(bus, slot, func, 0x0B);
+                let subclass_id = pci_read_u8(bus, slot, func, 0x0A);
 
                 // Match Bochs/QEMU VGA (1234:1111), VBox VGA (80EE:BEEF), or Class 0x03 (Display)
                 if (v_id == 0x1234 && d_id == 0x1111)
@@ -422,10 +418,10 @@ pub fn find_display_bar0() -> Option<u64> {
                     || (class_id == 0x03 && subclass_id == 0x00)
                 {
                     // Enable Memory Space (bit 1), I/O Space (bit 0), Bus Master (bit 2)
-                    let cmd = unsafe { pci_read_u16(bus, slot, func, 0x04) };
-                    unsafe { pci_write_u16(bus, slot, func, 0x04, cmd | 0x0007) };
+                    let cmd = pci_read_u16(bus, slot, func, 0x04);
+                    pci_write_u16(bus, slot, func, 0x04, cmd | 0x0007);
 
-                    let bar0 = unsafe { pci_read_u32(bus, slot, func, 0x10) };
+                    let bar0 = pci_read_u32(bus, slot, func, 0x10);
                     let paddr = (bar0 & 0xFFFF_FFF0) as u64;
                     if paddr != 0 {
                         return Some(paddr);

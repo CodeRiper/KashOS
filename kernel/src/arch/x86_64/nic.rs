@@ -369,50 +369,48 @@ impl VirtioNetDevice {
             return Err("Invalid I/O port base");
         }
 
-        unsafe {
-            // 1. Reset device
-            crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, 0);
+        // 1. Reset device
+        crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, 0);
 
-            // 2. Acknowledge device
-            crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE);
+        // 2. Acknowledge device
+        crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE);
 
-            // 3. Set Driver status
-            crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER);
+        // 3. Set Driver status
+        crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER);
 
-            // 4. Read MAC address from VirtIO config space (offset 0x14..0x19)
-            for i in 0..6 {
-                let byte = crate::arch::x86_64::pci::inb(self.io_base + 0x14 + i as u16);
-                if byte != 0 && byte != 0xFF {
-                    self.mac_address[i] = byte;
-                }
+        // 4. Read MAC address from VirtIO config space (offset 0x14..0x19)
+        for i in 0..6 {
+            let byte = crate::arch::x86_64::pci::inb(self.io_base + 0x14 + i as u16);
+            if byte != 0 && byte != 0xFF {
+                self.mac_address[i] = byte;
             }
-
-            // 5. Setup RX Virtqueue (Queue 0)
-            crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_SEL, 0);
-            let rx_phys = self.rx_desc.as_ptr() as usize as u32;
-            crate::arch::x86_64::pci::outl(self.io_base + VIRTIO_PCI_QUEUE_PFN, rx_phys >> 12);
-
-            // Populate RX Descriptors
-            for i in 0..8 {
-                let buf_phys = self.rx_buffers[i].as_ptr() as usize as u64;
-                self.rx_desc[i].addr = buf_phys;
-                self.rx_desc[i].len = 1536;
-                self.rx_desc[i].flags = VIRTQ_DESC_F_WRITE;
-                self.rx_avail.ring[i] = i as u16;
-            }
-            self.rx_avail.idx = 8;
-
-            // 6. Setup TX Virtqueue (Queue 1)
-            crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_SEL, 1);
-            let tx_phys = self.tx_desc.as_ptr() as usize as u32;
-            crate::arch::x86_64::pci::outl(self.io_base + VIRTIO_PCI_QUEUE_PFN, tx_phys >> 12);
-
-            // 7. Driver OK
-            crate::arch::x86_64::pci::outb(
-                self.io_base + VIRTIO_PCI_STATUS,
-                VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_DRIVER_OK,
-            );
         }
+
+        // 5. Setup RX Virtqueue (Queue 0)
+        crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_SEL, 0);
+        let rx_phys = self.rx_desc.as_ptr() as usize as u32;
+        crate::arch::x86_64::pci::outl(self.io_base + VIRTIO_PCI_QUEUE_PFN, rx_phys >> 12);
+
+        // Populate RX Descriptors
+        for i in 0..8 {
+            let buf_phys = self.rx_buffers[i].as_ptr() as usize as u64;
+            self.rx_desc[i].addr = buf_phys;
+            self.rx_desc[i].len = 1536;
+            self.rx_desc[i].flags = VIRTQ_DESC_F_WRITE;
+            self.rx_avail.ring[i] = i as u16;
+        }
+        self.rx_avail.idx = 8;
+
+        // 6. Setup TX Virtqueue (Queue 1)
+        crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_SEL, 1);
+        let tx_phys = self.tx_desc.as_ptr() as usize as u32;
+        crate::arch::x86_64::pci::outl(self.io_base + VIRTIO_PCI_QUEUE_PFN, tx_phys >> 12);
+
+        // 7. Driver OK
+        crate::arch::x86_64::pci::outb(
+            self.io_base + VIRTIO_PCI_STATUS,
+            VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_DRIVER_OK,
+        );
 
         self.is_up = true;
         crate::kprintln!(
@@ -448,10 +446,8 @@ impl VirtioNetDevice {
         self.tx_avail.idx = self.tx_avail.idx.wrapping_add(1);
 
         if self.io_base != 0 {
-            unsafe {
-                // Notify TX queue (Queue 1)
-                crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_NOTIFY, 1);
-            }
+            // Notify TX queue (Queue 1)
+            crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_NOTIFY, 1);
         }
 
         self.tx_cur = (self.tx_cur + 1) % 8;
@@ -564,36 +560,34 @@ impl Rtl8139Device {
         if self.io_base == 0 {
             return Err("Invalid I/O port base");
         }
-        unsafe {
-            // Power on device (Config1 = 0)
-            crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CONFIG1, 0x00);
+        // Power on device (Config1 = 0)
+        crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CONFIG1, 0x00);
 
-            // Software reset
-            crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CR, RTL8139_CR_RST);
-            let mut spins = 0;
-            while (crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_CR) & RTL8139_CR_RST) != 0 {
-                spins += 1;
-                if spins > 100_000 {
-                    break;
-                }
+        // Software reset
+        crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CR, RTL8139_CR_RST);
+        let mut spins = 0;
+        while (crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_CR) & RTL8139_CR_RST) != 0 {
+            spins += 1;
+            if spins > 100_000 {
+                break;
             }
-
-            // Read hardware MAC address from ports io_base + 0..5
-            for i in 0..6 {
-                self.mac_address[i] = crate::arch::x86_64::pci::inb(self.io_base + i as u16);
-            }
-
-            // Program RX buffer physical address
-            let rx_phys = self.rx_buffer.as_ptr() as usize as u32;
-            crate::arch::x86_64::pci::outl(self.io_base + RTL8139_REG_RBSTART, rx_phys);
-
-            // Program Receive Configuration Register: Accept Broadcast, Multicast, Match, All, WRAP
-            let rcr = RTL8139_RCR_AAP | RTL8139_RCR_APM | RTL8139_RCR_AM | RTL8139_RCR_AB | RTL8139_RCR_WRAP;
-            crate::arch::x86_64::pci::outl(self.io_base + RTL8139_REG_RCR, rcr);
-
-            // Enable Transmitter and Receiver
-            crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CR, RTL8139_CR_RE | RTL8139_CR_TE);
         }
+
+        // Read hardware MAC address from ports io_base + 0..5
+        for i in 0..6 {
+            self.mac_address[i] = crate::arch::x86_64::pci::inb(self.io_base + i as u16);
+        }
+
+        // Program RX buffer physical address
+        let rx_phys = self.rx_buffer.as_ptr() as usize as u32;
+        crate::arch::x86_64::pci::outl(self.io_base + RTL8139_REG_RBSTART, rx_phys);
+
+        // Program Receive Configuration Register: Accept Broadcast, Multicast, Match, All, WRAP
+        let rcr = RTL8139_RCR_AAP | RTL8139_RCR_APM | RTL8139_RCR_AM | RTL8139_RCR_AB | RTL8139_RCR_WRAP;
+        crate::arch::x86_64::pci::outl(self.io_base + RTL8139_REG_RCR, rcr);
+
+        // Enable Transmitter and Receiver
+        crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CR, RTL8139_CR_RE | RTL8139_CR_TE);
         self.is_up = true;
         crate::kprintln!(
             "[rtl8139] Realtek RTL8139 Fast Ethernet ready at Port {:#x} — MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
@@ -616,7 +610,7 @@ impl Rtl8139Device {
         let tsd_port = self.io_base + RTL8139_REG_TSD0 + (desc as u16 * 4);
         let tsad_port = self.io_base + RTL8139_REG_TSAD0 + (desc as u16 * 4);
 
-        let tsd = unsafe { crate::arch::x86_64::pci::inl(tsd_port) };
+        let tsd = crate::arch::x86_64::pci::inl(tsd_port);
         if (tsd & RTL8139_TSD_OWN) == 0 && (tsd & RTL8139_TSD_TOK) == 0 && tsd != 0 {
             return Err(());
         }
@@ -624,10 +618,8 @@ impl Rtl8139Device {
         self.tx_buffers[desc][..frame.len()].copy_from_slice(frame);
         let tx_phys = self.tx_buffers[desc].as_ptr() as usize as u32;
 
-        unsafe {
-            crate::arch::x86_64::pci::outl(tsad_port, tx_phys);
-            crate::arch::x86_64::pci::outl(tsd_port, frame.len() as u32);
-        }
+        crate::arch::x86_64::pci::outl(tsad_port, tx_phys);
+        crate::arch::x86_64::pci::outl(tsd_port, frame.len() as u32);
 
         self.tx_cur = (self.tx_cur + 1) % 4;
         self.packets_tx.fetch_add(1, Ordering::Relaxed);
@@ -640,7 +632,7 @@ impl Rtl8139Device {
             return None;
         }
 
-        let cr = unsafe { crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_CR) };
+        let cr = crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_CR);
         if (cr & RTL8139_CR_BUFE) != 0 {
             return None;
         }
@@ -670,9 +662,7 @@ impl Rtl8139Device {
         self.rx_offset = (self.rx_offset + length + 4 + 3) & !3;
         self.rx_offset %= 8192;
 
-        unsafe {
-            crate::arch::x86_64::pci::outw(self.io_base + RTL8139_REG_CAPR, (self.rx_offset as u16).wrapping_sub(16));
-        }
+        crate::arch::x86_64::pci::outw(self.io_base + RTL8139_REG_CAPR, (self.rx_offset as u16).wrapping_sub(16));
 
         self.packets_rx.fetch_add(1, Ordering::Relaxed);
         self.bytes_rx.fetch_add(copy_len as u64, Ordering::Relaxed);
@@ -683,7 +673,7 @@ impl Rtl8139Device {
         if self.io_base == 0 {
             return self.is_up;
         }
-        let msr = unsafe { crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_MSR) };
+        let msr = crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_MSR);
         (msr & (1 << 2)) == 0
     }
 }
