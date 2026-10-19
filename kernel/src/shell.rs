@@ -1439,13 +1439,13 @@ impl KashShell {
             "reboot" => {
                 kprintln!("[power] Initiating clean system reboot...");
                 crate::security::scrub_all_amnesic_ram();
-                crate::arch::shutdown(false);
+                crate::arch::reboot();
             }
 
             "poweroff" | "shutdown" => {
                 kprintln!("[power] Initiating clean system poweroff...");
                 crate::security::scrub_all_amnesic_ram();
-                crate::arch::shutdown(true);
+                crate::arch::shutdown(false);
             }
 
             "lspci" => {

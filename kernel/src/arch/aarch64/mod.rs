@@ -74,6 +74,22 @@ pub fn shutdown(failure: bool) -> ! {
     }
 }
 
+pub fn reboot() -> ! {
+    // QEMU virt PSCI system reset via SMCCC (HVC call). PSCI SYSTEM_RESET = 0x84000009.
+    unsafe {
+        core::arch::asm!(
+            "mov x0, #0x0009",
+            "movk x0, #0x8400, lsl #16",
+            "hvc #0",
+            out("x0") _,
+            options(nomem, nostack)
+        );
+    }
+    loop {
+        unsafe { core::arch::asm!("wfe", options(nomem, nostack)); }
+    }
+}
+
 pub fn clear_screen() {
     uart::clear_screen();
 }

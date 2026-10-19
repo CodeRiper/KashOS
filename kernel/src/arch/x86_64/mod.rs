@@ -81,9 +81,13 @@ pub fn kernel_end() -> u64 {
     core::ptr::addr_of!(__kernel_end) as u64
 }
 
-// ── Shutdown ─────────────────────────────────────────────────────────────────
+// ── Shutdown & Reboot ────────────────────────────────────────────────────────
 pub fn shutdown(failure: bool) -> ! {
-    apic::shutdown_qemu(failure)
+    acpi::poweroff(failure)
+}
+
+pub fn reboot() -> ! {
+    acpi::reboot()
 }
 
 pub fn clear_screen() {
