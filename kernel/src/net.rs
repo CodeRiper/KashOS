@@ -207,6 +207,11 @@ impl NetworkService {
         self.stack.connect(socket_id, remote_ip, remote_port).map_err(|_| NetError::ConnectionFailed)
     }
 
+    /// Advances TCP socket through 3-way handshake upon peer SYN-ACK.
+    pub fn advance_handshake(&mut self, socket_id: u32) -> Result<(), NetError> {
+        self.stack.advance_handshake(socket_id).map_err(|_| NetError::ConnectionFailed)
+    }
+
     /// Closes a socket handle.
     pub fn close_socket(&mut self, socket_id: u32) {
         self.stack.close(socket_id);
@@ -348,7 +353,7 @@ impl NetworkService {
             };
             let state_str = match sock.state {
                 TcpState::Listen => "LISTEN",
-                TcpState::Established => "ESTABLISHED",
+                TcpState::Connected => "ESTABLISHED",
                 TcpState::SynSent => "SYN_SENT",
                 TcpState::Closed => "CLOSED",
                 _ => "TIME_WAIT",
@@ -450,6 +455,13 @@ pub fn connect(socket_id: u32, remote_ip: [u8; 4], remote_port: u16) -> Result<(
     let mut net_lock = NET_SERVICE.lock();
     let service = net_lock.as_mut().ok_or(NetError::NotInitialized)?;
     service.connect_socket(socket_id, remote_ip, remote_port)
+}
+
+/// Advances a socket through 3-way TCP handshake upon receiving SYN-ACK.
+pub fn advance_handshake(socket_id: u32) -> Result<(), NetError> {
+    let mut net_lock = NET_SERVICE.lock();
+    let service = net_lock.as_mut().ok_or(NetError::NotInitialized)?;
+    service.advance_handshake(socket_id)
 }
 
 /// Closes a socket.

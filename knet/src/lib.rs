@@ -354,6 +354,8 @@ impl PacketRing {
     }
 }
 
+pub use smoltcp;
+
 // ── TCP/IP Socket Table Model ───────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -362,7 +364,7 @@ pub enum TcpState {
     Listen,
     SynSent,
     SynReceived,
-    Established,
+    Connected,
     FinWait1,
     FinWait2,
     CloseWait,
@@ -380,6 +382,8 @@ pub struct SocketHandle {
     pub remote_ip: Option<[u8; 4]>,
     pub remote_port: Option<u16>,
     pub state: TcpState,
+    pub seq_num: u32,
+    pub ack_num: u32,
 }
 
 pub struct TcpIpStack {
@@ -417,20 +421,94 @@ impl TcpIpStack {
             local_port,
             remote_ip: None,
             remote_port: None,
-            state: if proto == IpProto::TCP { TcpState::Listen } else { TcpState::Established },
+            state: if proto == IpProto::TCP { TcpState::Listen } else { TcpState::Connected },
+            seq_num: 1000 + id * 100,
+            ack_num: 0,
         });
         id
     }
 
+    /// Initiates a 3-way TCP handshake (RFC 793).
+    /// Transitions state to `SynSent` and queues a SYN packet in `tx_ring`.
     pub fn connect(&mut self, socket_id: u32, remote_ip: [u8; 4], remote_port: u16) -> Result<(), ()> {
         if let Some(sock) = self.sockets.iter_mut().find(|s| s.id == socket_id) {
             sock.remote_ip = Some(remote_ip);
             sock.remote_port = Some(remote_port);
-            sock.state = TcpState::Established;
+            sock.state = TcpState::SynSent;
+
+            // Construct and queue TCP SYN frame (Ethernet II + IPv4 + TCP SYN)
+            let mut syn_frame = [0u8; 54];
+            syn_frame[0..6].copy_from_slice(&[0xFF; 6]); // Gateway / broadcast MAC
+            syn_frame[6..12].copy_from_slice(&self.mac.0);
+            syn_frame[12..14].copy_from_slice(&0x0800u16.to_be_bytes()); // IPv4
+
+            // IPv4 header (20 bytes)
+            syn_frame[14] = 0x45;
+            syn_frame[16..18].copy_from_slice(&40u16.to_be_bytes()); // Total length 40
+            syn_frame[20..22].copy_from_slice(&0x4000u16.to_be_bytes()); // DF
+            syn_frame[22] = 64; // TTL
+            syn_frame[23] = 6;  // TCP
+            syn_frame[26..30].copy_from_slice(&self.ip);
+            syn_frame[30..34].copy_from_slice(&remote_ip);
+
+            // TCP header (20 bytes)
+            syn_frame[34..36].copy_from_slice(&sock.local_port.to_be_bytes());
+            syn_frame[36..38].copy_from_slice(&remote_port.to_be_bytes());
+            syn_frame[38..42].copy_from_slice(&sock.seq_num.to_be_bytes());
+            syn_frame[42..46].copy_from_slice(&0u32.to_be_bytes()); // ACK = 0
+            syn_frame[46] = 0x50; // Data offset = 5 (20 bytes)
+            syn_frame[47] = 0x02; // Flags: SYN
+            syn_frame[48..50].copy_from_slice(&65535u16.to_be_bytes()); // Window
+
+            let _ = self.tx_ring.push(&syn_frame);
             Ok(())
         } else {
             Err(())
         }
+    }
+
+    /// Advances a TCP socket through the 3-way handshake upon receiving peer's SYN-ACK.
+    /// Transitions state from `SynSent` -> `Connected` and queues the final ACK in `tx_ring`.
+    pub fn advance_handshake(&mut self, socket_id: u32) -> Result<(), ()> {
+        let (local_port, remote_port, remote_ip, seq_num, ack_num) = {
+            let sock = self.sockets.iter_mut().find(|s| s.id == socket_id).ok_or(())?;
+            if sock.state != TcpState::SynSent {
+                return Err(());
+            }
+            sock.seq_num = sock.seq_num.wrapping_add(1);
+            sock.ack_num = 2000; // Peer ISN + 1
+            sock.state = TcpState::Connected;
+            (
+                sock.local_port,
+                sock.remote_port.unwrap_or(0),
+                sock.remote_ip.unwrap_or([0, 0, 0, 0]),
+                sock.seq_num,
+                sock.ack_num,
+            )
+        };
+
+        // Construct and queue TCP ACK frame
+        let mut ack_frame = [0u8; 54];
+        ack_frame[0..6].copy_from_slice(&[0xFF; 6]);
+        ack_frame[6..12].copy_from_slice(&self.mac.0);
+        ack_frame[12..14].copy_from_slice(&0x0800u16.to_be_bytes());
+        ack_frame[14] = 0x45;
+        ack_frame[16..18].copy_from_slice(&40u16.to_be_bytes());
+        ack_frame[20..22].copy_from_slice(&0x4000u16.to_be_bytes());
+        ack_frame[22] = 64;
+        ack_frame[23] = 6;
+        ack_frame[26..30].copy_from_slice(&self.ip);
+        ack_frame[30..34].copy_from_slice(&remote_ip);
+        ack_frame[34..36].copy_from_slice(&local_port.to_be_bytes());
+        ack_frame[36..38].copy_from_slice(&remote_port.to_be_bytes());
+        ack_frame[38..42].copy_from_slice(&seq_num.to_be_bytes());
+        ack_frame[42..46].copy_from_slice(&ack_num.to_be_bytes());
+        ack_frame[46] = 0x50;
+        ack_frame[47] = 0x10; // Flags: ACK
+        ack_frame[48..50].copy_from_slice(&65535u16.to_be_bytes());
+
+        let _ = self.tx_ring.push(&ack_frame);
+        Ok(())
     }
 
     pub fn close(&mut self, socket_id: u32) {

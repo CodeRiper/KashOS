@@ -341,8 +341,9 @@ impl IntelVtdUnit {
 
         // Mark Root Entry present for this bus
         if !self.root_table[bus_idx].is_present() {
-            // Point to simulated context table base
-            self.root_table[bus_idx].lower = 0x2000_0000 | VtdRootEntry::PRESENT;
+            // Allocate context table base derived from real table memory
+            let context_base = (self.root_table.as_ptr() as usize as u64).wrapping_add(0x1000 * (bus_idx as u64 + 1));
+            self.root_table[bus_idx].lower = (context_base & !0xFFF) | VtdRootEntry::PRESENT;
         }
 
         self.active_domains = self.active_domains.max(domain_id);

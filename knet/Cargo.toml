@@ -6,3 +6,4 @@ description = "Phantom Kernel network layer: packet filter, telemetry domain, an
 
 [dependencies]
 khal = { path = "../khal" }
+smoltcp = { version = "0.14", default-features = false, features = ["alloc", "proto-ipv4", "socket-tcp", "socket-udp", "medium-ethernet"] }

@@ -147,9 +147,11 @@ pub fn run(region: MemRegion) {
         s.vtd_iommu = crate::status::ComponentStatus::Real;
         s.ps2_input = crate::status::ComponentStatus::Real;
         s.dde_linux = crate::status::ComponentStatus::Real;
-        s.user_drivers = crate::status::ComponentStatus::Real;
-        s.tpm2_crtm = crate::status::ComponentStatus::Real;
-        s.measured_boot = crate::status::ComponentStatus::Real;
+        s.tpm2_crtm = match crate::arch::get_tpm_status() {
+            stat if stat.starts_with("ACTIVE") => crate::status::ComponentStatus::Real,
+            _ => crate::status::ComponentStatus::NotAvailable,
+        };
+        s.measured_boot = s.tpm2_crtm;
     });
 }
 

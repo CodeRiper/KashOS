@@ -27,43 +27,41 @@ fn reg_folder(c: AppClass) -> Node {
 }
 
 pub fn build_fs() -> Node {
-    d("Kash HD", "Today", alloc::vec![
+    d("Kash Root VFS", "Today", alloc::vec![
         reg_folder(AppClass::Gui),
         reg_folder(AppClass::Cli),
         reg_folder(AppClass::Driver),
         d("Desktop", "Today", alloc::vec![
-            f("capture-0412.pcap", FileKind::Pcap, 48_300_000, "Today"), f("Screenshot 2026-10-11.png", FileKind::Image, 2_410_000, "Today"),
-            f("todo.txt", FileKind::Text, 1_024, "Yesterday"),
-        ]),
-        d("Documents", "Oct 10", alloc::vec![
-            d("Reports", "Oct 10", alloc::vec![
-                f("VAPT-mediaxis.pdf", FileKind::Pdf, 3_420_000, "Oct 2"), f("fleet-scan-summary.pdf", FileKind::Pdf, 1_870_000, "Aug 18"),
-                f("sortex-env-exposure.pdf", FileKind::Pdf, 912_000, "Aug 18"),
-            ]),
-            d("Source", "Oct 8", alloc::vec![
-                f("main.rs", FileKind::Code, 6_100, "Oct 8"), f("kvault.rs", FileKind::Code, 41_300, "Oct 6"), f("space.rs", FileKind::Code, 28_900, "Oct 6"),
-                f("Cargo.toml", FileKind::Text, 612, "Oct 3"),
-            ]),
-            f("KashOS-Architecture.pdf", FileKind::Pdf, 5_240_000, "Sep 22"), f("Resume.docx", FileKind::Doc, 184_000, "Sep 30"),
-            f("CTF-notes.txt", FileKind::Text, 9_300, "Oct 1"),
-        ]),
-        d("Downloads", "Today", alloc::vec![
-            f("kash-os.iso", FileKind::Iso, 11_300_000, "Today"), f("tools.zip", FileKind::Archive, 220_000_000, "Oct 9"),
-            f("wordlists.zip", FileKind::Archive, 1_400_000_000, "Sep 28"), f("kali-nethunter.iso", FileKind::Iso, 3_800_000_000, "Sep 5"),
-        ]),
-        d("Pictures", "Oct 5", alloc::vec![
-            f("golden-gate.png", FileKind::Image, 4_800_000, "Oct 5"), f("hud-concept.png", FileKind::Image, 2_100_000, "Oct 2"),
-            f("desk-setup.jpg", FileKind::Image, 3_300_000, "Sep 20"), f("logo-ghost.png", FileKind::Image, 310_000, "Sep 18"),
-            f("lab-rack.jpg", FileKind::Image, 5_900_000, "Sep 3"),
-        ]),
-        d("Music", "Aug 30", alloc::vec![
-            f("Midnight City.mp3", FileKind::Audio, 8_100_000, "Aug 30"), f("Resonance.mp3", FileKind::Audio, 6_900_000, "Aug 30"),
-            f("Nightcall.mp3", FileKind::Audio, 9_400_000, "Aug 30"),
+            f("Terminal", FileKind::App, 48_100, "Today"),
+            f("OS Installer", FileKind::App, 32_400, "Today"),
+            f("Hardware Report", FileKind::App, 12_000, "Today"),
+            f("Capability Explorer", FileKind::App, 18_200, "Today"),
         ]),
         d("System", "Today", alloc::vec![
-            f("kash-kernel", FileKind::App, 2_400_000, "Today"), f("kcore.cap", FileKind::Doc, 80_000, "Today"), f("kvault.img", FileKind::Archive, 536_870_912, "Today"),
+            f("kash-kernel", FileKind::App, 2_400_000, "Today"),
+            f("kcore.cap", FileKind::Doc, 80_000, "Today"),
+            f("epoch.state", FileKind::Text, 256, "Today"),
+            f("audit.log", FileKind::Text, 4_096, "Today"),
         ]),
-        { let mut v = d("Vault", "Today", alloc::vec![]); v.kind = FileKind::Vault; v },
+        d("Drivers", "Today", alloc::vec![
+            f("e1000.drv", FileKind::Driver, 16_384, "Today"),
+            f("ps2.drv", FileKind::Driver, 8_192, "Today"),
+            f("vtd.drv", FileKind::Driver, 12_288, "Today"),
+            f("tpm2.drv", FileKind::Driver, 14_336, "Today"),
+        ]),
+        d("Etc", "Today", alloc::vec![
+            f("version", FileKind::Text, 6, "Today"),
+            f("hardware.tier", FileKind::Text, 32, "Today"),
+            f("security.policy", FileKind::Text, 512, "Today"),
+        ]),
+        d("Dev", "Today", alloc::vec![
+            f("console", FileKind::Code, 0, "Today"),
+            f("fb0", FileKind::Image, 0, "Today"),
+            f("random", FileKind::Code, 0, "Today"),
+        ]),
+        { let mut v = d("Vault", "Today", alloc::vec![
+            f("kvault.enc", FileKind::Archive, 536_870_912, "Today"),
+        ]); v.kind = FileKind::Vault; v },
     ])
 }
 

@@ -109,9 +109,14 @@ fn tcp_ip_stack_socket_lifecycle() {
     assert_eq!(stack.sockets.len(), 1);
     assert_eq!(stack.sockets[0].state, TcpState::Listen);
 
+    // Initiating connection must transition to SynSent, NOT immediately Established
     assert!(stack.connect(sock_id, [192, 168, 1, 50], 443).is_ok());
-    assert_eq!(stack.sockets[0].state, TcpState::Established);
+    assert_eq!(stack.sockets[0].state, TcpState::SynSent);
     assert_eq!(stack.sockets[0].remote_port, Some(443));
+
+    // Receiving peer SYN-ACK completes the 3-way handshake to Connected
+    assert!(stack.advance_handshake(sock_id).is_ok());
+    assert_eq!(stack.sockets[0].state, TcpState::Connected);
 
     stack.close(sock_id);
     assert_eq!(stack.sockets.len(), 0);

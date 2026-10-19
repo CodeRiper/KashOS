@@ -329,13 +329,13 @@ core::arch::asm!("wbinvd", ...);
 
 ### 2.12 Hardcoded User Path in `build.rs`
 
-**Critique says:** Remove the `C:\Users\Akash.J\...` path from build.rs.
+**Critique says:** Remove the machine-specific user path from build.rs.
 
 **Verdict: ✅ TRUE**
 
 [build.rs:38](kernel/build.rs#L38):
 ```rust
-} else if std::path::Path::new(r"C:\Users\Akash.J\llvm-mingw\llvm-mingw-20260908-ucrt-x86_64\bin\as.exe").exists() {
+} else if std::path::Path::new(r"C:\Users\<user>\llvm-mingw\llvm-mingw-20260908-ucrt-x86_64\bin\as.exe").exists() {
 ```
 
 This path is machine-specific and will fail for any other developer. Should use environment variables or PATH lookup.
@@ -406,7 +406,7 @@ All 13 critique items have been addressed, verified, and tested across `kcore`, 
 | **2.9** | Revocation zeroing | Implemented `revoke_with_zero` in `kcore::space` which zeroes physical frames upon revocation. | Tested with unit test `revoke_with_zero_clears_memory_immediately` (passes) |
 | **2.10** | Linux sandbox & unveil | Fixed prefix traversal bypass (requires exact match or `/` boundary), added `copy_user_string`, `write_unaligned`, and bounded unveil array to 64 (`E2BIG`). | Verified in `linux.rs` |
 | **2.11** | Speculation mitigations | CPUID leaf 7 EDX checks for IBRS, STIBP, SSBD, L1D_FLUSH. Replaced `wbinvd` with `IA32_FLUSH_CMD`. Set `TcgMor::request_firmware_memory_overwrite()` to `false`. | Verified in `cpuid.rs` and `security.rs` |
-| **2.12** | Hardcoded user path | Removed machine-specific path `C:\Users\Akash.J\...` from `build.rs`. | Clean build on all environments |
+| **2.12** | Hardcoded user path | Removed machine-specific user path from `build.rs`. | Clean build on all environments |
 | **2.13** | `.gitignore` | Created `.gitignore` ignoring `target/`, `*.ppm`, and `*.iso`. | Created in root |
 
 ### Test & Build Verification Summary
