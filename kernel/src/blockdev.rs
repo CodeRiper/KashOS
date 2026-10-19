@@ -14,9 +14,13 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use kblock::{BlockError, IdeChannel, IoOperation, KBlockScheduler, PersistentBlockDriver, SECTOR_SIZE};
+use core::sync::atomic::{AtomicU64, Ordering};
+use kblock::{
+    find_vault_partition, BlockError, DiskPartition, IdeChannel, IoOperation, KBlockScheduler,
+    PersistentBlockDriver, SECTOR_SIZE,
+};
+
+pub use kblock::{DiskPartition as Partition, PartitionRole, PartitionScheme};
 
 pub const DEFAULT_SECTORS: usize = 20_480; // 10 MiB initial partition baseline
 
@@ -152,7 +156,17 @@ pub fn init() {
         };
 
         crate::kprintln!("[kblock] Initializing C-LOOK Elevator Scheduler (64-entry request ring)...");
-        *sched_lock = Some(KBlockScheduler::new(driver));
+        let mut scheduler = KBlockScheduler::new(driver);
+        let partitions = kblock::scan_partitions(scheduler.driver.as_mut()).unwrap_or_default();
+        crate::kprintln!("[kblock] Discovered {} disk partition(s):", partitions.len());
+        for p in &partitions {
+            crate::kprintln!(
+                "  - Partition #{}: {:?} [{:?}] LBA {}..{} ({} sectors, {} KiB)",
+                p.partition_number, p.scheme, p.role, p.start_lba, p.end_lba(),
+                p.sector_count, (p.sector_count * 512) / 1024
+            );
+        }
+        *sched_lock = Some(scheduler);
     }
 }
 
@@ -222,6 +236,25 @@ pub fn get_stats() -> BlockDevStats {
     }
 }
 
+/// Scans partitions on the active hardware block device.
+pub fn scan_partitions() -> Vec<DiskPartition> {
+    let mut sched_lock = SCHEDULER.lock();
+    if let Some(sched) = sched_lock.as_mut() {
+        kblock::scan_partitions(sched.driver.as_mut()).unwrap_or_else(|_| {
+            let cap = sched.driver.capacity_sectors();
+            vec![DiskPartition {
+                partition_number: 1,
+                scheme: PartitionScheme::RawDisk,
+                role: PartitionRole::VaultRoot,
+                start_lba: 0,
+                sector_count: cap,
+            }]
+        })
+    } else {
+        Vec::new()
+    }
+}
+
 /// Persistent Block Device Adapter for kvault::BlockDevice.
 /// Maps 1 x 4 KiB kvault block to 8 contiguous 512B hardware sectors via kblock.
 #[derive(Clone, Copy, Debug)]
@@ -232,11 +265,24 @@ pub struct KBlockDeviceAdapter {
 
 impl KBlockDeviceAdapter {
     pub fn new() -> Self {
-        let stats = get_stats();
-        let total_blocks = (stats.total_sectors / 8).min(256);
-        Self {
-            start_lba: 0,
-            block_count: total_blocks,
+        let partitions = scan_partitions();
+        if let Some(part) = find_vault_partition(&partitions) {
+            let block_count = part.sector_count / 8;
+            crate::kprintln!(
+                "[kblock] KBlockDeviceAdapter bound to Partition #{} (scheme: {:?}, LBA {}..{}, {} 4KiB blocks)",
+                part.partition_number, part.scheme, part.start_lba, part.end_lba(), block_count
+            );
+            Self {
+                start_lba: part.start_lba,
+                block_count,
+            }
+        } else {
+            let stats = get_stats();
+            let total_blocks = (stats.total_sectors / 8).min(256);
+            Self {
+                start_lba: 0,
+                block_count: total_blocks,
+            }
         }
     }
 

@@ -17,12 +17,18 @@ use core::sync::atomic::{AtomicU64, Ordering};
 pub mod ahci;
 pub mod ata_ide;
 pub mod nvme;
+pub mod partition;
 pub mod usb_msc;
 pub mod virtio_blk;
 
 pub use ahci::AhciController;
 pub use ata_ide::IdeChannel;
 pub use nvme::NvmeController;
+pub use partition::{
+    crc32, find_vault_partition, parse_gpt_entries, parse_gpt_header, parse_mbr,
+    scan_partitions, DiskPartition, GptHeader, PartitionRole, PartitionScheme,
+    GUID_ESP, GUID_KASH_BOOT, GUID_KASH_VAULT, GUID_LINUX_DATA,
+};
 pub use usb_msc::{CommandBlockWrapper, CommandStatusWrapper, UsbMassStorageDevice};
 pub use virtio_blk::VirtioBlockDevice;
 
