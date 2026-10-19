@@ -5,6 +5,9 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+pub mod vtd;
+pub use vtd::*;
+
 // ── Console ──────────────────────────────────────────────────────────────────
 
 /// A write-only byte stream to a hardware console (UART, VGA, etc.).

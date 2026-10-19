@@ -14,6 +14,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use khal::{IommuController, PciBdf, PcieAcsFlags};
+pub use khal::vtd::*;
 
 // ── VT-d Register Offsets ───────────────────────────────────────────────────
 
@@ -38,95 +39,6 @@ pub const VTD_GCMD_TE: u32            = 1 << 31; // Translation Enable
 pub const VTD_GCMD_SRTP: u32          = 1 << 30; // Set Root Table Pointer
 pub const VTD_GSTS_TES: u32           = 1 << 31; // Translation Enable Status
 pub const VTD_GSTS_RTPS: u32          = 1 << 30; // Root Table Pointer Status
-
-// ── Root Entry & Context Entry Structures ───────────────────────────────────
-
-/// 128-bit Intel VT-d Root Table Entry (1 per PCI Bus, 256 buses total).
-#[repr(C, align(16))]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct VtdRootEntry {
-    pub lower: u64, // Bits 0: Present, 11:1 Reserved, 63:12 Context Table Base Physical Address (4KB aligned)
-    pub upper: u64, // Reserved (must be 0)
-}
-
-impl VtdRootEntry {
-    pub const PRESENT: u64 = 1 << 0;
-
-    pub fn set_context_table(&mut self, context_phys: u64) {
-        self.lower = (context_phys & !0xFFF) | Self::PRESENT;
-        self.upper = 0;
-    }
-
-    pub fn is_present(&self) -> bool {
-        (self.lower & Self::PRESENT) != 0
-    }
-
-    pub fn context_table_addr(&self) -> u64 {
-        self.lower & !0xFFF
-    }
-}
-
-/// 128-bit Intel VT-d Context Table Entry (1 per Dev:Func on a bus, 256 devices total).
-#[repr(C, align(16))]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct VtdContextEntry {
-    pub lower: u64, // Bits 0: Present, 1: FPD (Fault Processing Disable), 3:2: TT (Translation Type), 63:12: SLPTPTR
-    pub upper: u64, // Bits 66:64: Address Width (001b = 39-bit, 010b = 48-bit), 87:72: Domain ID
-}
-
-impl VtdContextEntry {
-    pub const PRESENT: u64 = 1 << 0;
-    pub const FPD: u64     = 1 << 1;
-    pub const TT_TRANSLATED: u64 = 0b00 << 2;
-    pub const TT_PASSTHROUGH: u64 = 0b01 << 2;
-    pub const AW_39BIT: u64 = 0b001; // 3-level page walk
-    pub const AW_48BIT: u64 = 0b010; // 4-level page walk
-
-    pub fn set_translation(&mut self, slpt_root_phys: u64, domain_id: u16, address_width_48: bool) {
-        self.lower = (slpt_root_phys & !0xFFF) | Self::PRESENT | Self::TT_TRANSLATED;
-        let aw = if address_width_48 { Self::AW_48BIT } else { Self::AW_39BIT };
-        self.upper = (aw & 0x07) | ((domain_id as u64) << 8);
-    }
-
-    pub fn set_passthrough(&mut self, domain_id: u16) {
-        self.lower = Self::PRESENT | Self::TT_PASSTHROUGH;
-        self.upper = (Self::AW_48BIT & 0x07) | ((domain_id as u64) << 8);
-    }
-
-    pub fn is_present(&self) -> bool {
-        (self.lower & Self::PRESENT) != 0
-    }
-}
-
-// ── Second-Level Page Table (SLPT) Structures ───────────────────────────────
-
-/// 64-bit Second-Level Page Table Entry (SLPTE) for DMA memory mapping.
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SlptEntry(pub u64);
-
-impl SlptEntry {
-    pub const READ: u64    = 1 << 0;
-    pub const WRITE: u64   = 1 << 1;
-    pub const PAGE_SIZE: u64 = 1 << 7; // Superpage (2MB / 1GB)
-    pub const SNOOP: u64   = 1 << 11;
-
-    pub fn new_leaf(phys_addr: u64, read: bool, write: bool) -> Self {
-        let mut val = phys_addr & !0xFFF;
-        if read { val |= Self::READ; }
-        if write { val |= Self::WRITE; }
-        val |= Self::SNOOP; // Force hardware cache snooping
-        Self(val)
-    }
-
-    pub fn new_table(table_phys: u64) -> Self {
-        Self((table_phys & !0xFFF) | Self::READ | Self::WRITE)
-    }
-
-    pub fn is_present(&self) -> bool {
-        (self.0 & (Self::READ | Self::WRITE)) != 0
-    }
-}
 
 // ── PCIe Access Control Services (ACS) Verifier ─────────────────────────────
 
@@ -214,39 +126,6 @@ impl PcieAcsVerifier {
 
 use crate::sync::TicketSpinLock;
 use core::sync::atomic::{AtomicU32, Ordering};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VtdFaultReason {
-    RootEntryNotPresent,
-    ContextEntryNotPresent,
-    TranslationNotPresent,
-    WritePermissionViolation,
-    ReadPermissionViolation,
-    PcieAcsViolation,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct VtdFaultRecord {
-    pub fault_addr: u64,
-    pub bdf: PciBdf,
-    pub domain_id: u16,
-    pub is_write: bool,
-    pub reason: VtdFaultReason,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct VtdDomainMapping {
-    pub domain_id: u16,
-    pub bdf: PciBdf,
-    pub guest_phys: u64,
-    pub host_phys: u64,
-    pub size: usize,
-    pub read: bool,
-    pub write: bool,
-}
-
-pub const MAX_SLPT_MAPPINGS: usize = 32;
-
 // ── Intel VT-d Hardware Unit Controller ─────────────────────────────────────
 
 pub struct IntelVtdUnit {
@@ -258,11 +137,11 @@ pub struct IntelVtdUnit {
     pub fault_count: AtomicU32,
     pub fault_status: AtomicU32,
     pub last_fault: TicketSpinLock<Option<VtdFaultRecord>>,
-    pub slpt_mappings: TicketSpinLock<[Option<VtdDomainMapping>; MAX_SLPT_MAPPINGS]>,
+    pub slpt: TicketSpinLock<SlptPageTable>,
 }
 
 impl IntelVtdUnit {
-    pub const fn new(mmio_base: u64) -> Self {
+    pub fn new(mmio_base: u64) -> Self {
         Self {
             mmio_base,
             version: 0x10, // VT-d Architecture 1.0+
@@ -272,7 +151,7 @@ impl IntelVtdUnit {
             fault_count: AtomicU32::new(0),
             fault_status: AtomicU32::new(0),
             last_fault: TicketSpinLock::new(None),
-            slpt_mappings: TicketSpinLock::new([None; MAX_SLPT_MAPPINGS]),
+            slpt: TicketSpinLock::new(SlptPageTable::new()),
         }
     }
 
@@ -327,8 +206,8 @@ impl IntelVtdUnit {
                 }
             }
         } else {
-            // Simulation / Virtual root table tracking
-            self.is_enabled = true;
+            // Rule R1: Never fake is_enabled = true when there is no MMIO base!
+            self.is_enabled = false;
         }
 
         Ok(())
@@ -337,16 +216,10 @@ impl IntelVtdUnit {
     /// Isolate a device's DMA access to an explicit domain and address range.
     pub fn isolate_device(&mut self, bdf: PciBdf, domain_id: u16) {
         let bus_idx = bdf.bus as usize;
-        let _dev_idx = ((bdf.dev as usize) << 3) | (bdf.func as usize);
-
-        // Mark Root Entry present for this bus
-        if !self.root_table[bus_idx].is_present() {
-            // Allocate context table base derived from real table memory
-            let context_base = (self.root_table.as_ptr() as usize as u64).wrapping_add(0x1000 * (bus_idx as u64 + 1));
-            self.root_table[bus_idx].lower = (context_base & !0xFFF) | VtdRootEntry::PRESENT;
-        }
-
+        let context_base = (self.root_table.as_ptr() as usize as u64).wrapping_add(0x1000 * (bus_idx as u64 + 1));
+        self.root_table[bus_idx].set_context_table(context_base);
         self.active_domains = self.active_domains.max(domain_id);
+        self.slpt.lock().bind_device(bdf, domain_id);
     }
 
     /// Map a physical memory region for peripheral device DMA under an isolated domain.
@@ -360,53 +233,15 @@ impl IntelVtdUnit {
         read: bool,
         write: bool,
     ) -> Result<(), ()> {
-        let mut mappings = self.slpt_mappings.lock();
-        // Overwrite existing mapping for this (bdf, domain_id, guest_phys) if present
-        for slot in mappings.iter_mut() {
-            if let Some(ref m) = slot {
-                if m.bdf == bdf && m.domain_id == domain_id && m.guest_phys == guest_phys {
-                    *slot = Some(VtdDomainMapping {
-                        domain_id,
-                        bdf,
-                        guest_phys,
-                        host_phys,
-                        size,
-                        read,
-                        write,
-                    });
-                    return Ok(());
-                }
-            }
-        }
-        // Otherwise find first empty slot
-        for slot in mappings.iter_mut() {
-            if slot.is_none() {
-                *slot = Some(VtdDomainMapping {
-                    domain_id,
-                    bdf,
-                    guest_phys,
-                    host_phys,
-                    size,
-                    read,
-                    write,
-                });
-                return Ok(());
-            }
-        }
-        Err(())
+        self.slpt
+            .lock()
+            .map_dma(bdf, domain_id, guest_phys, host_phys, size, read, write)
+            .map_err(|_| ())
     }
 
     /// Unmap peripheral device DMA region.
-    pub fn unmap_device_dma(&self, bdf: PciBdf, guest_phys: u64, _size: usize) -> Result<(), ()> {
-        let mut mappings = self.slpt_mappings.lock();
-        for slot in mappings.iter_mut() {
-            if let Some(ref m) = slot {
-                if m.bdf == bdf && m.guest_phys == guest_phys {
-                    *slot = None;
-                }
-            }
-        }
-        Ok(())
+    pub fn unmap_device_dma(&self, bdf: PciBdf, guest_phys: u64, size: usize) -> Result<(), ()> {
+        self.slpt.lock().unmap_dma(bdf, guest_phys, size).map_err(|_| ())
     }
 
     /// Translate a DMA transaction through 4-level SLPT. Blocks and records rogue DMA transfers.
@@ -417,65 +252,26 @@ impl IntelVtdUnit {
         guest_phys: u64,
         is_write: bool,
     ) -> Result<u64, VtdFaultReason> {
-        let mappings = self.slpt_mappings.lock();
-        for slot in mappings.iter() {
-            if let Some(ref m) = slot {
-                if m.bdf == bdf && m.domain_id == domain_id {
-                    let end = m.guest_phys + m.size as u64;
-                    if guest_phys >= m.guest_phys && guest_phys < end {
-                        if is_write && !m.write {
-                            let record = VtdFaultRecord {
-                                fault_addr: guest_phys,
-                                bdf,
-                                domain_id,
-                                is_write,
-                                reason: VtdFaultReason::WritePermissionViolation,
-                            };
-                            self.fault_count.fetch_add(1, Ordering::Relaxed);
-                            self.fault_status.fetch_or(1 << 1, Ordering::Relaxed); // PPF
-                            *self.last_fault.lock() = Some(record);
-                            crate::kprintln!(
-                                "[iommu] BLOCKED unauthorized DMA write from PCI {:02x}:{:02x}.{} to {:#018x} (Domain {}, Reason: WritePermissionViolation)",
-                                bdf.bus, bdf.dev, bdf.func, guest_phys, domain_id
-                            );
-                            return Err(VtdFaultReason::WritePermissionViolation);
-                        }
-                        if !is_write && !m.read {
-                            let record = VtdFaultRecord {
-                                fault_addr: guest_phys,
-                                bdf,
-                                domain_id,
-                                is_write,
-                                reason: VtdFaultReason::ReadPermissionViolation,
-                            };
-                            self.fault_count.fetch_add(1, Ordering::Relaxed);
-                            self.fault_status.fetch_or(1 << 1, Ordering::Relaxed);
-                            *self.last_fault.lock() = Some(record);
-                            return Err(VtdFaultReason::ReadPermissionViolation);
-                        }
-                        let offset = guest_phys - m.guest_phys;
-                        return Ok(m.host_phys + offset);
-                    }
-                }
+        match self.slpt.lock().translate_dma(bdf, domain_id, guest_phys, is_write) {
+            Ok(translated) => Ok(translated),
+            Err(reason) => {
+                let record = VtdFaultRecord {
+                    fault_addr: guest_phys,
+                    bdf,
+                    domain_id,
+                    is_write,
+                    reason,
+                };
+                self.fault_count.fetch_add(1, Ordering::Relaxed);
+                self.fault_status.fetch_or(1 << 1, Ordering::Relaxed); // Primary Pending Fault (PPF)
+                *self.last_fault.lock() = Some(record);
+                crate::kprintln!(
+                    "[iommu] BLOCKED unauthorized DMA transfer from PCI {:02x}:{:02x}.{} to {:#018x} (Domain {}, Reason: {:?})",
+                    bdf.bus, bdf.dev, bdf.func, guest_phys, domain_id, reason
+                );
+                Err(reason)
             }
         }
-
-        // Rogue DMA access outside granted SLPT window: trap and log containment!
-        let record = VtdFaultRecord {
-            fault_addr: guest_phys,
-            bdf,
-            domain_id,
-            is_write,
-            reason: VtdFaultReason::TranslationNotPresent,
-        };
-        self.fault_count.fetch_add(1, Ordering::Relaxed);
-        self.fault_status.fetch_or(1 << 1, Ordering::Relaxed); // PPF
-        *self.last_fault.lock() = Some(record);
-        crate::kprintln!(
-            "[iommu] BLOCKED unauthorized DMA transfer from PCI {:02x}:{:02x}.{} to {:#018x} (Domain {}, Reason: TranslationNotPresent)",
-            bdf.bus, bdf.dev, bdf.func, guest_phys, domain_id
-        );
-        Err(VtdFaultReason::TranslationNotPresent)
     }
 
     pub fn last_fault(&self) -> Option<VtdFaultRecord> {
@@ -627,22 +423,39 @@ pub fn init() {
 
     match dmar_opt {
         Some(dmar_phys) => {
-            let mut units = Vec::new();
-            let mut unit = IntelVtdUnit::new(0);
-            let _ = unit.init_hardware();
+            let len = unsafe { core::ptr::read_volatile((dmar_phys + 4) as *const u32) } as usize;
+            let dmar_bytes = unsafe { core::slice::from_raw_parts(dmar_phys as *const u8, len) };
 
-            let pci_devices = crate::arch::scan_pci();
+            let mut units = Vec::new();
             let mut isolated_count = 0;
-            for dev in &pci_devices {
-                if dev.class_id == 0x01 || dev.class_id == 0x02 || dev.class_id == 0x0C {
-                    let bdf = PciBdf::new(dev.bus, dev.slot, dev.func);
-                    let domain_id = (isolated_count + 1) as u16;
-                    unit.isolate_device(bdf, domain_id);
-                    isolated_count += 1;
+
+            if let Ok(parsed_dmar) = khal::vtd::parse_dmar_bytes(dmar_bytes) {
+                let pci_devices = crate::arch::scan_pci();
+                for drhd in parsed_dmar.drhd_units {
+                    if drhd.register_base != 0 {
+                        let mut unit = IntelVtdUnit::new(drhd.register_base);
+                        let _ = unit.init_hardware();
+                        if unit.is_enabled {
+                            for dev in &pci_devices {
+                                let bdf = PciBdf::new(dev.bus, dev.slot, dev.func);
+                                let matches_scope = drhd.include_pci_all
+                                    || drhd.device_scopes.iter().any(|s| {
+                                        s.start_bus == dev.bus && s.dev == dev.slot && s.func == dev.func
+                                    });
+                                if matches_scope
+                                    && (dev.class_id == 0x01 || dev.class_id == 0x02 || dev.class_id == 0x0C)
+                                {
+                                    isolated_count += 1;
+                                    unit.isolate_device(bdf, isolated_count as u16);
+                                }
+                            }
+                            units.push(unit);
+                        }
+                    }
                 }
             }
-            units.push(unit);
 
+            let has_active_units = !units.is_empty();
             unsafe {
                 VTD_STATE = Some(VtdSystemState {
                     units,
@@ -651,11 +464,19 @@ pub fn init() {
                 });
             }
 
-            crate::status::update(|s| s.vtd_iommu = crate::status::ComponentStatus::Real);
-            crate::kprintln!(
-                "[iommu] Intel VT-d DMAR table parsed at {:#x}: ACTIVE ({} domains isolated)",
-                dmar_phys, isolated_count
-            );
+            if has_active_units {
+                crate::status::update(|s| s.vtd_iommu = crate::status::ComponentStatus::Real);
+                crate::kprintln!(
+                    "[iommu] Intel VT-d DMAR table parsed at {:#x}: ACTIVE ({} domains isolated)",
+                    dmar_phys, isolated_count
+                );
+            } else {
+                crate::status::update(|s| s.vtd_iommu = crate::status::ComponentStatus::NotAvailable);
+                crate::kprintln!(
+                    "[iommu] Intel VT-d DMAR table at {:#x} parsed: No active hardware MMIO unit confirmed (Rule R1/R2)",
+                    dmar_phys
+                );
+            }
         }
         None => {
             unsafe {

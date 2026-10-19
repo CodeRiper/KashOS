@@ -144,7 +144,10 @@ pub fn run(region: MemRegion) {
     crate::status::update(|s| {
         s.kcore_caps = crate::status::ComponentStatus::Real;
         s.sync_ipc = crate::status::ComponentStatus::Real;
-        s.vtd_iommu = crate::status::ComponentStatus::Real;
+        s.vtd_iommu = match crate::arch::x86_64::vtd::get_iommu_status() {
+            (true, n, _) if n > 0 => crate::status::ComponentStatus::Real,
+            _ => crate::status::ComponentStatus::NotAvailable,
+        };
         s.ps2_input = crate::status::ComponentStatus::Real;
         s.dde_linux = crate::status::ComponentStatus::Real;
         s.tpm2_crtm = match crate::arch::get_tpm_status() {
