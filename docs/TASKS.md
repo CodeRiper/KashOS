@@ -22,4 +22,4 @@
 | A18 | Make the UI honest and connected to real services | Done | main | docs/EVIDENCE/A18.md |
 | A19 | libc, Rust std and a POSIX layer | Done | main | docs/EVIDENCE/A19.md |
 | A20 | Re-verify the old audit and finish hardening | Done | main | docs/EVIDENCE/A20.md |
-| A21 | Status registry from real probes; CI that blocks fakes | Planned | - | docs/EVIDENCE/A21.md |
+| A21 | Status registry from real probes; CI that blocks fakes | Done | main | docs/EVIDENCE/A21.md |
