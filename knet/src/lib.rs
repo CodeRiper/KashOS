@@ -17,6 +17,9 @@
 extern crate alloc;
 use alloc::{string::String, vec::Vec};
 
+pub mod tls;
+pub use tls::*;
+
 // ── Layer-2 identity ─────────────────────────────────────────────────────────
 
 /// 48-bit MAC address.

@@ -199,4 +199,72 @@ fn test_virtio_net_header_serialization_roundtrip() {
     assert_eq!(parsed, hdr);
 }
 
+#[test]
+fn test_tls13_client_hello_builder_and_record_header() {
+    use knet::tls::{build_tls13_client_hello, TlsRecordHeader, TlsContentType};
+
+    let random = [0x42u8; 32];
+    let key_share = [0x77u8; 32];
+    let host = "vault.kashos.org";
+
+    let record = build_tls13_client_hello(host, &random, &key_share);
+    assert!(record.len() > 100);
+
+    // Verify TLS Record Header (5 bytes)
+    let header = TlsRecordHeader::parse(&record).expect("valid TLS record header");
+    assert_eq!(header.content_type, TlsContentType::Handshake);
+    assert_eq!(header.legacy_version, 0x0303); // TLS 1.2 legacy wire compatibility
+    assert_eq!(header.length as usize, record.len() - 5);
+
+    // Verify Handshake Type (1 = ClientHello)
+    assert_eq!(record[5], 1);
+
+    // Verify SNI host is embedded in extension bytes
+    let host_bytes = host.as_bytes();
+    assert!(record.windows(host_bytes.len()).any(|w| w == host_bytes));
+}
+
+#[test]
+fn test_tls_application_data_record_wrapping() {
+    use knet::tls::{wrap_tls_application_data, unwrap_tls_application_data};
+
+    let payload = b"GET /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    let wrapped = wrap_tls_application_data(payload);
+    assert_eq!(wrapped.len(), 5 + payload.len());
+
+    let unwrapped = unwrap_tls_application_data(&wrapped).expect("valid application data record");
+    assert_eq!(unwrapped, payload);
+}
+
+#[test]
+fn test_url_parser_and_http_request_response() {
+    use knet::tls::{parse_url, build_http_get_request, parse_http_response};
+
+    // HTTPS URL
+    let parsed_https = parse_url("https://kashos.org:8443/docs/index.html").expect("parse url");
+    assert!(parsed_https.is_https);
+    assert_eq!(parsed_https.host, "kashos.org");
+    assert_eq!(parsed_https.port, 8443);
+    assert_eq!(parsed_https.path, "/docs/index.html");
+
+    // HTTP URL
+    let parsed_http = parse_url("http://insecure.site/api/v1").expect("parse url");
+    assert!(!parsed_http.is_https);
+    assert_eq!(parsed_http.host, "insecure.site");
+    assert_eq!(parsed_http.port, 80);
+    assert_eq!(parsed_http.path, "/api/v1");
+
+    // Construct GET request
+    let req = build_http_get_request("kashos.org", "/manifest.json");
+    assert!(req.starts_with("GET /manifest.json HTTP/1.1\r\nHost: kashos.org\r\n"));
+
+    // Parse Response
+    let raw_resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 13\r\n\r\nHello, KashOS!";
+    let resp = parse_http_response(raw_resp).expect("parse http response");
+    assert_eq!(resp.status_code, 200);
+    assert_eq!(resp.status_text, "OK");
+    assert_eq!(resp.body, "Hello, KashOS!");
+}
+
+
 

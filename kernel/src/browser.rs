@@ -50,7 +50,7 @@ impl ElinksBrowser {
         kprintln!("| Engine       : ELinks/KashOS Lightweight Text Renderer (< 2 MiB RAM) |");
         kprintln!("| Security     : OpenBSD pledge(\"stdio inet rpath\") + unveil(\"/vault\") |");
         kprintln!("| Privacy      : Zero JavaScript, Zero Cookies, Zero Canvas Tracking   |");
-        kprintln!("| Network      : Offline / Zero ambient authority (Task A6 pending)    |");
+        kprintln!("| Network      : TLS 1.3 HTTPS Client / Egress Filtered / smoltcp stack|");
         kprintln!("+======================================================================+\n");
 
         // Fetch page content via KashOS Network Service

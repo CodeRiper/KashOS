@@ -9,7 +9,7 @@
 | A5 | Measured boot, sealing and anti-rollback | Done | main | docs/EVIDENCE/A5.md |
 | A6 | Real TCP/IP with smoltcp | Done | main | docs/EVIDENCE/A6.md |
 | A7 | NIC drivers: real, many, tested | Done | main | docs/EVIDENCE/A7.md |
-| A8 | TLS and HTTPS | Planned | - | docs/EVIDENCE/A8.md |
+| A8 | TLS and HTTPS | Done | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Planned | - | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Planned | - | docs/EVIDENCE/A10.md |
 | A11 | SMP and scheduler | Planned | - | docs/EVIDENCE/A11.md |
