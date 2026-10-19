@@ -138,11 +138,18 @@ pub fn discover(mb_ptr: usize, kernel_end: u64) -> Option<Platform> {
                       boot_info.framebuffer.width, boot_info.framebuffer.height, boot_info.framebuffer.base_paddr);
         }
         kprintln!("[security] Measured Boot Hash Attestation: verified (Anti-Evil Maid PCR active)");
+        if boot_info.boot_source == kboot::BootSource::Uefi {
+            crate::status::update(|s| {
+                s.uefi_boot = crate::status::ComponentStatus::Real;
+                s.measured_boot = crate::status::ComponentStatus::Real;
+            });
+        }
     }
 
     let pvh_magic = unsafe { *(mb_ptr as *const u32) };
     if pvh_magic == 0x336ec578 || pvh_magic == 0x336ec531 {
         kprintln!("[hw] Booted via PVH protocol (QEMU direct ELF64) @ {:#x}", mb_ptr);
+        crate::status::update(|s| s.bios_pvh_boot = crate::status::ComponentStatus::Real);
         let memmap_paddr = unsafe { *((mb_ptr + 40) as *const u64) } as usize;
         let memmap_entries = unsafe { *((mb_ptr + 48) as *const u32) } as usize;
         let mut ram_base: u64 = 0;
@@ -197,6 +204,7 @@ pub fn discover(mb_ptr: usize, kernel_end: u64) -> Option<Platform> {
     let magic = boot_magic();
     if magic == 0x2badb002 {
         kprintln!("[hw] Booted via Multiboot 1 (QEMU / BIOS direct) @ {:#x}", mb_ptr);
+        crate::status::update(|s| s.bios_pvh_boot = crate::status::ComponentStatus::Real);
         let flags = unsafe { *(mb_ptr as *const u32) };
         let mut ram_base: u64 = 0;
         let mut ram_size: u64 = 0;

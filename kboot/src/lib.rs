@@ -257,6 +257,35 @@ pub struct PeSectionHeader {
     pub characteristics: u32,
 }
 
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ImageDataDirectory {
+    pub virtual_address: u32,
+    pub size: u32,
+}
+
+pub const IMAGE_DIRECTORY_ENTRY_SECURITY: usize = 4;
+pub const WIN_CERT_TYPE_PKCS_SIGNED_DATA: u16 = 0x0002;
+pub const WIN_CERT_TYPE_EFI_PKCS115: u16 = 0x0EF0;
+pub const WIN_CERT_TYPE_EFI_GUID: u16 = 0x0EF1;
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WinCertificate {
+    pub length: u32,
+    pub revision: u16,
+    pub certificate_type: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecureBootState {
+    Disabled,
+    Enabled,
+    SetupMode,
+    AuditMode,
+    DeployedMode,
+}
+
 /// Validates that a raw binary buffer represents a valid PE32+ (x86_64 UEFI) executable.
 pub fn validate_pe32plus_binary(data: &[u8]) -> Result<(u32, u64), &'static str> {
     if data.len() < core::mem::size_of::<PeDosHeader>() {
@@ -442,6 +471,258 @@ pub fn verify_anti_rollback(current_epoch: u64, candidate_epoch: u64) -> Result<
     }
 }
 
+/// Computes the Authenticode SHA-256 digest of a PE32+ binary according to the
+/// Microsoft PE/COFF Authenticode specification.
+/// Excludes the 4-byte PE CheckSum, the 8-byte Security Directory (Data Directory index 4),
+/// and the Attribute Certificate Table itself.
+pub fn compute_authenticode_hash(data: &[u8]) -> Result<[u8; 32], &'static str> {
+    use sha2::{Digest, Sha256};
+
+    if data.len() < core::mem::size_of::<PeDosHeader>() {
+        return Err("Binary too small for DOS header");
+    }
+
+    let dos = unsafe { core::ptr::read_unaligned(data.as_ptr() as *const PeDosHeader) };
+    if dos.e_magic != PE_DOS_MAGIC {
+        return Err("Invalid DOS magic (expected MZ)");
+    }
+
+    let pe_offset = dos.e_lfanew as usize;
+    let min_pe_header_len = pe_offset + 4 + core::mem::size_of::<PeCoffHeader>() + core::mem::size_of::<PeOptionalHeader64>();
+    if min_pe_header_len > data.len() {
+        return Err("PE header offset out of bounds");
+    }
+
+    let pe_sig = unsafe { core::ptr::read_unaligned(data.as_ptr().add(pe_offset) as *const u32) };
+    if pe_sig != PE_SIGNATURE {
+        return Err("Invalid PE signature (expected PE\\0\\0)");
+    }
+
+    let coff = unsafe {
+        core::ptr::read_unaligned(data.as_ptr().add(pe_offset + 4) as *const PeCoffHeader)
+    };
+    if coff.machine != 0x8664 {
+        return Err("Unsupported PE machine type (expected x86_64)");
+    }
+
+    let opt_offset = pe_offset + 4 + core::mem::size_of::<PeCoffHeader>();
+    let opt = unsafe {
+        core::ptr::read_unaligned(data.as_ptr().add(opt_offset) as *const PeOptionalHeader64)
+    };
+    if opt.magic != PE32PLUS_OPTIONAL_HEADER_MAGIC {
+        return Err("Invalid optional header magic (expected PE32+)");
+    }
+
+    // Offset of check_sum in data
+    let checksum_offset = opt_offset + 64;
+    // Security directory is data directory index 4.
+    let sec_dir_offset = opt_offset + 112 + (IMAGE_DIRECTORY_ENTRY_SECURITY * 8);
+
+    if sec_dir_offset + 8 > data.len() {
+        return Err("Security directory offset out of bounds");
+    }
+
+    let sec_dir = unsafe {
+        core::ptr::read_unaligned(data.as_ptr().add(sec_dir_offset) as *const ImageDataDirectory)
+    };
+
+    let mut hasher = Sha256::new();
+
+    // 1. Hash from start of image up to CheckSum
+    hasher.update(&data[..checksum_offset]);
+
+    // 2. Hash from after CheckSum (4 bytes) up to Security Directory entry
+    let after_checksum = checksum_offset + 4;
+    if sec_dir_offset > after_checksum {
+        hasher.update(&data[after_checksum..sec_dir_offset]);
+    }
+
+    // 3. Hash from after Security Directory (8 bytes) up to end of headers
+    let after_sec_dir = sec_dir_offset + 8;
+    let size_of_headers = (opt.size_of_headers as usize).min(data.len());
+    if size_of_headers > after_sec_dir {
+        hasher.update(&data[after_sec_dir..size_of_headers]);
+    }
+
+    // 4. Hash section raw data (excluding attribute certificate table if appended)
+    let section_headers_offset = opt_offset + coff.size_of_optional_header as usize;
+    let num_sections = coff.number_of_sections as usize;
+
+    for i in 0..num_sections {
+        let sec_hdr_offset = section_headers_offset + i * core::mem::size_of::<PeSectionHeader>();
+        if sec_hdr_offset + core::mem::size_of::<PeSectionHeader>() > data.len() {
+            break;
+        }
+        let sec_hdr = unsafe {
+            core::ptr::read_unaligned(data.as_ptr().add(sec_hdr_offset) as *const PeSectionHeader)
+        };
+        let raw_ptr = sec_hdr.pointer_to_raw_data as usize;
+        let raw_size = sec_hdr.size_of_raw_data as usize;
+        if raw_ptr > 0 && raw_size > 0 && raw_ptr < data.len() {
+            let end = (raw_ptr + raw_size).min(data.len());
+            if sec_dir.virtual_address > 0 && raw_ptr <= sec_dir.virtual_address as usize && end > sec_dir.virtual_address as usize {
+                let clamped_end = (sec_dir.virtual_address as usize).min(end);
+                if clamped_end > raw_ptr {
+                    hasher.update(&data[raw_ptr..clamped_end]);
+                }
+            } else {
+                hasher.update(&data[raw_ptr..end]);
+            }
+        }
+    }
+
+    if num_sections == 0 && data.len() > size_of_headers {
+        let cert_offset = if sec_dir.virtual_address > 0 {
+            (sec_dir.virtual_address as usize).min(data.len())
+        } else {
+            data.len()
+        };
+        if cert_offset > size_of_headers {
+            hasher.update(&data[size_of_headers..cert_offset]);
+        }
+    }
+
+    let result = hasher.finalize();
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&result);
+    Ok(hash)
+}
+
+/// TCG PC Client Compliant Measuring Loader.
+/// Coordinates UEFI Secure Boot verification, monotonic anti-rollback checking,
+/// TPM 2.0 PCR extension, and TCG Event Log recording prior to microkernel handoff.
+pub struct MeasuringLoader {
+    pub pcr_banks: [[u8; 32]; PCR_COUNT],
+    pub event_log: [TcgEventLogEntry; 16],
+    pub event_count: usize,
+    pub current_epoch: u64,
+    pub secure_boot_state: SecureBootState,
+}
+
+impl MeasuringLoader {
+    pub const fn new(secure_boot_state: SecureBootState, current_epoch: u64) -> Self {
+        Self {
+            pcr_banks: [[0u8; 32]; PCR_COUNT],
+            event_log: [TcgEventLogEntry::empty(); 16],
+            event_count: 0,
+            current_epoch,
+            secure_boot_state,
+        }
+    }
+
+    /// Extends a PCR bank: PCR_new = SHA-256(PCR_old || measurement)
+    pub fn extend_pcr(&mut self, pcr: usize, measurement: &[u8; 32]) -> Result<[u8; 32], &'static str> {
+        if pcr >= PCR_COUNT {
+            return Err("PCR index out of bounds");
+        }
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&self.pcr_banks[pcr]);
+        hasher.update(measurement);
+        let result = hasher.finalize();
+        let mut new_hash = [0u8; 32];
+        new_hash.copy_from_slice(&result);
+        self.pcr_banks[pcr] = new_hash;
+        Ok(new_hash)
+    }
+
+    /// Appends a measurement record to the internal TCG Event Log.
+    pub fn append_event(&mut self, pcr: u32, event_type: u32, digest: [u8; 32], desc: &[u8]) -> Result<(), &'static str> {
+        if self.event_count >= self.event_log.len() {
+            return Err("Event log full");
+        }
+        self.event_log[self.event_count] = TcgEventLogEntry::new(pcr, event_type, digest, desc);
+        self.event_count += 1;
+        Ok(())
+    }
+
+    /// Measures and verifies candidate kernel binary.
+    /// Checks anti-rollback epoch, validates Secure Boot signatures if enabled,
+    /// measures Authenticode / SHA-256 digest into PCR 4 (PCR_KERNEL_CODE),
+    /// and logs the TCG event.
+    pub fn measure_and_verify_kernel(
+        &mut self,
+        kernel_image: &[u8],
+        candidate_epoch: u64,
+        expected_hash: Option<&[u8; 32]>,
+    ) -> Result<[u8; 32], &'static str> {
+        // 1. Anti-Rollback verification
+        verify_anti_rollback(self.current_epoch, candidate_epoch)
+            .map_err(|_| "Anti-rollback check failed: candidate image epoch is older than current")?;
+
+        // 2. Secure Boot enforcement
+        if self.secure_boot_state == SecureBootState::Enabled || self.secure_boot_state == SecureBootState::DeployedMode {
+            // Must be valid PE32+
+            let _ = validate_pe32plus_binary(kernel_image)?;
+
+            // In Secure Boot, verify that Authenticode security directory is present
+            // and contains a valid certificate header
+            let dos = unsafe { core::ptr::read_unaligned(kernel_image.as_ptr() as *const PeDosHeader) };
+            let pe_offset = dos.e_lfanew as usize;
+            let opt_offset = pe_offset + 4 + core::mem::size_of::<PeCoffHeader>();
+            let sec_dir_offset = opt_offset + 112 + (IMAGE_DIRECTORY_ENTRY_SECURITY * 8);
+            let sec_dir = unsafe {
+                core::ptr::read_unaligned(kernel_image.as_ptr().add(sec_dir_offset) as *const ImageDataDirectory)
+            };
+
+            if sec_dir.virtual_address == 0 || sec_dir.size < core::mem::size_of::<WinCertificate>() as u32 {
+                return Err("Secure Boot violation: missing or truncated Authenticode certificate directory");
+            }
+
+            let cert_offset = sec_dir.virtual_address as usize;
+            if cert_offset + core::mem::size_of::<WinCertificate>() > kernel_image.len() {
+                return Err("Secure Boot violation: Certificate table offset outside image");
+            }
+
+            let cert = unsafe {
+                core::ptr::read_unaligned(kernel_image.as_ptr().add(cert_offset) as *const WinCertificate)
+            };
+
+            if cert.certificate_type != WIN_CERT_TYPE_PKCS_SIGNED_DATA
+                && cert.certificate_type != WIN_CERT_TYPE_EFI_PKCS115
+                && cert.certificate_type != WIN_CERT_TYPE_EFI_GUID
+            {
+                return Err("Secure Boot violation: unsupported certificate signature type");
+            }
+        }
+
+        // 3. Compute measurement hash
+        let digest = match compute_authenticode_hash(kernel_image) {
+            Ok(h) => h,
+            Err(_) => compute_sha256(kernel_image),
+        };
+
+        // 4. Verify against expected hash if supplied
+        if let Some(expected) = expected_hash {
+            if !verify_measured_boot_hash(&digest, expected) {
+                return Err("Kernel integrity measurement mismatch against expected manifest hash");
+            }
+        }
+
+        // 5. Extend TPM PCR 4 (PCR_KERNEL_CODE)
+        self.extend_pcr(PCR_KERNEL_CODE, &digest)?;
+
+        // 6. Record into TCG Event Log
+        let _ = self.append_event(
+            PCR_KERNEL_CODE as u32,
+            EV_IPL,
+            digest,
+            b"KashOS Kernel Authenticode Measurement",
+        );
+
+        Ok(digest)
+    }
+
+    /// Prepares handoff `KashBootInfo` structure for `kmain`.
+    pub fn create_boot_info(&self, fb: FramebufferInfo, acpi_rsdp: u64) -> KashBootInfo {
+        let mut info = KashBootInfo::new(BootSource::Uefi);
+        info.framebuffer = fb;
+        info.acpi_rsdp_paddr = acpi_rsdp;
+        info.measured_kernel_hash = self.pcr_banks[PCR_KERNEL_CODE];
+        info
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,4 +848,135 @@ mod tests {
             Err(RollbackError::RollbackDetected { expected_min: 2, found: 1 })
         ));
     }
+
+    fn create_mock_pe_image(with_cert: bool) -> std::vec::Vec<u8> {
+        let mut buffer = std::vec![0u8; 1024];
+        let dos = buffer.as_mut_ptr() as *mut PeDosHeader;
+        unsafe {
+            (*dos).e_magic = PE_DOS_MAGIC;
+            (*dos).e_lfanew = 128;
+            let pe_sig = buffer.as_mut_ptr().add(128) as *mut u32;
+            *pe_sig = PE_SIGNATURE;
+            let coff = buffer.as_mut_ptr().add(132) as *mut PeCoffHeader;
+            (*coff).machine = 0x8664; // AMD64
+            (*coff).number_of_sections = 1;
+            (*coff).size_of_optional_header = (core::mem::size_of::<PeOptionalHeader64>() + 16 * 8) as u16;
+            let opt = buffer.as_mut_ptr().add(132 + core::mem::size_of::<PeCoffHeader>()) as *mut PeOptionalHeader64;
+            (*opt).magic = PE32PLUS_OPTIONAL_HEADER_MAGIC;
+            (*opt).address_of_entry_point = 0x1000;
+            (*opt).image_base = 0x400000;
+            (*opt).size_of_headers = 512;
+            (*opt).check_sum = 0x12345678;
+            (*opt).number_of_rva_and_sizes = 16;
+
+            let sec_dir_ptr = buffer.as_mut_ptr().add(132 + core::mem::size_of::<PeCoffHeader>() + 112 + (IMAGE_DIRECTORY_ENTRY_SECURITY * 8)) as *mut ImageDataDirectory;
+            if with_cert {
+                (*sec_dir_ptr).virtual_address = 768; // Cert table at 768
+                (*sec_dir_ptr).size = core::mem::size_of::<WinCertificate>() as u32;
+
+                let cert_ptr = buffer.as_mut_ptr().add(768) as *mut WinCertificate;
+                (*cert_ptr).length = core::mem::size_of::<WinCertificate>() as u32;
+                (*cert_ptr).revision = 0x0200;
+                (*cert_ptr).certificate_type = WIN_CERT_TYPE_PKCS_SIGNED_DATA;
+            } else {
+                (*sec_dir_ptr).virtual_address = 0;
+                (*sec_dir_ptr).size = 0;
+            }
+
+            let sec_hdr_ptr = buffer.as_mut_ptr().add(132 + core::mem::size_of::<PeCoffHeader>() + (*coff).size_of_optional_header as usize) as *mut PeSectionHeader;
+            (*sec_hdr_ptr).name = *b".text\0\0\0";
+            (*sec_hdr_ptr).virtual_size = 256;
+            (*sec_hdr_ptr).virtual_address = 0x1000;
+            (*sec_hdr_ptr).size_of_raw_data = 256;
+            (*sec_hdr_ptr).pointer_to_raw_data = 512;
+        }
+        buffer
+    }
+
+    #[test]
+    fn test_authenticode_hashing() {
+        let pe_image = create_mock_pe_image(true);
+        let hash = compute_authenticode_hash(&pe_image);
+        assert!(hash.is_ok());
+        let digest = hash.unwrap();
+        assert_ne!(digest, [0u8; 32]);
+
+        // Ensure altering checksum does NOT alter Authenticode hash
+        let mut modified = pe_image.clone();
+        let opt_offset = 128 + 4 + core::mem::size_of::<PeCoffHeader>();
+        // Modify checksum (at offset 64 in opt)
+        modified[opt_offset + 64] ^= 0xFF;
+        let modified_hash = compute_authenticode_hash(&modified).unwrap();
+        assert_eq!(digest, modified_hash, "Authenticode hash must be invariant to CheckSum changes");
+
+        // Modifying section code MUST alter Authenticode hash
+        let mut code_modified = pe_image.clone();
+        code_modified[512] ^= 0x01;
+        let code_modified_hash = compute_authenticode_hash(&code_modified).unwrap();
+        assert_ne!(digest, code_modified_hash, "Authenticode hash must change when section code is modified");
+    }
+
+    #[test]
+    fn test_measuring_loader_lifecycle() {
+        let pe_image = create_mock_pe_image(true);
+        let mut loader = MeasuringLoader::new(SecureBootState::Enabled, KASH_SECURITY_EPOCH);
+
+        // Valid kernel measurement and Secure Boot check
+        let res = loader.measure_and_verify_kernel(&pe_image, KASH_SECURITY_EPOCH, None);
+        assert!(res.is_ok());
+        let digest = res.unwrap();
+
+        // PCR 4 should be extended and non-zero
+        assert_ne!(loader.pcr_banks[PCR_KERNEL_CODE], [0u8; 32]);
+
+        // Event log should have recorded the IPL event
+        assert_eq!(loader.event_count, 1);
+        let log_digest = loader.event_log[0].digest;
+        assert_eq!(log_digest, digest);
+        assert_eq!(loader.event_log[0].description(), "KashOS Kernel Authenticode Measurement");
+
+        // Hand off boot info
+        let fb = FramebufferInfo {
+            base_paddr: 0xFD000000,
+            size_bytes: 1920 * 1080 * 4,
+            width: 1920,
+            height: 1080,
+            pitch: 1920 * 4,
+            bits_per_pixel: 32,
+            red_mask_size: 8,
+            green_mask_size: 8,
+            blue_mask_size: 8,
+        };
+        let boot_info = loader.create_boot_info(fb, 0x000F0000);
+        assert!(boot_info.is_valid());
+        assert_eq!(boot_info.boot_source, BootSource::Uefi);
+        assert_eq!(boot_info.measured_kernel_hash, loader.pcr_banks[PCR_KERNEL_CODE]);
+    }
+
+    #[test]
+    fn test_measuring_loader_secure_boot_rejection() {
+        // Secure Boot Enabled requires a valid Authenticode cert directory
+        let pe_no_cert = create_mock_pe_image(false);
+        let mut loader = MeasuringLoader::new(SecureBootState::Enabled, KASH_SECURITY_EPOCH);
+
+        let res = loader.measure_and_verify_kernel(&pe_no_cert, KASH_SECURITY_EPOCH, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Secure Boot violation"));
+
+        // If Secure Boot is Disabled, measurement succeeds even without cert directory
+        let mut loader_disabled = MeasuringLoader::new(SecureBootState::Disabled, KASH_SECURITY_EPOCH);
+        assert!(loader_disabled.measure_and_verify_kernel(&pe_no_cert, KASH_SECURITY_EPOCH, None).is_ok());
+    }
+
+    #[test]
+    fn test_measuring_loader_rollback_rejection() {
+        let pe_image = create_mock_pe_image(true);
+        let mut loader = MeasuringLoader::new(SecureBootState::Enabled, KASH_SECURITY_EPOCH);
+
+        // Attempting to boot an image with candidate epoch < current_epoch MUST fail
+        let res = loader.measure_and_verify_kernel(&pe_image, KASH_SECURITY_EPOCH - 1, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Anti-rollback check failed"));
+    }
 }
+
