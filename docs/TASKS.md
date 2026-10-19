@@ -5,7 +5,7 @@
 | A1 | Remove every fake network and Tor output | Done | main | docs/EVIDENCE/A1.md |
 | A2 | Stop the data-loss bug (vault open versus format) | Done | main | docs/EVIDENCE/A2.md |
 | A3 | Real key hierarchy: passphrase first, TPM second | Done | main | docs/EVIDENCE/A3.md |
-| A4 | Real TPM 2.0 driver (TIS first, CRB second) | Planned | - | docs/EVIDENCE/A4.md |
+| A4 | Real TPM 2.0 driver (TIS first, CRB second) | Done | main | docs/EVIDENCE/A4.md |
 | A5 | Measured boot, sealing and anti-rollback | Planned | - | docs/EVIDENCE/A5.md |
 | A6 | Real TCP/IP with smoltcp | Planned | - | docs/EVIDENCE/A6.md |
 | A7 | NIC drivers: real, many, tested | Planned | - | docs/EVIDENCE/A7.md |

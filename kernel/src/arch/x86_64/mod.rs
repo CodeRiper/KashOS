@@ -442,14 +442,16 @@ pub fn enable_wx_paging(
         MmioRegion::uncached(APIC_MMIO_BASE, APIC_MMIO_LEN),
         MmioRegion::uncached(0xB8000, 0x8000),
         MmioRegion::uncached(0xE0000, 0x20000), // BIOS / ACPI tables
+        MmioRegion::uncached(0xFED4_0000, 0x5000), // TPM 2.0 TIS MMIO (Localities 0..4)
         MmioRegion::uncached(0xFEBC_0000, 0x20000), // PCI e1000 Gigabit NIC MMIO BAR
         MmioRegion::uncached(0xFEB8_0000, 0x20000), // Alternate PCI MMIO aperture
         MmioRegion::write_combining(0, 0),
+        MmioRegion::write_combining(0, 0),
     ];
-    let mut mmio_count = 5;
+    let mut mmio_count = 6;
     if let Some(fb_info) = fb::get_framebuffer() {
-        mmio[5] = MmioRegion::write_combining(fb_info.base_paddr, fb_info.size_bytes);
-        mmio_count = 6;
+        mmio[6] = MmioRegion::write_combining(fb_info.base_paddr, fb_info.size_bytes);
+        mmio_count = 7;
     }
     let mut vs = mmu::build::<X86_64>(frames, root, &sections, extra_rw_regions, &mmio[..mmio_count]);
     let guard_paddr = core::ptr::addr_of!(_boot_stack_guard) as u64;
