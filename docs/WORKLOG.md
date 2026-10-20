@@ -243,7 +243,7 @@ the A10 per-CPU syscall-entry branch was created.
 - No claim of SMP userland support: APs still idle without per-CPU GDT/IDT/TSS,
   syscall MSRs, and scheduler integration.
 
-## A11 AP startup revalidation (active branch)
+## A11 AP startup revalidation (PR #13 merged)
 
 - Intel SDM review confirmed AP INIT returns processor core state to reset
   defaults; IDTR is initialized with base 0 and limit 0xffff, and an interrupt
@@ -260,6 +260,9 @@ the A10 per-CPU syscall-entry branch was created.
   the BSP active with AP startup disabled. Findings verifier still reports F8
   and F10. This is an A11 fail-closed correction, not SMP implementation; only
   the BSP is usable until AP setup and multi-core execution tests are complete.
+- PR #13 passed the required GitHub CI jobs and merged to `main` at
+  `facb5c89a3a14fcd54e696e5d84bce9392492a64`. Local `main` was fast-forwarded
+  to the same commit; the repository was clean at handoff.
 
 ## Next task
 
