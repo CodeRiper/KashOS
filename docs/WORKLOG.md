@@ -264,6 +264,20 @@ the A10 per-CPU syscall-entry branch was created.
   `facb5c89a3a14fcd54e696e5d84bce9392492a64`. Local `main` was fast-forwarded
   to the same commit; the repository was clean at handoff.
 
+## Public readiness documentation audit (active branch)
+
+- Reviewed `README.md`, `docs/CLAIMS.md`, and `docs/THREAT_MODEL.md` against
+  current source and task evidence. The old documents described networking,
+  Qubes-style compartments, active SMP, TPM/measured boot, DMA isolation, and
+  completed phases that are not available in the current build.
+- Replaced the public summaries with current implementation limits and added
+  `tools/test_public_readiness_honest.py` to CI. The test failed before the fix
+  because README had no explicit not-ready statement; the final 15-check guard,
+  claims linter, and `git diff --check` passed.
+- This is a public accuracy fix only. KashOS remains a QEMU/development
+  prototype, not an OS for daily or sensitive use. See
+  `docs/EVIDENCE/READINESS.md`.
+
 ## Next task
 
 Implement and validate AP-local GDT/IDT/TSS, syscall MSRs, stacks, scheduler

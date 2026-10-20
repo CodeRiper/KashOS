@@ -62,6 +62,9 @@ jobs:
       - name: Run Claims Linter (Appendix A)
         run: python3 tools/claims_lint.py
 
+      - name: Verify Public Readiness Claims Match Current Implementation
+        run: python3 tools/test_public_readiness_honest.py
+
       - name: Verify Ground Truth Findings (Master Plan Section 1)
         run: python3 tools/verify_findings.py
 

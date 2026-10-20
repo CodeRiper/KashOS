@@ -1,52 +1,49 @@
-# KashOS Threat Model
+# KashOS current security scope
 
-This document defines the official threat model, security perimeter, and explicit trust assumptions for **KashOS**, adhering to the 20 Non-Negotiable Rules in [`docs/KASHOS_BUILD_GUIDE.md`](KASHOS_BUILD_GUIDE.md).
+**Status date: 2026-10-20.** This page describes the checked-in development
+prototype, not the long-term target described in the master engineering plan.
+KashOS is not ready for daily or security-sensitive use. Use it for development
+and QEMU testing only.
 
----
+## Current state
 
-## 1. System Target & Core Architecture
+- The x86-64 kernel boots in the configured T0 QEMU profile. This does not
+  establish safe operation on physical hardware.
+- The normal desktop, settings interface and shell execute in Ring 0. Ring 3
+  entry and fault tests do not isolate the normal session.
+- ACPI CPU discovery works in QEMU. AP startup is disabled; only the BSP is
+  active. SMP scheduling is unavailable.
+- External network access is unavailable. NIC initialization, remote TCP,
+  DNS transport, HTTP and HTTPS are disabled. This absence of a network stack is
+  not a network security service or anonymity protection.
+- VT-d activation and hardware DMA containment are unavailable. Avoid
+  untrusted DMA-capable devices.
+- Production TPM transport, measured boot, persistent TPM sealing, and
+  hardware rollback protection are unavailable. Secure Boot enforcement is
+  also not established.
+- The vault library provides authenticated storage primitives and has host
+  tests, but credential enrollment, recovery, TPM-backed key lifecycle and
+  complete persistent-data behavior remain incomplete.
+- Linux application support and isolated third-party user services are not
+  implemented.
+- Test results cover selected code paths. Model tests do not establish
+  end-to-end isolation, physical-device security, or security certification.
 
-- **Target**: A capability-based microkernel workstation OS in `#![no_std]` Rust. Separate unprivileged device and network services remain a target, not a property of the current build.
-- **Current hardware isolation**: NX and CR0.WP have partial implementation/test coverage. SMEP/SMAP are CPU-gated. VT-d activation and PCIe ACS are disabled; this build does not claim DMA isolation.
-- **Microkernel Minimal TCB**: The kernel is restricted to thread scheduling, per-process address spaces, capability derivation and revocation, synchronous IPC, hardware interrupt routing, and IOMMU configuration. Everything else executes in user mode.
-- **Capability Paradigm**: Zero ambient authority. A user process possesses no implicit permissions; all resources (memory, IPC endpoints, device I/O) are named strictly via unforgeable capability handles.
-- **Cryptographic Storage**: AEAD-authenticated block storage with Argon2id key derivation, Merkle CoW tree integrity, and duress/emergency wipe capabilities.
+## Threat assessment for this build
 
----
+| Threat | Current protection and limitation |
+| --- | --- |
+| Network attacker | Remote networking is unavailable and NIC drivers are disabled. No claim is made about a live firewall, VPN, Tor, or network-service isolation. |
+| Malicious application or file | The normal UI runs in Ring 0 and general third-party app isolation is unavailable. Do not run untrusted applications or files. |
+| Malicious USB, PCIe or DMA device | Hardware DMA isolation is unavailable. Do not connect untrusted DMA-capable hardware. |
+| Theft of a powered-off system | A vault library and passphrase unlock path exist, but boot integrity, key enrollment, recovery, and hardware-sealed key protections remain incomplete. Do not depend on this prototype to protect confidential data. |
+| Boot tampering | Secure Boot enforcement and TPM-backed measurements are unavailable. Assume a modified boot chain could execute without detection. |
+| Attack against a running system | Ring 0 services, incomplete user isolation, unavailable IOMMU protection, and incomplete key lifecycle leave major gaps. The prototype is not suitable for sensitive workloads. |
+| Firmware, hypervisor or hardware compromise | No mitigation is claimed. QEMU is a development environment and its host remains part of the trust boundary. |
+| Microarchitectural side channels | No comprehensive, configuration-specific mitigation assessment is available. |
 
-## 2. Threat Matrix
-
-| Attacker / Threat Vector | In Scope | Primary Defense Mechanism | Residual Risk / Limitations |
-| :--- | :---: | :--- | :--- |
-| **Remote Network Attacker** | **Yes** | Network stack isolated in its own user-mode service (`sys-net`); default-deny firewall; no ambient network authority for applications. | Bugs in net stack or NIC driver compromise only `sys-net`, not kernel memory or vault keys. |
-| **Malicious Application or File** | **Yes** | Per-app capability spaces; disposable execution compartments (`disp-vm`) with volatile RAM scratchpads; zero shared memory without explicit capability grant. | Applications with legitimate file write capability can still corrupt permitted files. |
-| **Malicious USB / PCIe Device** | **No** | NIC activation and DDE DMA allocation fail closed. VT-d and ACS are unavailable. | This build does not protect host memory from a malicious bus-mastering device or firmware-preconfigured DMA. Do not attach untrusted DMA-capable devices. |
-| **Physical Thief (Powered Off)** | **Partly** | The vault has authenticated encryption and a passphrase unlock path. TPM sealing and measured boot are unavailable. | Passphrase KDF/enrollment and legacy volume migration require revalidation; no TPM rate limiting or hardware-bound key protection is provided. |
-| **Evil Maid (Boot Tampering)** | **No verified mitigation** | UEFI boot metadata may be received, but secure-boot enforcement and TPM-backed PCR attestation are not established. | Assume a modified boot chain may run; do not rely on this build to detect boot tampering. |
-| **Cold-Boot / DMA with Machine On** | **No** | A3 has a partial lock-path key scrub. No hardware IOMMU is active. | DMA access while powered on is not contained. Cold-boot resistance and complete key-remanence guarantees are not established. |
-| **Compromised Hypervisor / Firmware / Hardware Backdoors** | **No** | **Out of scope.** KashOS explicitly assumes the CPU silicon, hardware microcode, and lowest-level platform firmware execute correctly according to architectural specifications. | Hardware trojans or hypervisor introspection cannot be mitigated by guest OS software. |
-| **Side Channels (Spectre / Meltdown / L1TF / MDS)** | **Partly** | Kernel enables hardware speculation barriers (`IBRS`, `STIBP`, `SSBD`), disables speculation across security boundaries where supported, and executes `L1D_FLUSH` on context switches. | Microarchitectural side channels evolve continuously; residual timing leak risks remain on older CPUs lacking silicon-level mitigations. |
-
----
-
-## 3. Tier 0 (T0 Baseline) Fallbacks & Honest Degradation Modes
-
-On legacy T0 hardware (2006-2009 Core 2 class laptops, 1 core, 1 GiB RAM, BIOS, no TPM, no IOMMU, no RDRAND):
-
-1. **No RDRAND/RDSEED Entropy Fallback**:
-   - Entropy is harvested from CPU jitter (TSC delta variances around cache/memory loops), PS/2 keyboard/mouse interrupt timing, RTC, and an encrypted random seed persisted between boots.
-   - Master key generation strictly fails closed (`Err(NotEnoughEntropy)`) if the conservative entropy estimator is below 256 bits, requiring interactive keystroke timing input.
-2. **No TPM 2.0 Fallback**:
-   - TPM status is reported as `NotAvailable`. TPM sealing APIs fail unavailable. The passphrase unlock path is separate; its KDF/enrollment still needs revalidation. No software TPM emulation is treated as hardware sealing.
-3. **No IOMMU Fallback**:
-   - VT-d translation and DMA-capable NIC/DDE features remain disabled, whether or not a DMAR table is found. No bounce-buffer protection is claimed.
-4. **No AES-NI Fallback**:
-   - XChaCha20-Poly1305 remains the default cipher for all storage and IPC cryptography, avoiding cache-timing vulnerabilities in software AES.
-
----
-
-## 4. Honest Security Principles
-
-1. **No Unproven Marketing**: No security claim is published in documentation or emitted at boot unless backed by a test, a fuzzing run, or a machine-checked proof (located in `proofs/`) recorded in [`docs/CLAIMS.md`](CLAIMS.md).
-2. **Fail Closed**: If essential hardware security features (IOMMU, hardware RNG, TPM) are absent, the OS explicitly reports the absence, disables dependent functionality, and does not pretend protection exists.
-3. **Auditability**: Every `unsafe` block must be accompanied by a `// SAFETY:` rationale documenting the exact invariant required and upheld.
+The project can revisit these threats only after the corresponding implementation
+is reachable from normal boot and supported by direct, reproducible tests. The
+security-system comparison in
+[`RESEARCH_SECURITY_MODELS.md`](RESEARCH_SECURITY_MODELS.md) describes design
+references; it does not assert parity with them.
