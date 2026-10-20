@@ -262,17 +262,26 @@ pub fn test_nx_smep_fault() {
     let ro_addr = core::ptr::addr_of!(RO_TEST_BYTE) as u64;
     unsafe {
         core::arch::asm!(
-            "lea rdi, [rip + 2f]",
+            "lea rdi, [rip + 3f]",
+            "lea rsi, [rip + 2f]",
             "call {set_expected}",
+            "3:",
             "mov byte ptr [{ro_ptr}], 0x55",
             "2:",
             "nop",
             set_expected = sym idt::set_expected_fault,
             ro_ptr = in(reg) ro_addr,
-            out("rdi") _,
             out("rax") _,
-            options(nomem)
+            out("rcx") _,
+            out("rdx") _,
+            out("rsi") _,
+            out("rdi") _,
+            out("r8") _,
+            out("r9") _,
+            out("r10") _,
+            out("r11") _,
         );
+        idt::clear_expected_fault();
     }
 
     if idt::was_fault_caught() {

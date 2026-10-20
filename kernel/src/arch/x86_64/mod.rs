@@ -408,7 +408,9 @@ pub fn init(kernel_stack_top: u64) {
     if !gdt::init(kernel_stack_top, cpu_index) {
         panic!("BSP GDT/TSS state could not be initialized");
     }
-    idt::init();
+    if !idt::init(cpu_index) {
+        panic!("BSP IDT state could not be initialized");
+    }
     clock::calibrate_tsc();
     vtd::early_init();
     tpm::early_init();

@@ -95,6 +95,12 @@ jobs:
       - name: Verify BSP Uses CPU-Local GDT and TSS State
         run: python3 tools/test_gdt_per_cpu.py
 
+      - name: Verify IDT Fault and Timer State Is CPU-Local
+        run: python3 tools/test_idt_per_cpu_state.py
+
+      - name: Verify T0 QEMU Smoke Test Has a Bounded Serial Reader
+        run: python3 tools/test_qemu_boot_timeout.py
+
       - name: Verify UI Privacy and Network Claims
         run: python3 tools/test_ui_honesty.py
 

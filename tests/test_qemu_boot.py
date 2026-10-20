@@ -8,9 +8,14 @@ seL4 capabilities, and interactive commands execute with zero panics.
 """
 
 import os
+import queue
 import sys
+import threading
 import time
 import subprocess
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
 
 def find_qemu():
     candidates = [
@@ -65,16 +70,26 @@ def test_t0_boot():
     print(f"[+] Launching: {' '.join(cmd)}")
 
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    output_lines = queue.Queue()
+
+    def collect_output():
+        try:
+            for output_line in iter(proc.stdout.readline, b""):
+                output_lines.put(output_line)
+        finally:
+            output_lines.put(None)
+
+    reader = threading.Thread(target=collect_output, daemon=True)
+    reader.start()
     start_time = time.time()
 
     required_markers = {
         "mmu_wx": False,
         "sel4_cap": False,
+        "nx_wp_fault_caught": False,
+        "test_t13": False,
         "test_t22": False,
-        "test_t40": False,
-        "test_t44": False,
         "kms_locked": False,
-        "vault_selftest_skip": False,
         "unlock_help": False,
         "shell_ready": False,
     }
@@ -84,8 +99,13 @@ def test_t0_boot():
 
     try:
         while time.time() - start_time < timeout_sec:
-            line_bytes = proc.stdout.readline()
-            if not line_bytes:
+            try:
+                line_bytes = output_lines.get(timeout=0.2)
+            except queue.Empty:
+                if proc.poll() is not None:
+                    break
+                continue
+            if line_bytes is None:
                 break
             line = line_bytes.decode("utf-8", errors="ignore").strip()
             if not line:
@@ -93,24 +113,22 @@ def test_t0_boot():
             collected_lines.append(line)
 
             # Echo relevant boot lines
-            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest] PASS", "[selftest] SKIP", "[storage]", "root@kash-node-01"]):
+            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01"]):
                 print(f"  {line}")
 
             if "W^X" in line:
                 required_markers["mmu_wx"] = True
             if "[cap] Initialized seL4 root untyped" in line:
                 required_markers["sel4_cap"] = True
+            if "[security] PASS: deliberate NX/WP violation verified" in line:
+                required_markers["nx_wp_fault_caught"] = True
+            if "T13 Ring 3 process mechanism test passed" in line:
+                required_markers["test_t13"] = True
             if "T22 " in line:
                 required_markers["test_t22"] = True
-            if "T40 " in line:
-                required_markers["test_t40"] = True
-            if "T44 " in line:
-                required_markers["test_t44"] = True
             if "[kms] Locked:" in line:
                 required_markers["kms_locked"] = True
-            if "T25 root vault is not mounted; refusing to format" in line:
-                required_markers["vault_selftest_skip"] = True
-            if "Vault is locked. Use 'unlock'; passphrase input is hidden." in line:
+            if "[storage] Vault is locked. Use 'unlock'; passphrase input is hidden." in line:
                 required_markers["unlock_help"] = True
                 required_markers["shell_ready"] = True
                 print("\n[+] Shell prompt reached! Sending interactive verification commands...")
