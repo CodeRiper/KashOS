@@ -332,8 +332,17 @@ impl RootVaultFs {
 
         let mut rng = Csprng::new();
 
-        // Attempt 1: Open existing formatted vault
-        let open_res = Vault::open(dev, &mut rng, master_key);
+        // Bound Argon2 from the untrusted volume header by real free heap
+        // memory, retaining 16 MiB for the kernel and vault metadata. Without
+        // this gate a forged header can request gigabytes and exhaust the OS.
+        const KDF_HEAP_RESERVE_KIB: usize = 16 * 1024;
+        let (_, _, largest_free_block) = crate::heap::dump_stats();
+        let heap_budget_kib = (largest_free_block / 1024)
+            .saturating_sub(KDF_HEAP_RESERVE_KIB)
+            .min(kvault::ABSOLUTE_MAX_KDF_MEMORY_KIB as usize) as u32;
+
+        // Attempt 1: Open existing formatted vault within available memory.
+        let open_res = Vault::open_with_memory_limit(dev, &mut rng, master_key, heap_budget_kib);
         let vault = match open_res {
             Ok(OpenOutcome::Unlocked(v)) => {
                 crate::kprintln!("[vfs] Existing kvault root volume unlocked successfully");

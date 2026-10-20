@@ -16,6 +16,11 @@ pub type Key = Zeroizing<[u8; 32]>;
 pub const NONCE_LEN: usize = 24;
 pub const TAG_LEN: usize = 16;
 pub const SEAL_OVERHEAD: usize = NONCE_LEN + TAG_LEN;
+/// Normal vault operations cap Argon2id at the largest KashOS supported profile.
+pub const DEFAULT_MAX_KDF_MEMORY_KIB: u32 = 256 * 1024;
+/// Explicit recovery callers may opt into RFC 9106's 2 GiB profile after
+/// establishing that the process has enough memory available.
+pub const ABSOLUTE_MAX_KDF_MEMORY_KIB: u32 = 2 * 1024 * 1024;
 /// Usable bytes per 4 KiB sealed block.
 pub const PAYLOAD: usize = BLOCK_SIZE - SEAL_OVERHEAD;
 
@@ -28,7 +33,8 @@ pub struct KdfParams {
 }
 
 impl KdfParams {
-    /// RFC 9106 first recommended option: 2 GiB, t=1, p=4. Use where RAM allows.
+    /// RFC 9106 first recommended option: 2 GiB, t=1, p=4. Requires an
+    /// explicit memory budget; the default vault policy rejects this profile.
     pub const RFC9106_HIGH_MEMORY: KdfParams = KdfParams { m_kib: 2 * 1024 * 1024, t: 1, p: 4 };
     /// RFC 9106 second recommended option: 64 MiB, t=3, p=4.
     pub const RFC9106_LOW_MEMORY: KdfParams = KdfParams { m_kib: 64 * 1024, t: 3, p: 4 };
@@ -45,10 +51,17 @@ impl KdfParams {
 
     /// Reject values that are nonsensical or would let a hostile header exhaust memory/time.
     pub fn validate(&self) -> VaultResult<()> {
+        self.validate_with_memory_limit(DEFAULT_MAX_KDF_MEMORY_KIB)
+    }
+
+    /// Validate a stored KDF profile against the caller's actual memory budget.
+    /// The caller-provided limit is itself capped to the supported Argon2 range.
+    pub fn validate_with_memory_limit(&self, max_memory_kib: u32) -> VaultResult<()> {
+        let max_memory_kib = max_memory_kib.min(ABSOLUTE_MAX_KDF_MEMORY_KIB);
         let ok = (1..=16).contains(&self.p)
             && (1..=16).contains(&self.t)
             && self.m_kib >= 8 * self.p
-            && self.m_kib <= 4 * 1024 * 1024;
+            && self.m_kib <= max_memory_kib;
         if ok { Ok(()) } else { Err(VaultError::InvalidParams) }
     }
 }
@@ -85,7 +98,16 @@ pub fn random_key<R: RngCore + CryptoRng>(rng: &mut R) -> Key {
 }
 
 pub fn kdf(password: &[u8], salt: &[u8; 32], p: &KdfParams) -> VaultResult<Key> {
-    p.validate()?;
+    kdf_with_memory_limit(password, salt, p, DEFAULT_MAX_KDF_MEMORY_KIB)
+}
+
+pub fn kdf_with_memory_limit(
+    password: &[u8],
+    salt: &[u8; 32],
+    p: &KdfParams,
+    max_memory_kib: u32,
+) -> VaultResult<Key> {
+    p.validate_with_memory_limit(max_memory_kib)?;
     let params = Params::new(p.m_kib, p.t, p.p, Some(32)).map_err(|_| VaultError::InvalidParams)?;
     let a = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut out = Zeroizing::new([0u8; 32]);

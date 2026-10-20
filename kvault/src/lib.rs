@@ -28,7 +28,10 @@ pub mod kvaultfs;
 pub mod pool;
 
 pub use blockdev::{BlockDevice, MemDevice, BLOCK_SIZE};
-pub use crypto::{combine_password_keyfile, derive_key, kdf, random_key, subkey, KdfParams, Key};
+pub use crypto::{
+    combine_password_keyfile, derive_key, kdf, kdf_with_memory_limit, random_key, subkey,
+    KdfParams, Key, DEFAULT_MAX_KDF_MEMORY_KIB, ABSOLUTE_MAX_KDF_MEMORY_KIB,
+};
 pub use error::{VaultError, VaultResult};
 pub use rand_core;
 pub use zeroize;

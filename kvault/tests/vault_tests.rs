@@ -469,4 +469,35 @@ fn derive_key_is_deterministic_and_domain_separated() {
     assert_ne!(*k1, *k3);
 }
 
+#[test]
+fn default_kdf_policy_is_bounded_and_high_memory_requires_explicit_budget() {
+    assert!(KdfParams::LOW_END.validate().is_ok());
+    assert!(KdfParams::KASHOS_1GIB_LEGACY.validate().is_ok());
+    assert!(KdfParams::RFC9106_LOW_MEMORY.validate().is_ok());
+
+    assert!(KdfParams::RFC9106_HIGH_MEMORY.validate().is_err());
+    assert!(KdfParams::RFC9106_HIGH_MEMORY
+        .validate_with_memory_limit(ABSOLUTE_MAX_KDF_MEMORY_KIB)
+        .is_ok());
+    assert!(KdfParams::RFC9106_HIGH_MEMORY
+        .validate_with_memory_limit(DEFAULT_MAX_KDF_MEMORY_KIB)
+        .is_err());
+}
+
+#[test]
+fn hostile_kdf_header_is_rejected_before_kdf_and_without_disk_mutation() {
+    let mut rng = TestRng(0xA11CE);
+    let mut dev = make(64, false, false, &mut rng);
+    let hostile_m_kib = DEFAULT_MAX_KDF_MEMORY_KIB + 1;
+    dev.raw_mut()[0..4].copy_from_slice(&hostile_m_kib.to_le_bytes());
+    let before = dev.raw().to_vec();
+
+    let failed = match Vault::open(dev, &mut rng, OUTER) {
+        Err(failed) => failed,
+        Ok(_) => panic!("over-budget KDF header unexpectedly opened"),
+    };
+    assert_eq!(failed.error, VaultError::BadPassword);
+    assert_eq!(failed.device.raw(), before.as_slice());
+}
+
 

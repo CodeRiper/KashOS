@@ -41,6 +41,11 @@
   not treated as hardware protection. Updated A4/A5 evidence, the threat model,
   claims matrix, public README, hardware report, and GUI POST screen; removed
   the fake TPM driver entry and added a CI regression guard.
+- Bounded Argon2 work before vault unlock allocates memory. Generic opens cap
+  at 256 MiB; the kernel derives the budget from the largest free heap block
+  minus a 16 MiB reserve. Added a non-mutation regression test, CI guard, and
+  A3 evidence; an explicit-budget recovery API preserves access to higher-cost
+  volumes on systems with enough memory.
 
 ## Verification
 

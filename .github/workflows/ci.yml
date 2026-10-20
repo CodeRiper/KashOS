@@ -80,5 +80,8 @@ jobs:
       - name: Verify TPM Production APIs Fail Closed
         run: python3 tools/test_tpm_fail_closed.py
 
+      - name: Verify Vault KDF Memory Budget
+        run: python3 tools/test_kdf_memory_budget.py
+
 
 

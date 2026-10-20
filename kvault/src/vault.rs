@@ -1,7 +1,8 @@
 use crate::blockdev::{BlockDevice, BLOCK_SIZE};
 use crate::codec::{Reader, Writer};
 use crate::crypto::{
-    aad, combine_password_keyfile, kdf, open, open_block, random_key, seal, seal_block, subkey, Key, KdfParams,
+    aad, combine_password_keyfile, kdf, kdf_with_memory_limit, open, open_block, random_key, seal,
+    seal_block, subkey, Key, KdfParams, DEFAULT_MAX_KDF_MEMORY_KIB, ABSOLUTE_MAX_KDF_MEMORY_KIB,
     PAYLOAD, SEAL_OVERHEAD,
 };
 use crate::error::{VaultError, VaultResult};
@@ -260,6 +261,7 @@ pub struct Vault<D: BlockDevice> {
     slot: usize,
     salt: [u8; 32],
     params: KdfParams,
+    kdf_memory_limit_kib: u32,
     root: Root,
     unlocked: BTreeMap<u64, Key>,
 }
@@ -465,7 +467,23 @@ impl<D: BlockDevice> Vault<D> {
 
     /// Open with a password. Wrong password and "no such volume" are indistinguishable.
     pub fn open<R: RngCore + CryptoRng>(dev: D, rng: &mut R, password: &[u8]) -> Result<OpenOutcome<D>, OpenFail<D>> {
-        match Self::open_inner(&dev, password) {
+        Self::open_with_memory_limit(dev, rng, password, DEFAULT_MAX_KDF_MEMORY_KIB)
+    }
+
+    /// Open a vault only if its stored Argon2 memory cost fits within `max_memory_kib`.
+    ///
+    /// Use the default [`Vault::open`] for untrusted or unknown storage. This
+    /// explicit-budget variant is for callers that have measured available
+    /// memory (for example, the kernel heap) or for offline recovery on a host
+    /// with sufficient RAM. The limit is capped at the supported Argon2 range.
+    pub fn open_with_memory_limit<R: RngCore + CryptoRng>(
+        dev: D,
+        rng: &mut R,
+        password: &[u8],
+        max_memory_kib: u32,
+    ) -> Result<OpenOutcome<D>, OpenFail<D>> {
+        let max_memory_kib = max_memory_kib.min(ABSOLUTE_MAX_KDF_MEMORY_KIB);
+        match Self::open_inner(&dev, password, max_memory_kib) {
             Ok(Opened::Duress) => {
                 let mut dev = dev;
                 let mut blk = [0u8; BLOCK_SIZE];
@@ -488,6 +506,7 @@ impl<D: BlockDevice> Vault<D> {
                         slot,
                         salt,
                         params,
+                        kdf_memory_limit_kib: max_memory_kib,
                         root: parts.root,
                         unlocked: BTreeMap::new(),
                     })),
@@ -498,7 +517,7 @@ impl<D: BlockDevice> Vault<D> {
         }
     }
 
-    fn open_inner(dev: &D, password: &[u8]) -> VaultResult<Opened> {
+    fn open_inner(dev: &D, password: &[u8], max_memory_kib: u32) -> VaultResult<Opened> {
         let mut hdr = [0u8; BLOCK_SIZE];
         dev.read_block(0, &mut hdr)?;
         let params = KdfParams {
@@ -507,10 +526,10 @@ impl<D: BlockDevice> Vault<D> {
             p: u32::from_le_bytes([hdr[8], hdr[9], hdr[10], hdr[11]]),
         };
         // A wiped or foreign device has garbage params: report it exactly like a wrong password.
-        params.validate().map_err(|_| VaultError::BadPassword)?;
+        params.validate_with_memory_limit(max_memory_kib).map_err(|_| VaultError::BadPassword)?;
         let mut salt = [0u8; 32];
         salt.copy_from_slice(&hdr[12..44]);
-        let kek = kdf(password, &salt, &params)?;
+        let kek = kdf_with_memory_limit(password, &salt, &params, max_memory_kib)?;
         for i in 0..SLOTS {
             let off = HDR_FIXED + i * SLOT_CT;
             let Ok(pt) = open(&kek, &slot_aad(i), &hdr[off..off + SLOT_CT]) else { continue };
@@ -581,7 +600,7 @@ impl<D: BlockDevice> Vault<D> {
         if new_pw.is_empty() {
             return Err(VaultError::InvalidParams);
         }
-        let kek = kdf(new_pw, &self.salt, &self.params)?;
+        let kek = kdf_with_memory_limit(new_pw, &self.salt, &self.params, self.kdf_memory_limit_kib)?;
         let mut hdr = [0u8; BLOCK_SIZE];
         self.dev.read_block(0, &mut hdr)?;
         for i in 0..SLOTS {
@@ -660,7 +679,7 @@ impl<D: BlockDevice> Vault<D> {
                     return Err(VaultError::InvalidParams);
                 }
                 let fk = random_key(rng);
-                let kek = kdf(pw, &fsalt, &self.params)?;
+                let kek = kdf_with_memory_limit(pw, &fsalt, &self.params, self.kdf_memory_limit_kib)?;
                 let w = seal(rng, &kek, &aad("kvault/fkwrap", &self.vol_id, fid, 0, 0), &fk[..])?;
                 (w, Some(fk))
             }
@@ -689,7 +708,7 @@ impl<D: BlockDevice> Vault<D> {
         if !f.has_pw {
             return Ok(());
         }
-        let kek = kdf(password, &f.fsalt, &self.params)?;
+        let kek = kdf_with_memory_limit(password, &f.fsalt, &self.params, self.kdf_memory_limit_kib)?;
         let pt = open(&kek, &aad("kvault/fkwrap", &self.vol_id, f.fid, 0, 0), &f.wrapped)
             .map_err(|_| VaultError::BadPassword)?;
         if pt.len() != 32 {
@@ -728,7 +747,7 @@ impl<D: BlockDevice> Vault<D> {
         let fk = self.folder_key(pos)?;
         let mut fsalt = [0u8; 32];
         rng.fill_bytes(&mut fsalt);
-        let kek = kdf(new_pw, &fsalt, &self.params)?;
+        let kek = kdf_with_memory_limit(new_pw, &fsalt, &self.params, self.kdf_memory_limit_kib)?;
         let wrapped = seal(rng, &kek, &aad("kvault/fkwrap", &self.vol_id, fid, 0, 0), &fk[..])?;
         let mut root = self.root.clone();
         root.folders[pos].fsalt = fsalt;
