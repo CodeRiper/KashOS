@@ -40,11 +40,16 @@ isolation, Linux compatibility, or physical-device security.
 
 ## Current GitHub state
 
-The task branch is pushed to `origin`. No pull request has been opened yet:
-GitHub Actions is configured to run on `main` pushes and pull requests
-targeting `main`, and the available browser session is signed out. Do not
-merge until the user reviews the proposed change and platform CI reports its
-results.
+The task branch is pushed to `origin`. GitHub Actions runs on branch pushes
+and pull requests targeting `main`. No pull request has been opened yet because
+the available browser session is signed out. Do not merge until the user
+reviews the proposed change and platform CI reports its results.
+
+GitHub Actions was enabled for all branch pushes in this task. Run
+[`39397626995`](https://github.com/CodeRiper/KashOS/actions/runs/39397626995)
+for commit `d49ebbc7a1b5da661f3e1b52faa66c86ea16d63c` completed successfully:
+Workspace Subsystem Tests, Build Microkernel (x86-64), and Build Guide v2
+Claims & Honesty Gate all passed.
 
 ## Next task
 
