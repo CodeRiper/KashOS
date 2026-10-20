@@ -29,12 +29,12 @@
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
 | B0 | Architecture & CapRights Foundations | Done | main | docs/EVIDENCE/B0.md |
-| B1 | Untyped Memory Model & Watermark Allocator | Planned | - | docs/EVIDENCE/B1.md |
-| B2 | CNode Guarded Radix Trees & Capability Derivation Tree (CDT) | Planned | - | docs/EVIDENCE/B2.md |
-| B3 | Transitive Revocation & Amnesic Memory Zeroing | Planned | - | docs/EVIDENCE/B3.md |
-| B4 | Badged Synchronous Endpoints & Capability Routing | Planned | - | docs/EVIDENCE/B4.md |
-| B5 | Asynchronous Notifications & Event Signaling | Planned | - | docs/EVIDENCE/B5.md |
-| B6 | Thread Control Blocks (TCBs), Fault Handlers & State | Planned | - | docs/EVIDENCE/B6.md |
+| B1 | Untyped Memory Model & Watermark Allocator | Done | main | docs/EVIDENCE/B1.md |
+| B2 | CNode Guarded Radix Trees & Capability Derivation Tree (CDT) | Done | main | docs/EVIDENCE/B2.md |
+| B3 | Transitive Revocation & Amnesic Memory Zeroing | Done | main | docs/EVIDENCE/B3.md |
+| B4 | Badged Synchronous Endpoints & Capability Routing | Done | main | docs/EVIDENCE/B4.md |
+| B5 | Asynchronous Notifications & Event Signaling | Done | main | docs/EVIDENCE/B5.md |
+| B6 | Thread Control Blocks (TCBs), Fault Handlers & State | Done | main | docs/EVIDENCE/B6.md |
 | B7 | Mixed-Criticality Scheduling (MCS): SchedContext & Temporal Isolation | Planned | - | docs/EVIDENCE/B7.md |
 | B8 | Reply Capabilities & One-Shot RPC Protocol | Planned | - | docs/EVIDENCE/B8.md |
 | B9 | Virtual Memory Architecture: VSpace, PageDirectory, PageTable, Frames | Planned | - | docs/EVIDENCE/B9.md |
