@@ -283,9 +283,11 @@ the A10 per-CPU syscall-entry branch was created.
 
 ## Next task
 
-Implement and validate AP-local GDT/IDT/TSS, syscall MSRs, stacks, scheduler
-context and interrupt handling before enabling SMP. Then design a real Ring 3
-init/session lifecycle and migrate the shell and compositor behind it. Keep
+Make scheduler, current-task identity, TCB ownership, FPU state, and timer
+context safe for per-CPU concurrent execution. Then initialize AP syscall
+entry and test multi-CPU scheduling before enabling AP startup. Afterward,
+design a real Ring 3 init/session lifecycle and migrate the shell and compositor
+behind it. Keep
 the current prototype UI clearly labeled Ring 0. Revisit A2/A3 if persistent-
 data behavior changes; the local audit does not establish TPM-backed key
 provisioning or production recovery.
@@ -306,6 +308,27 @@ provisioning or production recovery.
   built kernel because the harness default path is absent in this checkout.
 - PR #18 merged to `main` at `0995f4dfea3374e0f55809d105f9f17e5d42e695`.
   GitHub CI passed all three jobs on both the code commit and the later branch
-  head. Local verification is recorded above. Next, make IDT/exception state
-  and scheduler/timer context CPU-local
-  and test those paths before any AP startup is re-enabled.
+  head. Local verification is recorded in `docs/EVIDENCE/A11.md`.
+
+## A11 CPU-local IDT and exception state (2026-10-20)
+
+- On `codex/a11-percpu-idt-fault-state`, the BSP now gets an indexed IDT and
+  per-CPU fault-recovery, user-fault recovery, and timer tick state.
+- Expected NX/WP recovery now requires both vector 14 and the exact armed
+  faulting instruction address. The expectation is cleared if the write
+  returns normally. QEMU exercised the deliberate page fault successfully.
+- AP startup remains disabled. The global scheduler, current TID, TCB/FPU
+  ownership, and timer context have not been made safe for concurrent CPUs.
+- Baseline regression guard, host workspace suite, release kernel check/build,
+  T0 QEMU smoke boot, T2 discovery/one-active-CPU check, A10/A11 source guards,
+  claims lint, and findings audit passed locally. Full evidence is in
+  `docs/EVIDENCE/A11.md`.
+
+## T0 smoke-test reliability follow-up (2026-10-20)
+
+- Fixed the test's blocking serial reader, Windows console encoding failure,
+  and stale boot markers. Its regression guard rejects the old unbounded read.
+- The corrected T0 test passed against the release kernel and attached test
+  vault image; it observed the NX/WP recovery, T13, T22, locked vault, and shell.
+- The release build, complete host workspace suite, T2 four-discovered/one-
+  active check, claims lint, and findings audit passed. F8 and F10 remain open.

@@ -1,9 +1,9 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `0995f4dfea3374e0f55809d105f9f17e5d42e695` (PR #18)
-**Active work branch:** `codex/a11-handoff-after-groundwork`
-**Current gate:** A11 groundwork; GDT/TSS/IST storage is CPU-local, but secondary CPUs remain parked until CPU-local IDT, exception state, syscall entry, and scheduler/timer paths are initialized and tested.
+**Repository state checked:** `main` at `69c50cec7ee6cd47b2a426a47a5ed1e10989dc43` (PR #19)
+**Active work branch:** `codex/a11-percpu-idt-fault-state`
+**Current gate:** A11 groundwork; GDT/TSS/IST, IDT, expected-fault recovery, and timer counters are CPU-local. APs remain parked until AP-local syscall setup and genuinely concurrent scheduler/context-switch state are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
@@ -43,6 +43,10 @@ compatibility.
   not initialize AP-local IDTs, exception recovery state, or scheduler state;
   APs remain parked. PR #18 merged this groundwork to `main` at `0995f4d`.
   See [`EVIDENCE/A11.md`](EVIDENCE/A11.md).
+- The active A11 branch makes IDT, fault-recovery, and timer accounting state
+  CPU-local, and only accepts an armed protection-test fault at its exact #PF
+  instruction address. AP startup remains disabled pending scheduler and AP
+  context work; see [`EVIDENCE/A11.md`](EVIDENCE/A11.md).
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.
