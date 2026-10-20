@@ -57,5 +57,6 @@
 - PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.
 - A10 is still incomplete: ordinary desktop/settings/shell boot in Ring 0. APs do not have the per-CPU architecture state or user-task setup required for SMP userland; see `docs/EVIDENCE/A10.md`.
 - PR #13 merged the A11 revalidation: the AP path previously enabled local timer interrupts before loading an AP-local IDT and had no TSS or scheduler context. Secondary CPUs now remain parked and only initialized CPUs report online. SMP remains unavailable pending full per-CPU setup and multi-core execution tests.
+- Public readiness documentation is being re-audited against the merged source. The current README, threat model and claims inventory must describe development/QEMU status and unavailable networking, TPM, DMA isolation, user services and SMP; see `docs/EVIDENCE/READINESS.md`.
 - Next: implement and validate AP-local GDT/IDT/TSS, syscall MSRs, scheduler state, and exception/interrupt paths before enabling SMP execution.
 

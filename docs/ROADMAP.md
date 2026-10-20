@@ -45,6 +45,10 @@ compatibility.
   are not implemented. NIC and DDE hardware DMA paths remain disabled.
 - Current ground-truth findings include F8 (hardware DMA/IOMMU path absent) and
   F10 (normal boot session remains Ring 0). Do not report these as resolved.
+- The public README, threat model and claim inventory are being corrected to
+  remove stale feature-completion and threat-protection claims. See
+  [`EVIDENCE/READINESS.md`](EVIDENCE/READINESS.md). This documentation audit
+  does not change the implementation or make the OS ready for sensitive use.
 
 ## A6 network revalidation (historical; fail-closed behavior retained)
 
