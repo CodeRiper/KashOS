@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 NET = (ROOT / "kernel/src/net.rs").read_text(encoding="utf-8")
 BROWSER = (ROOT / "kernel/src/browser.rs").read_text(encoding="utf-8")
 SETTINGS = (ROOT / "kash-ui/crates/kash-ui/src/apps/settings.rs").read_text(encoding="utf-8")
+SELFTEST = (ROOT / "kernel/src/selftest.rs").read_text(encoding="utf-8")
 
 
 def method_body(source: str, start_marker: str, end_marker: str) -> str:
@@ -51,6 +52,8 @@ def main() -> int:
     checks.append(("DHCP reports no lease without an adapter", "None" in dhcp))
     checks.append(("Network poll does not run a disconnected stack", "service.smol.poll" not in poll))
     checks.append(("Socket table marks its rows as model state", "Socket-state model only; no live transport" in NET and "MODEL_SYN_SENT" in NET))
+    checks.append(("T31 self-test expects the explicit model-only socket label", 'entry.state == "MODEL_SYN_SENT"' in SELFTEST and 'entry.state == "SYN_SENT"' not in SELFTEST))
+    checks.append(("T31 self-test reports no live network transport", "no live transport or packets are claimed" in SELFTEST))
     checks.append(("Socket table has no fabricated Tor listener", "Tor Anonymity Daemon" not in NET))
     checks.append(("Socket table has no fabricated DNS listener", "Encrypted DNS Proxy" not in NET))
     for claim in (

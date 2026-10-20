@@ -123,6 +123,26 @@
   isolation, correct driver protocols, QEMU packet-capture validation, and
   physical-device testing are available.
 
+## A9 VT-d revalidation
+
+- Source review showed the `khal` SLPT uses synthetic addresses in a `BTreeMap`,
+  while VT-d initialization programmed a Rust array pointer without verified
+  physical allocation, context tables, MMIO mapping, or invalidation. The ACS
+  probe returned preset “hardened” flags from basic PCIe capability detection;
+  DMAR probing also dereferenced firmware pointers without a bounded mapper.
+- VT-d activation, runtime DMAR probing and ACS now fail closed. `init_vtd`
+  activates no units; maps are rejected; status is Stub; T19 explicitly tests
+  the in-memory model separately. DDE memory/DMA allocation now fails rather
+  than returning fabricated addresses. Claims and threat docs no longer promise
+  hardware DMA protection.
+- Local host workspace tests, 12 VT-d checks, 5 DDE checks, 13 NIC checks, 36
+  network checks, claims lint, release kernel build, diff check, and T0 QEMU
+  smoke passed. The guest reached the locked shell with model-only network and
+  VT-d markers.
+  Ground-truth audit now reports 1/12 present: F8 accurately flags the software
+  VT-d model, not a live hardware path. T0 QEMU reached the locked shell with
+  T19, T31 and T40/T44 markers; GitHub CI remains to run.
+
 ## Verification
 
 See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) and [`EVIDENCE/A3.md`](EVIDENCE/A3.md)
@@ -140,13 +160,15 @@ compatibility, or physical-device security.
 PR #4 (vault lifecycle and UI honesty) and PR #5 (network fail-closed behavior)
 have been merged to `main`. PR #5 merged at
 [`a347b0f`](https://github.com/CodeRiper/KashOS/commit/a347b0f0f4caa9ee744ea27d66eb5adbdd7932b4).
-The A7 NIC DMA revalidation is in progress on `codex/a7-nic-driver-revalidation`;
-it must pass GitHub CI before it is merged. Branch pushes trigger GitHub Actions.
+PR #6 (A7 NIC DMA revalidation) is merged to `main` at
+[`76d5451`](https://github.com/CodeRiper/KashOS/commit/76d545148791f2991316dc215052a81d56503db8).
+The A9 VT-d revalidation is in progress on `codex/a9-vtd-revalidation`; it must
+pass GitHub CI before merging. Branch pushes trigger GitHub Actions.
 
 ## Next task
 
-Continue the ordered security revalidation from A7 into A9 and A10, keeping
-network and DMA disabled until A7/A9 have real allocations, hardware isolation,
-and packet-level evidence. Revisit A2/A3 if changes to persistent-data behavior
-are proposed; the previous local audit does not establish TPM-backed key
+Continue the ordered security revalidation from A9 into A10, keeping network and
+DMA disabled until A7/A9 have real allocations, hardware isolation, and
+packet-level evidence. Revisit A2/A3 if changes to persistent-data behavior are
+proposed; the previous local audit does not establish TPM-backed key
 provisioning or production recovery.

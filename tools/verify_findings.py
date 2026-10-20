@@ -45,7 +45,7 @@ def main():
         ("F5", check_file_contains("F5", "kernel/src/arch/x86_64/tpm.rs", "pcr_bank")),
         ("F6", check_file_contains("F6", "kernel/src/kms.rs", "generating fresh master key")),
         ("F7", check_file_contains("F7", "kernel/src/vfs.rs", "Err(open_fail)")),
-        ("F8", check_file_contains("F8", "kernel/src/arch/x86_64/vtd.rs", "0x2000_0000")),
+        ("F8", check_file_contains("F8", "khal/src/vtd.rs", "next_phys_frame: 0x4000_0000")),
         ("F9", check_file_contains("F9", "kernel/src/selftest.rs", "s.tpm2_crtm = crate::status::ComponentStatus::Real")),
         ("F10", check_file_contains("F10", "kernel/src/main.rs", "gui::run")),
         ("F11", check_file_contains("F11", "kash-ui/crates/kash-ui/src/apps/files.rs", "todo.txt")),

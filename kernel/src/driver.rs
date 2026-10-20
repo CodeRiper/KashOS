@@ -1,18 +1,8 @@
-//! Userspace Driver Services Subsystem & Supervisor (Phase 4).
+//! Driver capability and supervisor prototype (Phase 4).
 //!
-//! Enforces:
-//! 1. Zero Ambient Authority for Hardware: Device drivers run in unprivileged
-//!    Ring 3 sandboxes without port/MMIO privileges.
-//! 2. Capability-Based Device Access:
-//!    - `CapKind::IOPort`: Grantees can read/write ports strictly within granted range.
-//!    - `CapKind::Frame`: Grantees can access physical device MMIO frames.
-//!    - `CapKind::Notification`: Receives hardware IRQ event notifications.
-//!    - `CapKind::IOSpace`: Manages device DMA windows in the hardware IOMMU.
-//! 3. Driver Resilience & Restartability:
-//!    - If a driver service encounters a fatal exception (#PF, #GP, abort),
-//!      the DriverSupervisor catches the fault, revokes its capability derivation tree,
-//!      recycles Untyped memory, and restarts the service transparently.
-//!    - Sibling processes and the microkernel remain 100% operational.
+//! The current code models capability checks and supervisor state. It is not
+//! connected to separate driver ELFs, hardware I/O mediation, real DMA mappings,
+//! or an end-to-end driver restart path. Do not treat these models as isolation.
 
 #![allow(unsafe_code)]
 

@@ -32,8 +32,8 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | **Scheduler & IPC** | Preemptive 3-band QoS scheduler (`kscheduler`) active, FPU/SSE save/restore, 1M cycle test passed, synchronous rendezvous IPC with badged endpoints & capability transfer | Tested and verified in Phase 1, 2 & 3 |
 | **Capability Engine** | `kcore` per-process capability spaces (`PROCESS_CSPACES`), unforgeable compartment badges, rights monotonicity, recursive revocation with memory zeroing (< 1 ms benchmark), untyped quota isolation | Tested and verified in Phase 3 |
 | **kash_kernel.rs** | Model untyped memory allocator & ARINC scheduler structures | Integrated and verified in Phase 3 capability & IPC tests |
-| **IOMMU (VT-d)** | ACPI DMAR discovery, Intel VT-d 4-level Second-Level Page Tables (SLPT) translation, fault recording register (FRCD) logging, rogue DMA write & translation fault containment | Tested and verified in Phase 4; active in QEMU `q35` with `-device intel-iommu` |
-| **Drivers** | Unprivileged Ring 3 driver services (`storage_srv`, `net_srv`, `input_srv`, `display_srv`) with isolated CSpaces, capability-checked port I/O & MMIO, transparent `DriverSupervisor` crash recovery | Tested and verified in Phase 4; survived simulated SIGSEGV with zero kernel panics |
+| **IOMMU (VT-d)** | Runtime DMAR probing and VT-d translation are disabled; hardware tables, invalidation, ACS, and DMA containment are unavailable. Status is Stub. | Not implemented; software SLPT model tests do not validate hardware |
+| **Drivers** | Driver service isolation and execution are not established. NIC drivers are disabled until DMA-safe buffers and verified IOMMU isolation exist. | Not implemented; service capability tests are not device-driver tests |
 | **Boot Chain & TPM 2.0** | UEFI boot metadata can be received; production TPM transport, hardware measured boot, PCR sealing, and TPM NV anti-rollback are unavailable | TPM and measured-boot claims are withdrawn; hardware/swtpm implementation and tests remain future work |
 | **Storage Crypto (`kvault`)** | Authenticated vault library and a locked-by-default passphrase unlock path; storage and key-enrollment guarantees remain under audit | TPM sealing is disabled; the boot self-test skips an unmounted persistent vault and does not format or write it |
 | **Network** | User-mode network service (`sys-net`, Domain 1) with `smoltcp` stack, `knet::FilterTable` default-deny packet filtering, fail-closed kill switch, hardware CSPRNG MAC randomization, and lock-free SPSC queues | Tested and verified in Phase 7; boot self-tests T28, T29, T30, T31 passed |
@@ -99,10 +99,10 @@ Phase 3: Capabilities & IPC Enforced [COMPLETED]
   ├── Synchronous IPC with capability transfer (kipc)
   └── Delete ambient authority (no path-based open without capability grant)
 
-Phase 4: Userspace Services & Drivers [COMPLETED]
-  ├── Move storage, network, input, and display into user-mode driver services
-  ├── Real VT-d SLPT second-stage page tables per peripheral & rogue DMA containment
-  └── Driver supervisor with crash recovery & transparent restart
+Phase 4: Userspace Services & Drivers [INCOMPLETE]
+  ├── User-mode device services and hardware I/O mediation need revalidation
+  ├── VT-d and DMA containment are disabled; current SLPT is a software model
+  └── Driver supervisor behavior is model-tested, not yet verified with device drivers
 
 Phase 5: Boot Chain & Measured Boot [COMPLETED]
   ├── UEFI PE32+ loader verifying SHA-256 / Ed25519 signatures

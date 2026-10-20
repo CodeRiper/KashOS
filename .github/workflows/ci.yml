@@ -71,6 +71,12 @@ jobs:
       - name: Verify NIC DMA Fails Closed Until Isolated
         run: python3 tools/test_nic_dma_fail_closed.py
 
+      - name: Verify VT-d Fails Closed Until Hardware Tables Exist
+        run: python3 tools/test_vtd_fail_closed.py
+
+      - name: Verify DDE Does Not Fabricate DMA Addresses
+        run: python3 tools/test_dde_dma_fail_closed.py
+
       - name: Verify UI Privacy and Network Claims
         run: python3 tools/test_ui_honesty.py
 

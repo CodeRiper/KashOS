@@ -227,7 +227,8 @@ impl HardwareTier {
 
 pub fn detect_hardware_tier() -> HardwareTier {
     let f = detect();
-    let (iommu_active, _, _) = super::vtd::get_iommu_status();
+    let (_, iommu_units, _) = super::vtd::get_iommu_status();
+    let iommu_active = iommu_units > 0;
     let tpm_status = super::tpm::get_tpm_status();
 
     if f.has_vmx && iommu_active && tpm_status.contains("Active") && f.has_smep && f.has_smap {
@@ -242,7 +243,8 @@ pub fn detect_hardware_tier() -> HardwareTier {
 pub fn print_hardware_report() {
     let f = detect();
     let tier = detect_hardware_tier();
-    let (iommu_active, _, _) = super::vtd::get_iommu_status();
+    let (_, iommu_units, _) = super::vtd::get_iommu_status();
+    let iommu_active = iommu_units > 0;
     let tpm_status = super::tpm::get_tpm_status();
     let cpus = super::smp::cpu_count();
 
@@ -258,7 +260,7 @@ pub fn print_hardware_report() {
     crate::kprintln!("║   * SMEP (Supervisor Mode Execution Prev) : [{:<12}]               ║", if f.has_smep { "ACTIVE" } else { "NOT AVAILABLE" });
     crate::kprintln!("║   * SMAP (Supervisor Mode Access Prev)    : [{:<12}]               ║", if f.has_smap { "ACTIVE" } else { "NOT AVAILABLE" });
     crate::kprintln!("║   * Intel VT-x Hardware Virtualization    : [{:<12}]               ║", if f.has_vmx { "ACTIVE" } else { "NOT AVAILABLE" });
-    crate::kprintln!("║   * IOMMU / VT-d DMA Bus-Master Remapping : [{:<12}]               ║", if iommu_active { "ACTIVE" } else { "REDUCED (T0)" });
+    crate::kprintln!("║   * IOMMU / VT-d DMA Remapping            : [{:<12}]               ║", if iommu_active { "ACTIVE" } else { "UNAVAILABLE" });
     crate::kprintln!("║   * Hardware TPM 2.0 Cryptographic Root   : [{:<12}]               ║", if tpm_status.contains("ACTIVE") { "ACTIVE" } else { "NOT AVAILABLE" });
     crate::kprintln!("║   * AES-NI Hardware Crypto Acceleration   : [{:<12}]               ║", if f.has_aesni { "ACTIVE" } else { "SOFTWARE (XChaCha20)" });
     crate::kprintln!("║   * RDRAND / RDSEED Hardware Entropy      : [{:<12}]               ║", if f.has_rdrand { "ACTIVE" } else { "FALLBACK (Jitter)" });
@@ -267,12 +269,12 @@ pub fn print_hardware_report() {
     if tier == HardwareTier::T0Legacy {
         crate::kprintln!("║   - Vault Key Derivation  : Memory-Hard Argon2id (OWASP Low-RAM)     ║");
         crate::kprintln!("║   - Stream Cipher         : XChaCha20-Poly1305 (Fast in software)    ║");
-        crate::kprintln!("║   - DMA Port Isolation    : USB deny-by-default, Whitelisted HID only║");
+        crate::kprintln!("║   - DMA Bus Isolation     : Unavailable; no active IOMMU unit       ║");
         crate::kprintln!("║   - Browser Sandbox       : Lightweight Single-Pass Execution Engine ║");
     } else {
         crate::kprintln!("║   - Vault Key Derivation  : Argon2id (256 MiB, t=12, p=1) Full Spec  ║");
         crate::kprintln!("║   - Stream Cipher         : Post-Quantum ML-KEM + 4000-Stripe Split  ║");
-        crate::kprintln!("║   - DMA Bus Isolation     : Hardware IOMMU Fencing for all devices   ║");
+        crate::kprintln!("║   - DMA Bus Isolation     : Hardware IOMMU unit active               ║");
         crate::kprintln!("║   - VM Containment        : Hardware-Assisted VT-x Domain Separation ║");
     }
     crate::kprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
