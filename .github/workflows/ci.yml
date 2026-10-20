@@ -92,6 +92,9 @@ jobs:
       - name: Verify Secondary CPUs Stay Parked Until Initialized
         run: python3 tools/test_smp_aps_fail_closed.py
 
+      - name: Verify BSP Uses CPU-Local GDT and TSS State
+        run: python3 tools/test_gdt_per_cpu.py
+
       - name: Verify UI Privacy and Network Claims
         run: python3 tools/test_ui_honesty.py
 

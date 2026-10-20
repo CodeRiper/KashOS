@@ -401,13 +401,17 @@ pub fn hw_entropy(buf: &mut [u8]) -> bool {
 pub fn init(kernel_stack_top: u64) {
     uart::init();
     fpu::enable_sse();
-    gdt::init(kernel_stack_top);
-    idt::init();
     apic::init();
+    smp::init(apic::bsp_id());
+    let cpu_index = smp::cpu_index_for_apic_id(apic::current_id())
+        .unwrap_or_else(|| panic!("BSP APIC ID is absent from the discovered CPU table"));
+    if !gdt::init(kernel_stack_top, cpu_index) {
+        panic!("BSP GDT/TSS state could not be initialized");
+    }
+    idt::init();
     clock::calibrate_tsc();
     vtd::early_init();
     tpm::early_init();
-    smp::init(apic::bsp_id());
     syscall::init();
 
     // Report discovered CPUs but keep APs parked until their local execution state exists.

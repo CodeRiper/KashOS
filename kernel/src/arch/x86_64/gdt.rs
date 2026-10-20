@@ -1,54 +1,45 @@
-//! x86-64 GDT — Global Descriptor Table and Task State Segment (TSS).
+//! x86-64 GDT — CPU-local Global Descriptor Table and Task State Segment.
 //!
-//! Provides hardware privilege boundaries between supervisor mode (Ring 0)
-//! and unprivileged user space (Ring 3), as required for high-assurance isolation.
-//!
-//! Layout matches the exact order mandated by the x86-64 `sysretq` instruction:
-//!   - 0x00: Null Descriptor
-//!   - 0x08: 64-bit Kernel Code (Ring 0, DPL=0)
-//!   - 0x10: 64-bit Kernel Data (Ring 0, DPL=0)
-//!   - 0x18: 64-bit User Data   (Ring 3, DPL=3, selector 0x18 | 3 = 0x1B)
-//!   - 0x20: 64-bit User Code   (Ring 3, DPL=3, selector 0x20 | 3 = 0x23)
-//!   - 0x28: 64-bit TSS (16 bytes, covers 0x28 and 0x30)
+//! Each initialized CPU owns its GDT, TSS, and IST stacks. AP startup remains
+//! disabled until the IDT, syscall entry, and scheduler are CPU-local as well.
 #![allow(unsafe_code)]
 
 use core::mem::size_of;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 pub const KERNEL_CODE_SELECTOR: u16 = 0x08;
 pub const KERNEL_DATA_SELECTOR: u16 = 0x10;
-pub const USER_DATA_SELECTOR: u16 = 0x18 | 3; // RPL = 3 (0x1B)
-pub const USER_CODE_SELECTOR: u16 = 0x20 | 3; // RPL = 3 (0x23)
+pub const USER_DATA_SELECTOR: u16 = 0x18 | 3;
+pub const USER_CODE_SELECTOR: u16 = 0x20 | 3;
 pub const TSS_SELECTOR: u16 = 0x28;
 
-// Backward-compatibility aliases
-pub const SEL_NULL:   u16 = 0x00;
+pub const SEL_NULL: u16 = 0x00;
 pub const SEL_CODE64: u16 = KERNEL_CODE_SELECTOR;
 pub const SEL_DATA64: u16 = KERNEL_DATA_SELECTOR;
-pub const SEL_TSS:    u16 = TSS_SELECTOR;
+pub const SEL_TSS: u16 = TSS_SELECTOR;
 
-/// 64-bit Task State Segment (TSS) holding privilege-level stacks and ISTs.
 #[repr(C, packed)]
 pub struct TaskStateSegment {
     pub reserved_0: u32,
-    pub rsp0: u64, // Supervisor stack loaded on Ring 3 -> Ring 0 transitions
+    pub rsp0: u64,
     pub rsp1: u64,
     pub rsp2: u64,
     pub reserved_1: u64,
-    pub ist1: u64, // Dedicated Stack: Double Fault (#DF)
-    pub ist2: u64, // Dedicated Stack: Non-Maskable Interrupt (#NMI)
-    pub ist3: u64, // Dedicated Stack: Machine Check (#MC)
+    pub ist1: u64,
+    pub ist2: u64,
+    pub ist3: u64,
     pub ist4: u64,
     pub ist5: u64,
     pub ist6: u64,
     pub ist7: u64,
     pub reserved_2: u64,
     pub reserved_3: u16,
-    pub iomap_base: u16, // I/O Permission Bit Map Offset
+    pub iomap_base: u16,
 }
 
 impl TaskStateSegment {
     pub const fn new() -> Self {
-        TaskStateSegment {
+        Self {
             reserved_0: 0,
             rsp0: 0,
             rsp1: 0,
@@ -63,15 +54,13 @@ impl TaskStateSegment {
             ist7: 0,
             reserved_2: 0,
             reserved_3: 0,
-            iomap_base: size_of::<TaskStateSegment>() as u16,
+            iomap_base: size_of::<Self>() as u16,
         }
     }
 }
 
-// Backward-compatibility alias
 pub type Tss = TaskStateSegment;
 
-/// 7-entry 64-bit GDT layout.
 #[repr(C, packed)]
 pub struct Gdt {
     pub null: u64,
@@ -83,78 +72,91 @@ pub struct Gdt {
     pub tss_high: u64,
 }
 
-pub static mut GDT: Gdt = Gdt {
-    null: 0,
-    kernel_code: 0x00AF_9A00_0000_FFFF, // 64-bit Ring 0 Code (Executable, Readable, Long Mode)
-    kernel_data: 0x00CF_9200_0000_FFFF, // 64-bit Ring 0 Data (Writable)
-    user_data:   0x00CF_F200_0000_FFFF, // 64-bit Ring 3 Data (DPL=3, Writable)
-    user_code:   0x00AF_FA00_0000_FFFF, // 64-bit Ring 3 Code (DPL=3, Executable, Long Mode)
-    tss_low: 0,
-    tss_high: 0,
-};
+impl Gdt {
+    const fn new() -> Self {
+        Self {
+            null: 0,
+            kernel_code: 0x00AF_9A00_0000_FFFF,
+            kernel_data: 0x00CF_9200_0000_FFFF,
+            user_data: 0x00CF_F200_0000_FFFF,
+            user_code: 0x00AF_FA00_0000_FFFF,
+            tss_low: 0,
+            tss_high: 0,
+        }
+    }
+}
 
-#[repr(align(4096))]
-#[allow(dead_code)]
-struct DoubleFaultStack([u8; 8192]);
-static mut DOUBLE_FAULT_STACK: DoubleFaultStack = DoubleFaultStack([0; 8192]);
+#[repr(C, align(4096))]
+struct IstStack([u8; 8192]);
 
-#[repr(align(4096))]
-#[allow(dead_code)]
-struct NmiStack([u8; 8192]);
-static mut NMI_STACK: NmiStack = NmiStack([0; 8192]);
+struct CpuGdtState {
+    gdt: Gdt,
+    tss: TaskStateSegment,
+    double_fault_stack: IstStack,
+    nmi_stack: IstStack,
+    machine_check_stack: IstStack,
+}
 
-#[repr(align(4096))]
-#[allow(dead_code)]
-struct MceStack([u8; 8192]);
-static mut MCE_STACK: MceStack = MceStack([0; 8192]);
+impl CpuGdtState {
+    const fn new() -> Self {
+        Self {
+            gdt: Gdt::new(),
+            tss: TaskStateSegment::new(),
+            double_fault_stack: IstStack([0; 8192]),
+            nmi_stack: IstStack([0; 8192]),
+            machine_check_stack: IstStack([0; 8192]),
+        }
+    }
+}
 
-pub static mut TSS: TaskStateSegment = TaskStateSegment::new();
+static mut CPU_GDT: [CpuGdtState; crate::arch::x86_64::smp::MAX_CPUS] =
+    [const { CpuGdtState::new() }; crate::arch::x86_64::smp::MAX_CPUS];
+static CPU_GDT_READY: [AtomicBool; crate::arch::x86_64::smp::MAX_CPUS] =
+    [const { AtomicBool::new(false) }; crate::arch::x86_64::smp::MAX_CPUS];
 
-/// GDTR descriptor format for `lgdt`.
 #[repr(C, packed)]
 struct GdtPointer {
     limit: u16,
     base: u64,
 }
 
-/// Initialize and install the complete GDT and TSS for supervisor and user mode.
-pub fn init(kernel_stack_top: u64) {
+/// Initialize and install the GDT and TSS for one CPU.
+///
+/// `cpu_index` must be the slot assigned by `smp::init`. This installs only
+/// the current CPU's tables; it does not start or enable any secondary CPU.
+pub fn init(kernel_stack_top: u64, cpu_index: usize) -> bool {
+    if cpu_index >= crate::arch::x86_64::smp::MAX_CPUS {
+        return false;
+    }
+
     unsafe {
-        // Point TSS RSP0 at supervisor stack for Ring 3 -> Ring 0 entries.
-        TSS.rsp0 = kernel_stack_top;
-        // Dedicated stack for Double Fault (#DF) exception handler (IST 1)
-        TSS.ist1 = core::ptr::addr_of!(DOUBLE_FAULT_STACK) as u64 + 8192;
-        // Dedicated stack for Non-Maskable Interrupt (#NMI) exception handler (IST 2)
-        TSS.ist2 = core::ptr::addr_of!(NMI_STACK) as u64 + 8192;
-        // Dedicated stack for Machine Check (#MC) exception handler (IST 3)
-        TSS.ist3 = core::ptr::addr_of!(MCE_STACK) as u64 + 8192;
+        let state = core::ptr::addr_of_mut!(CPU_GDT[cpu_index]);
+        (*state).tss.rsp0 = kernel_stack_top;
+        (*state).tss.ist1 = core::ptr::addr_of!((*state).double_fault_stack) as u64 + 8192;
+        (*state).tss.ist2 = core::ptr::addr_of!((*state).nmi_stack) as u64 + 8192;
+        (*state).tss.ist3 = core::ptr::addr_of!((*state).machine_check_stack) as u64 + 8192;
 
-        let tss_ptr = core::ptr::addr_of!(TSS) as u64;
+        let tss_ptr = core::ptr::addr_of!((*state).tss) as u64;
         let tss_size = (size_of::<TaskStateSegment>() - 1) as u64;
-
-        // Construct 16-byte TSS descriptor in GDT
-        GDT.tss_low = (tss_size & 0xFFFF)
+        (*state).gdt.tss_low = (tss_size & 0xFFFF)
             | ((tss_ptr & 0x00FF_FFFF) << 16)
-            | (0x89_u64 << 40) // Present, 64-bit Available TSS (type=0b1001, DPL=0)
+            | (0x89_u64 << 40)
             | ((tss_size & 0x000F_0000) << 32)
             | ((tss_ptr & 0xFF00_0000) << 32);
-        GDT.tss_high = tss_ptr >> 32;
+        (*state).gdt.tss_high = tss_ptr >> 32;
 
         let gdt_ptr = GdtPointer {
             limit: (size_of::<Gdt>() - 1) as u16,
-            base: core::ptr::addr_of!(GDT) as u64,
+            base: core::ptr::addr_of!((*state).gdt) as u64,
         };
 
-        // Reload GDTR, reload code/data segments, and load Task Register (TR)
         core::arch::asm!(
             "lgdt [{ptr}]",
-            // Reload CS via far return
             "push 0x08",
-            "lea  rax, [rip + 2f]",
+            "lea rax, [rip + 2f]",
             "push rax",
             "retfq",
             "2:",
-            // Reload segment registers with Kernel Data (0x10)
             "mov ax, 0x10",
             "mov ds, ax",
             "mov es, ax",
@@ -162,18 +164,26 @@ pub fn init(kernel_stack_top: u64) {
             "xor ax, ax",
             "mov fs, ax",
             "mov gs, ax",
-            // Load Task Register with TSS selector (0x28)
             "mov ax, 0x28",
             "ltr ax",
             ptr = in(reg) &gdt_ptr,
             out("rax") _,
         );
+        CPU_GDT_READY[cpu_index].store(true, Ordering::Release);
     }
+    true
 }
 
-/// Dynamically update TSS RSP0 (active kernel stack) upon context switch.
+/// Update the current CPU's privilege-transition stack after a context switch.
 pub fn set_tss_rsp0(rsp0: u64) {
+    let apic_id = crate::arch::x86_64::apic::current_id();
+    let Some(cpu_index) = crate::arch::x86_64::smp::cpu_index_for_apic_id(apic_id) else {
+        return;
+    };
+    if !CPU_GDT_READY[cpu_index].load(Ordering::Acquire) {
+        return;
+    }
     unsafe {
-        TSS.rsp0 = rsp0;
+        CPU_GDT[cpu_index].tss.rsp0 = rsp0;
     }
 }
