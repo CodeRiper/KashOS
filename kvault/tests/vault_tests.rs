@@ -476,11 +476,13 @@ fn derive_key_is_deterministic_and_domain_separated() {
 #[test]
 fn default_kdf_policy_is_bounded_and_high_memory_requires_explicit_budget() {
     let below_floor = KdfParams { m_kib: MIN_KDF_MEMORY_KIB - 1, t: 2, p: 1 };
+    let below_time_floor = KdfParams { m_kib: MIN_KDF_MEMORY_KIB, t: MIN_KDF_TIME_COST - 1, p: 1 };
     let legacy_weak = KdfParams { m_kib: 8, t: 1, p: 1 };
     assert!(legacy_weak.validate().is_ok(), "legacy weak profiles must remain recoverable");
     assert!(legacy_weak.validate_for_new_vault().is_err());
     assert!(below_floor.validate().is_ok(), "legacy volumes below the new floor remain readable");
     assert!(below_floor.validate_for_new_vault().is_err());
+    assert!(below_time_floor.validate_for_new_vault().is_err());
     assert!(KdfParams::LOW_END.validate_for_new_vault().is_ok());
     assert!(KdfParams::KASHOS_ULTRA_LOW_RAM.validate().is_ok());
     assert!(KdfParams::KASHOS_1GIB_LEGACY.validate().is_ok());
@@ -498,10 +500,14 @@ fn default_kdf_policy_is_bounded_and_high_memory_requires_explicit_budget() {
 #[test]
 fn new_volume_format_rejects_weak_kdf_profiles_before_writing() {
     let mut rng = TestRng(0xBADC0DE);
-    let mut weak_opts = opts(0);
-    weak_opts.params = KdfParams { m_kib: 128, t: 1, p: 1 };
-    let result = Vault::format(MemDevice::new(64), &mut rng, &weak_opts, OUTER, None, None);
-    assert_eq!(result.err(), Some(VaultError::InvalidParams));
+    for params in [
+        KdfParams { m_kib: 128, t: 2, p: 1 },
+        KdfParams { m_kib: MIN_KDF_MEMORY_KIB, t: 1, p: 1 },
+    ] {
+        let weak_opts = FormatOptions { params, hidden_percent: 0 };
+        let result = Vault::format(MemDevice::new(64), &mut rng, &weak_opts, OUTER, None, None);
+        assert_eq!(result.err(), Some(VaultError::InvalidParams));
+    }
 }
 
 #[cfg(feature = "test-fast-kdf")]

@@ -18,6 +18,8 @@ pub const TAG_LEN: usize = 16;
 pub const SEAL_OVERHEAD: usize = NONCE_LEN + TAG_LEN;
 /// Lowest supported password-storage profile (OWASP Argon2id floor), in KiB.
 pub const MIN_KDF_MEMORY_KIB: u32 = 19 * 1024;
+/// Lowest supported Argon2id time cost for newly formatted vaults.
+pub const MIN_KDF_TIME_COST: u32 = 2;
 /// Normal vault operations cap Argon2id at the largest KashOS supported profile.
 pub const DEFAULT_MAX_KDF_MEMORY_KIB: u32 = 256 * 1024;
 /// Explicit recovery callers may opt into RFC 9106's 2 GiB profile after
@@ -73,7 +75,7 @@ impl KdfParams {
     /// Existing low-cost volumes remain readable for explicit data recovery.
     pub fn validate_for_new_vault(&self) -> VaultResult<()> {
         self.validate()?;
-        if self.m_kib < MIN_KDF_MEMORY_KIB {
+        if self.m_kib < MIN_KDF_MEMORY_KIB || self.t < MIN_KDF_TIME_COST {
             return Err(VaultError::InvalidParams);
         }
         Ok(())

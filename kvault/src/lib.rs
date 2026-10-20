@@ -31,7 +31,7 @@ pub use blockdev::{BlockDevice, MemDevice, BLOCK_SIZE};
 pub use crypto::{
     combine_password_keyfile, derive_key, kdf, kdf_with_memory_limit, random_key, subkey,
     KdfParams, Key, DEFAULT_MAX_KDF_MEMORY_KIB, ABSOLUTE_MAX_KDF_MEMORY_KIB,
-    MIN_KDF_MEMORY_KIB,
+    MIN_KDF_MEMORY_KIB, MIN_KDF_TIME_COST,
 };
 pub use error::{VaultError, VaultResult};
 pub use rand_core;

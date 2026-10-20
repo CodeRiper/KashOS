@@ -29,7 +29,7 @@ checks = [
     ("Kernel uses current largest contiguous free heap block", "let (_, _, largest_free_block) = crate::heap::dump_stats()" in VFS),
     ("Kernel reserves heap memory and passes budget to vault open", "KDF_HEAP_RESERVE_KIB" in VFS and "Vault::open_with_memory_limit(dev, &mut rng, master_key, heap_budget_kib)" in VFS),
     ("Regression test checks hostile header rejection and non-mutation", "hostile_kdf_header_is_rejected_before_kdf_and_without_disk_mutation" in TESTS),
-    ("New vaults enforce the 19 MiB OWASP Argon2id floor", "MIN_KDF_MEMORY_KIB: u32 = 19 * 1024" in CRYPTO and "self.m_kib < MIN_KDF_MEMORY_KIB" in CRYPTO),
+    ("New vaults enforce OWASP minimum memory and time costs", "MIN_KDF_MEMORY_KIB: u32 = 19 * 1024" in CRYPTO and "MIN_KDF_TIME_COST: u32 = 2" in CRYPTO and "self.t < MIN_KDF_TIME_COST" in CRYPTO),
     ("Vault format validates KDF policy before any disk write", "opts.params.validate_for_format()?" in format_body and format_body.index("validate_for_format()") < format_body.index("// 1. Random-fill everything.")),
     ("Weak legacy KDF headers remain available for recovery", "legacy weak profiles must remain recoverable" in TESTS and "self.m_kib >= 8 * self.p" in CRYPTO),
     ("Fast KDF fixture is gated to debug builds with explicit test feature", "test-fast-kdf = []" in KV_CARGO and "all(feature = \"test-fast-kdf\", debug_assertions)" in format_policy and "#[cfg(feature = \"test-fast-kdf\")]" in CRYPTO),
