@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-20  
-**Repository tip checked:** `main` at `a51ffa91a054011dbe819592cb341c298440b2eb`
-**Current task branch:** `codex/a10-identifier-resolution`
-**Current engineering task:** A10 syscall-stack and user-space lifecycle audit
+**Repository tip checked:** `main` at `2931a8c5a57dbe6706d6f9377322fa2cfe70a8d3`
+**Current task branch:** `codex/a10-percpu-syscall-entry`
+**Current engineering task:** A10 syscall-entry CPU-local state and user-space lifecycle audit
 
 ## Completed in this task
 
@@ -203,10 +203,13 @@ PR #9 (process-authority hardening) is merged to `main` at
 [`00672ba`](https://github.com/CodeRiper/KashOS/commit/00672ba85cdd4d27bd15a6166f36129c57995deb).
 PR #10 (current A10 roadmap/evidence handoff) is merged to `main` at
 [`a51ffa9`](https://github.com/CodeRiper/KashOS/commit/a51ffa91a054011dbe819592cb341c298440b2eb).
+PR #11 (A10 identifier resolution and fail-closed driver services) is merged to
+`main` at
+[`2931a8c`](https://github.com/CodeRiper/KashOS/commit/2931a8c5a57dbe6706d6f9377322fa2cfe70a8d3).
 Local `main` was verified clean and equal to `origin/main` at that SHA before
-the A10 identifier-resolution branch was created.
+the A10 per-CPU syscall-entry branch was created.
 
-## A10 identifier resolution follow-up (local branch; awaiting PR)
+## A10 identifier resolution follow-up (PR #11 merged)
 
 - Replaced modulo-derived PID-to-CSpace references in driver and IPC paths with
   process-table lookup; IPC scheduler wakeups now use the scheduler's active
@@ -220,15 +223,30 @@ the A10 identifier-resolution branch was created.
 - Local regression guard (13 assertions), kscheduler tests (12), full host
   workspace tests, release kernel check/build, claims lint, findings verifier,
   diff check, and T0 QEMU boot passed. See `docs/EVIDENCE/A10.md` for details.
-- This does not finish A10: the normal UI remains in Ring 0 and syscall entry
-  still uses one global kernel stack; F8 and F10 remain present.
+- This did not finish A10: the normal UI remains in Ring 0 and APs still lack
+  per-CPU architecture/user-task setup; F8 and F10 remain present.
+
+## A10 per-CPU syscall-entry follow-up (local branch; awaiting PR)
+
+- Replaced global syscall stack and saved-RSP storage with per-CPU entry state
+  selected by current APIC ID.
+- Kept user RSP in a scratch register until return RIP validation; malformed
+  SYSRET state now builds its IRET frame while still on the trusted kernel
+  stack.
+- Moved syscall MSR setup after CPU discovery. The official Intel/AMD
+  architecture references and design limits are recorded in
+  `docs/design/a10-syscall-entry.md`.
+- Local syscall-entry guard (10 checks), release kernel check/build, T0 QEMU
+  boot, full host workspace suite, all repository source guards, claims lint,
+  findings audit, and diff check passed. T13 exercised Ring 3 entry/return;
+  this is single-CPU evidence only.
+- No claim of SMP userland support: APs still idle without per-CPU GDT/IDT/TSS,
+  syscall MSRs, and scheduler integration.
 
 ## Next task
 
-After the A10 identifier-resolution follow-up is merged, trace syscall
-entry/return, stack ownership, interrupt nesting, and process lifecycle,
-adding a focused regression check before changing the shared syscall stack.
-Design a real Ring 3 init/session lifecycle and
+After the A10 per-CPU syscall-entry follow-up is merged, validate AP GDT/IDT/TSS
+and scheduler setup, then design a real Ring 3 init/session lifecycle and
 migrate the shell and compositor behind it. Keep the current prototype UI
 clearly labeled Ring 0. Revisit A2/A3 if persistent-data behavior changes; the
 local audit does not establish TPM-backed key provisioning or production

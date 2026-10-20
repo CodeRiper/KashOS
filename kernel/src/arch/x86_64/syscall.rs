@@ -387,13 +387,19 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
 #[repr(align(4096))]
 pub struct SyscallKernelStack(pub [u8; 16384]);
 
-#[no_mangle]
-pub static mut SYSCALL_KERNEL_STACK: SyscallKernelStack = SyscallKernelStack([0; 16384]);
+#[repr(C, align(16))]
+pub struct SyscallCpuState {
+    pub user_rsp: u64,
+    pub kernel_stack_top: u64,
+}
 
-#[no_mangle]
-pub static mut USER_RSP_SCRATCH: u64 = 0;
+pub static mut SYSCALL_KERNEL_STACKS: [SyscallKernelStack; crate::arch::x86_64::smp::MAX_CPUS] =
+    [const { SyscallKernelStack([0; 16384]) }; crate::arch::x86_64::smp::MAX_CPUS];
+pub static mut SYSCALL_CPU_STATE: [SyscallCpuState; crate::arch::x86_64::smp::MAX_CPUS] =
+    [const { SyscallCpuState { user_rsp: 0, kernel_stack_top: 0 } }; crate::arch::x86_64::smp::MAX_CPUS];
 
 pub const IA32_EFER: u32 = 0xC000_0080;
+pub const IA32_GS_BASE: u32 = 0xC000_0101;
 pub const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
 
 // Global assembly system call entrypoint.
@@ -405,12 +411,12 @@ core::arch::global_asm!(
         // 1. Switch GS to kernel space
         swapgs
 
-        // 2. Switch from untrusted user RSP to dedicated kernel syscall stack
-        mov [rip + USER_RSP_SCRATCH], rsp
-        lea rsp, [rip + SYSCALL_KERNEL_STACK + 16384]
+        // 2. Save user RSP and switch to this CPU's trusted syscall stack.
+        mov gs:[0], rsp
+        mov rsp, gs:[8]
 
         // 3. Save user RSP and user registers on the trusted kernel stack
-        push qword ptr [rip + USER_RSP_SCRATCH] // User RSP (slot 1)
+        push qword ptr gs:[0]                  // User RSP (slot 1)
         push rcx                                // User RIP (slot 2)
         push r11                                // User RFLAGS (slot 3)
         push rbp                                // (slot 4)
@@ -453,12 +459,12 @@ core::arch::global_asm!(
         pop rbp
         pop r11               // Restore user RFLAGS
         pop rcx               // Restore user RIP
-        pop rsp               // Restore user RSP
+        pop r10               // Keep user RSP in a scratch register until return validation
 
         // 6. Security Check (Part A8): Verify that RCX is a canonical user address (<= 0x00007FFFFFFFFFFF).
-        // If non-canonical, do NOT sysretq (which faults in Ring 0); fall back to iretq.
-        mov r10, 0x00007FFFFFFFFFFF
-        cmp rcx, r10
+        // If non-canonical, construct an IRET frame on the kernel stack.
+        mov r9, 0x00007FFFFFFFFFFF
+        cmp rcx, r9
         ja 1f
 
         // Clear scratch registers before returning to user mode to prevent kernel information leakage
@@ -467,6 +473,7 @@ core::arch::global_asm!(
         xor rdi, rdi
         xor r8, r8
         xor r9, r9
+        mov rsp, r10
         xor r10, r10
 
         // Restore user GS base
@@ -476,9 +483,9 @@ core::arch::global_asm!(
         sysretq
 
     1:
-        // Fallback to iretq when RCX is non-canonical (prevents supervisor-mode GPF)
+        // Keep this frame on the trusted kernel stack, not the user RSP.
         push 0x1B                               // User SS (0x18 | 3)
-        push qword ptr [rip + USER_RSP_SCRATCH] // User RSP
+        push r10                                // User RSP
         push r11                                // User RFLAGS
         push 0x23                               // User CS (0x20 | 3)
         push rcx                                // User RIP (non-canonical target)
@@ -499,7 +506,18 @@ extern "C" {
 
 /// Initialize fast system call MSR registers and enable SCE.
 pub fn init() {
+    let apic_id = crate::arch::x86_64::apic::current_id();
+    let Some(cpu_index) = crate::arch::x86_64::smp::cpu_index_for_apic_id(apic_id) else {
+        crate::kprintln!("[syscall] CPU-local entry state unavailable for APIC ID {}; fast syscalls remain disabled.", apic_id);
+        return;
+    };
+
     unsafe {
+        let cpu_state = core::ptr::addr_of_mut!(SYSCALL_CPU_STATE[cpu_index]);
+        let stack = core::ptr::addr_of_mut!(SYSCALL_KERNEL_STACKS[cpu_index]);
+        (*cpu_state).user_rsp = 0;
+        (*cpu_state).kernel_stack_top = stack as u64 + core::mem::size_of::<SyscallKernelStack>() as u64;
+
         // Ensure IA32_EFER.SCE (System Call Enable, bit 0) is active
         let efer = rdmsr(IA32_EFER);
         if efer & 1 == 0 {
@@ -521,9 +539,9 @@ pub fn init() {
         let fmask: u64 = 0x200 | 0x400 | 0x100 | 0x40000;
         wrmsr(IA32_FMASK, fmask);
 
-        // IA32_KERNEL_GS_BASE (Part A8): Set kernel GS base for swapgs
-        let gs_base = core::ptr::addr_of!(SYSCALL_KERNEL_STACK) as u64 + 16384;
-        wrmsr(IA32_KERNEL_GS_BASE, gs_base);
+        // SWAPGS obtains this CPU's entry state before any GPR is saved.
+        wrmsr(IA32_GS_BASE, 0);
+        wrmsr(IA32_KERNEL_GS_BASE, cpu_state as u64);
     }
 }
 

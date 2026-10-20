@@ -240,9 +240,14 @@ pub fn is_pit_fallback() -> bool {
     PIT_FALLBACK_ACTIVE.load(Ordering::Relaxed)
 }
 
-/// Read the APIC ID of the current CPU.
-pub fn bsp_id() -> u8 {
+/// Read the local APIC ID of the current CPU.
+pub fn current_id() -> u8 {
     unsafe { ((read32(APIC_ID) >> 24) & 0xFF) as u8 }
+}
+
+/// Read the bootstrap processor APIC ID during early boot.
+pub fn bsp_id() -> u8 {
+    current_id()
 }
 
 // ── ACPI / QEMU shutdown ──────────────────────────────────────────────────────

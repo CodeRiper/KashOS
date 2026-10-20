@@ -405,10 +405,10 @@ pub fn init(kernel_stack_top: u64) {
     idt::init();
     apic::init();
     clock::calibrate_tsc();
-    syscall::init();
     vtd::early_init();
     tpm::early_init();
     smp::init(apic::bsp_id());
+    syscall::init();
 
     // Boot secondary CPU cores (APs) via INIT-SIPI-SIPI sequence
     let mut kernel_cr3: u64 = 0;
