@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `3ee53f4bd9e3bc868df6a8154042298e673b44a5` (PR #22)
-**Active work branch:** `main`
+**Repository state checked:** `main` at `90af0e05358e22d14b0d70bab52e7ffcee91bf29` (PR #22 plus docs sync)
+**Active work branch:** `codex/scheduler-reject-duplicate-ready`
 **Current gate:** A11 groundwork; GDT/TSS/IST, IDT, expected-fault recovery, timer counters, and current-task identity are CPU-local. APs remain parked until AP-local syscall setup and genuinely concurrent scheduler/context-switch state are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
@@ -49,6 +49,11 @@ compatibility.
   rejects unresolved identity rather than mapping it to root task 1. This does
   not make scheduler/TCB/FPU/context switching SMP-safe; APs remain parked.
   See [`EVIDENCE/A11.md`](EVIDENCE/A11.md).
+- The current follow-up rejects duplicate enqueue of a scheduler task already
+  marked `Ready`; failure-first host regression and verification are in
+  [`EVIDENCE/A11-scheduler-ready-state.md`](EVIDENCE/A11-scheduler-ready-state.md).
+  This fixes queue lifecycle correctness only; global scheduler/current-task
+  state still blocks concurrent CPU execution.
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.

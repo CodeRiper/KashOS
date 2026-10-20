@@ -28,6 +28,8 @@ pub enum SchedError {
     /// time, but checked explicitly rather than assumed).
     QueueFull,
     NoSuchTask,
+    /// The task is already present in a ready queue.
+    AlreadyReady,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -223,7 +225,14 @@ impl QoSScheduler {
     }
 
     pub fn enqueue_ready(&mut self, task_idx: usize) -> Result<(), SchedError> {
-        let qos = self.tasks.get(task_idx).ok_or(SchedError::NoSuchTask)?.qos;
+        let task = self.tasks.get(task_idx).ok_or(SchedError::NoSuchTask)?;
+        if !task.in_use {
+            return Err(SchedError::NoSuchTask);
+        }
+        if task.state == ThreadState::Ready {
+            return Err(SchedError::AlreadyReady);
+        }
+        let qos = task.qos;
         if let Some(q) = self.queues.get_mut(qos as usize) {
             q.push(task_idx as u32)?;
         }

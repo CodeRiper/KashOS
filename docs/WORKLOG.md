@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-20  
-**Repository tip checked:** `main` at `2931a8c5a57dbe6706d6f9377322fa2cfe70a8d3`
-**Current task branch:** `codex/a10-percpu-syscall-entry`
-**Current engineering task:** A10 syscall-entry CPU-local state and user-space lifecycle audit
+**Repository tip checked:** `main` at `90af0e05358e22d14b0d70bab52e7ffcee91bf29`
+**Current task branch:** `codex/scheduler-reject-duplicate-ready`
+**Current engineering task:** Reject duplicate ready-queue entries; continue A11 SMP groundwork
 
 ## Completed in this task
 
@@ -356,5 +356,22 @@ provisioning or production recovery.
 Make scheduler selection and TCB/FPU/timer context correct for per-CPU
 execution while keeping AP startup disabled. Add a hardware-path QEMU test for
 task identity on multiple CPUs before enabling any AP.
+
+## A11 duplicate scheduler enqueue correction (2026-10-20)
+
+- Audited `QoSScheduler::enqueue_ready` and found that it accepted a task
+  already marked `Ready`, allowing duplicate queue entries and repeated
+  selection of the same live task.
+- Added a failure-first host regression test and `SchedError::AlreadyReady`;
+  enqueue also rejects non-live slots. The existing timer preemption path may
+  requeue a live `Running` task.
+- Evidence: `docs/EVIDENCE/A11-scheduler-ready-state.md`; design:
+  `docs/design/a11-scheduler-ready-state.md`.
+- Host workspace tests, kernel release check/build, all 19 Python source
+  guards, claims lint, findings audit, and the T0 QEMU smoke test passed.
+  `cargo fmt --all -- --check` reports repository-wide baseline diffs; no
+  unrelated formatting was applied. See evidence for exact limits.
+- The T2 harness run observed its entropy event only; it did not test CPU
+  scheduling. APs remain parked; A11 remains incomplete.
 - PR #22 passed all three required CI jobs and merged to `main` at
   `3ee53f4bd9e3bc868df6a8154042298e673b44a5`; local `main` was fast-forwarded.

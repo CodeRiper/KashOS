@@ -160,3 +160,14 @@ fn task_cpu_affinity_filtering_and_pinning() {
     assert!(s.can_run_on_core(t1, 2));
     assert!(s.can_run_on_core(t1, 3));
 }
+
+#[test]
+fn duplicate_ready_enqueue_is_rejected_without_scheduling_one_task_twice() {
+    let mut s = QoSScheduler::new();
+    let only = s.create_task(91, QoSClass::Background, 0).unwrap();
+    assert_eq!(s.enqueue_ready(only), Ok(()));
+    assert_eq!(s.enqueue_ready(only), Err(SchedError::AlreadyReady));
+
+    assert_eq!(s.schedule(), Some(only));
+    assert_eq!(s.schedule(), None, "a running task must not remain queued");
+}
