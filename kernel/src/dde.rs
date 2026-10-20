@@ -1,10 +1,9 @@
 //! Linux Device Driver Environment (DDE) & Transducer Safety Engine.
 //!
 //! Provides two essential driver capabilities:
-//! 1. Linux DDE Translation Harness:
-//!    - Enables unmodified C-based Linux drivers to run inside de-privileged Ring 3 sandboxes.
-//!    - Supplies standard kernel shims: memory allocation (`kmalloc`/`kfree`), workqueues,
-//!      spinlocks, mutexes, and IOMMU-mediated DMA buffers (`dma_alloc_coherent`).
+//! 1. Linux DDE prototype registry:
+//!    - Does not execute Linux drivers or provide real kernel memory services.
+//!    - DMA allocation is unavailable until physical memory and IOMMU APIs are implemented.
 //! 2. Apple Silicon & Multi-Platform Hardware Enablement:
 //!    - Apple T2 Buffer Copy Engine (`apple-bce`) PCIe mailbox protocol for 2018-2020 MacBooks.
 //!    - Apple SMC (System Management Controller) and `apple-gmux` dual-GPU display multiplexer.
@@ -26,59 +25,33 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 // ── 1. Linux Device Driver Environment (DDE) Shims ──────────────────────────
 
-#[derive(Debug, Clone)]
-pub struct DdeMemoryBlock {
-    pub paddr: u64,
-    pub vaddr: u64,
-    pub size: usize,
-    pub is_coherent_dma: bool,
-}
-
 pub struct LinuxDdeHarness {
-    allocated_blocks: Vec<DdeMemoryBlock>,
     active_drivers: Vec<String>,
-    next_alloc_paddr: u64,
 }
 
 impl LinuxDdeHarness {
     pub fn new() -> Self {
         Self {
-            allocated_blocks: Vec::new(),
             active_drivers: Vec::new(),
-            next_alloc_paddr: 0x2000_0000,
         }
     }
 
-    /// Emulates Linux `kmalloc()` in userspace container.
-    pub fn kmalloc(&mut self, size: usize) -> u64 {
-        let paddr = self.next_alloc_paddr;
-        self.next_alloc_paddr += (size + 4095) as u64 & !4095;
-        self.allocated_blocks.push(DdeMemoryBlock {
-            paddr,
-            vaddr: paddr,
-            size,
-            is_coherent_dma: false,
-        });
-        paddr
+    /// Kernel memory allocation is unavailable; never return a fabricated address.
+    pub fn kmalloc(&mut self, size: usize) -> Result<u64, &'static str> {
+        let _ = (self, size);
+        Err("DDE memory allocation is unavailable")
     }
 
-    /// Emulates Linux `dma_alloc_coherent()` via IOMMU SLPT registration.
-    pub fn dma_alloc_coherent(&mut self, size: usize, _dev_name: &str) -> (u64, u64) {
-        let paddr = self.next_alloc_paddr;
-        self.next_alloc_paddr += (size + 4095) as u64 & !4095;
-        self.allocated_blocks.push(DdeMemoryBlock {
-            paddr,
-            vaddr: paddr,
-            size,
-            is_coherent_dma: true,
-        });
-        (paddr, paddr) // (CPU virtual/physical, IOMMU device bus address)
+    /// DMA allocation is unavailable until physical buffers can be mapped and isolated.
+    pub fn dma_alloc_coherent(&mut self, size: usize, dev_name: &str) -> Result<(u64, u64), &'static str> {
+        let _ = (self, size, dev_name);
+        Err("DDE DMA allocation is unavailable: VT-d is not active")
     }
 
     /// Registers a Linux-derived driver container (e.g. Wi-Fi 6E, NVMe, USB).
     pub fn register_driver(&mut self, name: &str, bus: &str) {
-        self.active_drivers.push(format!("{} (Bus: {}, DDE-Linux 6.8)", name, bus));
-        crate::kprintln!("[dde-linux] Driver container '{}' running in Ring 3 sandbox with IOMMU DMA containment.", name);
+        self.active_drivers.push(format!("{} (Bus: {}, registry entry only)", name, bus));
+        crate::kprintln!("[dde-linux] '{}' recorded in model registry; driver execution and DMA are unavailable.", name);
     }
 }
 
@@ -204,7 +177,7 @@ pub fn init() {
     unsafe {
         GLOBAL_DDE = Some(dde);
     }
-    crate::kprintln!("[dde] Linux DDE subsystem initialized (container harness ready, 0 drivers loaded)");
+    crate::kprintln!("[dde] Linux DDE model registry initialized; driver execution and DMA allocation are unavailable");
 }
 
 pub fn get_safety_engine() -> &'static mut TransducerSafetyEngine {
@@ -245,7 +218,7 @@ impl SpeakerSafetyEngine {
 pub fn list_drivers() {
     let dde = get_dde();
     crate::kprintln!("┌────────────────────────────────────────────────────────────────────────┐");
-    crate::kprintln!("│       LINUX DEVICE DRIVER EMULATION (DDE) RUNNING CONTAINERS           │");
+    crate::kprintln!("│        LINUX DRIVER MODEL REGISTRY (NO DRIVERS RUNNING)                │");
     crate::kprintln!("├────────────────────────────────────────────────────────────────────────┤");
     for d in &dde.active_drivers {
         crate::kprintln!("│  Driver: {:<60} │", d);

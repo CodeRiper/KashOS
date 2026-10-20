@@ -121,7 +121,7 @@ pub fn run(region: MemRegion) {
     #[cfg(target_arch = "x86_64")]
     test_driver_capability_isolation();
 
-    // ── Test 19: Hardware IOMMU VT-d SLPT Mapping & DMA Containment ──────
+    // ── Test 19: VT-d Fail-Closed State & Software Translation Model ─────
     #[cfg(target_arch = "x86_64")]
     test_vtd_iommu_dma_containment();
 
@@ -144,17 +144,14 @@ pub fn run(region: MemRegion) {
     crate::status::update(|s| {
         s.kcore_caps = crate::status::ComponentStatus::Real;
         s.sync_ipc = crate::status::ComponentStatus::Real;
-        s.vtd_iommu = match crate::arch::x86_64::vtd::get_iommu_status() {
-            (true, n, _) if n > 0 => crate::status::ComponentStatus::Real,
-            _ => crate::status::ComponentStatus::NotAvailable,
-        };
+        s.vtd_iommu = crate::status::ComponentStatus::Stub;
         s.ps2_input = crate::status::ComponentStatus::Real;
         s.xhci_usb = match crate::arch::get_xhci_status() {
             (true, _) => crate::status::ComponentStatus::Real,
             (false, true) => crate::status::ComponentStatus::Stub,
             _ => crate::status::ComponentStatus::NotAvailable,
         };
-        s.dde_linux = crate::status::ComponentStatus::Real;
+        s.dde_linux = crate::status::ComponentStatus::Stub;
         s.tpm2_crtm = match crate::arch::get_tpm_status() {
             stat if stat.starts_with("ACTIVE") => crate::status::ComponentStatus::Real,
             _ => crate::status::ComponentStatus::NotAvailable,
@@ -763,67 +760,57 @@ fn test_driver_capability_isolation() {
     check!(matches!(sup.verify_mmio_frame(net_pid, 0xFD00_0000, true), Err(KError::InsufficientRights)));
     check!(matches!(sup.verify_mmio_frame(net_pid, 0x0010_0000, true), Err(KError::InsufficientRights)));
 
-    kprintln!("[selftest] PASS: T18 Capability-Based Device Access: port & MMIO boundary isolation enforced across storage, input, and network services");
+    kprintln!("[selftest] PASS: T18 driver-access policy model checks passed; real driver processes and hardware I/O mediation are not established");
 }
 
-/// Test 19: Hardware IOMMU (Intel VT-d) Second-Level DMA Mapping & Fault Containment
-/// Verifies:
-/// - 4-level SLPT DMA window mapping for peripheral PCI BDF (00:03.0 e1000 NIC).
-/// - Legitimate DMA read/write within granted window is translated correctly.
-/// - Rogue DMA write to read-only page is trapped and rejected (WritePermissionViolation).
-/// - Rogue DMA transfer outside granted window (e.g. to kernel physical memory) is trapped by VT-d,
-///   fault is recorded in FRCD, and transfer is blocked.
+/// Test 19: VT-d fail-closed state and software translation model.
+/// This does not verify or exercise hardware DMA containment.
 #[cfg(target_arch = "x86_64")]
 fn test_vtd_iommu_dma_containment() {
-    use crate::arch::x86_64::vtd::{IntelVtdUnit, VtdFaultReason};
+    use crate::arch::x86_64::vtd::IntelVtdUnit;
     use khal::{IommuController, PciBdf};
+    use khal::vtd::{SlptPageTable, VtdFaultReason};
 
     let mut vtd = IntelVtdUnit::new(0);
-    check!(vtd.init_hardware().is_ok());
+    check!(vtd.init_hardware().is_err());
+    check!(vtd.enable_dma_remapping().is_err());
+    check!(!vtd.check_pcie_acs(PciBdf::new(0, 3, 0)));
 
     let bdf_e1000 = PciBdf::new(0, 3, 0); // Intel e1000 Gigabit NIC
     let domain_id = 2u16;
+    check!(vtd.map_device_dma(bdf_e1000, domain_id, 0x1000_0000, 0x1000_0000, 4096, true, true).is_err());
 
-    vtd.isolate_device(bdf_e1000, domain_id);
+    // This is an in-memory policy model test only; it does not test or enable VT-d.
+    let mut model = SlptPageTable::new();
+    model.bind_device(bdf_e1000, domain_id);
 
     // 1. Map legitimate DMA buffer: 4 KiB at 0x1000_0000 -> 0x1000_0000 (Read | Write)
-    check!(vtd.map_device_dma(bdf_e1000, domain_id, 0x1000_0000, 0x1000_0000, 4096, true, true).is_ok());
+    check!(model.map_dma(bdf_e1000, domain_id, 0x1000_0000, 0x1000_0000, 4096, true, true).is_ok());
 
     // 2. Map read-only DMA descriptor page: 4 KiB at 0x1000_2000 -> 0x1000_2000 (Read Only)
-    check!(vtd.map_device_dma(bdf_e1000, domain_id, 0x1000_2000, 0x1000_2000, 4096, true, false).is_ok());
+    check!(model.map_dma(bdf_e1000, domain_id, 0x1000_2000, 0x1000_2000, 4096, true, false).is_ok());
 
-    // 3. Legitimate DMA translation check
-    let translated = vtd.translate_dma(bdf_e1000, domain_id, 0x1000_0100, true);
+    // 3. Legitimate model translation check
+    let translated = model.translate_dma(bdf_e1000, domain_id, 0x1000_0100, true);
     check!(translated == Ok(0x1000_0100));
 
-    let translated_ro = vtd.translate_dma(bdf_e1000, domain_id, 0x1000_2040, false);
+    let translated_ro = model.translate_dma(bdf_e1000, domain_id, 0x1000_2040, false);
     check!(translated_ro == Ok(0x1000_2040));
 
-    // 4. Negative Check 1: Rogue DMA write to read-only buffer
-    let initial_faults = vtd.fault_count();
-    let ro_violation = vtd.translate_dma(bdf_e1000, domain_id, 0x1000_2000, true);
+    // 4. Negative Check 1: Model rejects a write to a read-only buffer.
+    let ro_violation = model.translate_dma(bdf_e1000, domain_id, 0x1000_2000, true);
     check!(ro_violation == Err(VtdFaultReason::WritePermissionViolation));
-    check!(vtd.fault_count() == initial_faults + 1);
-    let fault1 = vtd.last_fault().unwrap();
-    check!(fault1.fault_addr == 0x1000_2000);
-    check!(fault1.reason == VtdFaultReason::WritePermissionViolation);
 
-    // 5. Negative Check 2: Rogue DMA to unmapped host physical memory (e.g. kernel text 0x0010_0000)
-    let rogue_attack = vtd.translate_dma(bdf_e1000, domain_id, 0x0010_0000, true);
+    // 5. Negative Check 2: Model rejects an unmapped address.
+    let rogue_attack = model.translate_dma(bdf_e1000, domain_id, 0x0010_0000, true);
     check!(rogue_attack == Err(VtdFaultReason::TranslationNotPresent));
-    check!(vtd.fault_count() == initial_faults + 2);
-    let fault2 = vtd.last_fault().unwrap();
-    check!(fault2.fault_addr == 0x0010_0000);
-    check!(fault2.bdf == bdf_e1000);
-    check!(fault2.reason == VtdFaultReason::TranslationNotPresent);
-    check!(vtd.fault_status() & (1 << 1) != 0); // PPF flag set
 
-    // 6. Negative Check 3: DMA from unauthorized peripheral (e.g. BDF 00:1F.0)
+    // 6. Negative Check 3: Model rejects a device without a binding.
     let bdf_other = PciBdf::new(0, 31, 0);
-    let unauth = vtd.translate_dma(bdf_other, domain_id, 0x1000_0000, false);
+    let unauth = model.translate_dma(bdf_other, domain_id, 0x1000_0000, false);
     check!(unauth == Err(VtdFaultReason::TranslationNotPresent));
 
-    kprintln!("[selftest] PASS: T19 VT-d translation policy model checks passed; hardware IOMMU behavior is not established");
+    kprintln!("[selftest] PASS: T19 VT-d stays disabled; in-memory translation model checks passed (no hardware DMA claim)");
 }
 
 /// Test 20: Driver Service Fault Containment & Transparent Supervisor Restart
@@ -1352,11 +1339,7 @@ fn test_mac_randomization_hardware_entropy() {
     kprintln!("[selftest] PASS: T30 local network identity formatting and rotation checks passed; physical NIC behavior and anonymity are not established");
 }
 
-/// Test 31: smoltcp Network Service & Loopback Socket Transport Gate
-/// Verifies:
-/// - Socket creation, lifecycle state transitions, and connection binding.
-/// - End-to-end packet transmission and reception across lock-free packet queue.
-/// - Payload bit-for-bit data integrity across user-mode network transport.
+/// Test 31: Model-only socket state remains clearly labeled and emits no packets.
 #[cfg(target_arch = "x86_64")]
 fn test_smoltcp_socket_and_loopback_transport() {
     use crate::net;
@@ -1367,12 +1350,16 @@ fn test_smoltcp_socket_and_loopback_transport() {
     net::connect(socket, [127, 0, 0, 1], 443).expect("record TCP connect attempt failed");
 
     let sockets = net::list_sockets().expect("list sockets failed");
-    check!(sockets.iter().any(|entry| entry.local_port == 8080 && entry.state == "SYN_SENT"));
+    check!(sockets.iter().any(|entry| {
+        entry.local_port == 8080
+            && entry.state == "MODEL_SYN_SENT"
+            && entry.trust_domain == "Socket-state model only; no live transport"
+    }));
     net::close(socket).expect("close TCP socket model failed");
 
     let after = net::get_stats().expect("query net stats failed");
     check!(after.packets_sent == before.packets_sent);
-    kprintln!("[selftest] PASS: T31 TCP socket state model: connect attempt recorded as SYN_SENT; remote transport is not claimed");
+    kprintln!("[selftest] PASS: T31 model socket state is labeled MODEL_SYN_SENT; no live transport or packets are claimed");
 }
 
 /// Runs acceptance gates for Phase 8: Compartments & Mandatory Access Control

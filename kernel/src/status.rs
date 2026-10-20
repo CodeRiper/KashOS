@@ -160,7 +160,7 @@ pub fn print_boot_banner() {
         ("Linear Framebuffer Desktop Shell", reg.linear_framebuffer, "Liquid-Glass GUI compositor surface"),
         ("Hardware Cryptographic Entropy", reg.hw_entropy, "RDRAND / RDSEED / VirtIO-RNG"),
         ("Register Key Staging", reg.tresor_debug_regs, "experimental; not a hardware security claim"),
-        ("Intel VT-d IOMMU DMA Containment", reg.vtd_iommu, "ACPI DMAR table & SLPT translation"),
+        ("Intel VT-d IOMMU DMA Containment", reg.vtd_iommu, "DMAR discovery; hardware translation unavailable"),
         ("Intel e1000 Gigabit NIC Driver", reg.nic_e1000, "PCI 82540EM/82545GB DMA rings"),
         ("VirtIO-Net Paravirtualized NIC", reg.nic_virtio, "VirtIO split virtqueue driver"),
         ("Realtek RTL-8139 Fast Ethernet", reg.nic_rtl8139, "PCI RTL8139 100Mbps ring buffer"),

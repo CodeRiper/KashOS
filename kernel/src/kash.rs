@@ -94,7 +94,7 @@ pub struct DriverMap {
 pub enum DriverStatus {
     Native,     // native sDDF Rust driver
     #[allow(dead_code)]
-    DriverVM,   // isolated Linux Driver VM (IOMMU confined)
+    DriverVM,   // future driver VM; no IOMMU-backed VM is active
     #[allow(dead_code)]
     ActiveDde,  // Linux Device Driver Emulation (DDE)
     Absent,     // hardware not present
@@ -104,8 +104,8 @@ impl DriverStatus {
     fn label(self) -> &'static str {
         match self {
             DriverStatus::Native    => "native sDDF",
-            DriverStatus::DriverVM  => "Driver VM (IOMMU)",
-            DriverStatus::ActiveDde => "Linux DDE Active",
+            DriverStatus::DriverVM  => "Driver VM unavailable",
+            DriverStatus::ActiveDde => "DDE model registry only",
             DriverStatus::Absent    => "absent",
         }
     }

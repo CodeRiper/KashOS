@@ -1747,12 +1747,12 @@ impl KashShell {
                 kprintln!("\n+==============================================================+");
                 kprintln!("|           HARDWARE IOMMU & DMA REMAPPING SUBSYSTEM           |");
                 kprintln!("+==============================================================+");
-                kprintln!("| Architecture         : Intel VT-d / ARM SMMUv3 Second-Level  |");
-                kprintln!("| ACPI DMAR Table      : {:<38}|", if dmar { "Detected (Hardware Validated)" } else { "Not Present" });
+                kprintln!("| Architecture         : Intel VT-d (disabled; ARM unavailable)  |");
+                kprintln!("| ACPI DMAR Table      : {:<38}|", if dmar { "Detected (translation disabled)" } else { "Probe unavailable (not checked)" });
                 kprintln!("| Hardware Units (DRHD): {:<38}|", alloc::format!("{} active translation unit(s)", units));
                 kprintln!("| Isolated DMA Domains : {:<38}|", alloc::format!("{} peripheral device(s)", isolated));
-                kprintln!("| PCIe Access Control  : ACS Source Validation & P2P Redirect  |");
-                kprintln!("| DMA Attack Defense   : Rogue bus-mastering blocked by SLPT   |");
+                kprintln!("| PCIe Access Control  : ACS verification unavailable            |");
+                kprintln!("| DMA Attack Defense   : Unavailable (VT-d not active)             |");
                 kprintln!("+==============================================================+\n");
             }
 
