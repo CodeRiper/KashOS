@@ -32,7 +32,7 @@ cargo test -p kscheduler                                                        
 cargo test --workspace --exclude kernel --features kvault/test-fast-kdf                       PASS
 cargo check --release --manifest-path kernel/Cargo.toml --target x86_64-unknown-none           PASS
 cargo build --release --manifest-path kernel/Cargo.toml --target x86_64-unknown-none           PASS
-python tools/test_*.py (all 19 scripts, individually)                                           PASS
+python -c "from pathlib import Path; import subprocess,sys; scripts=sorted(Path('tools').glob('test_*.py')); results=[]; [(results.append((p.name,subprocess.run([sys.executable,str(p)],capture_output=True,text=True)))) for p in scripts]; [print(f'{name}: '+('PASS' if proc.returncode==0 else 'FAIL')+('\\n'+proc.stdout+proc.stderr if proc.returncode else '')) for name,proc in results]; sys.exit(any(proc.returncode for _,proc in results))"  PASS (19 scripts)
 python tools/claims_lint.py                                                                      PASS
 python tools/verify_findings.py                                                                  PASS (F8 and F10 remain)
 python -u tests/test_qemu_boot.py                                                                PASS (T0 shell and required boot markers)
@@ -46,5 +46,7 @@ report broad pre-existing formatting differences. No repository-wide
 reformatting was applied. The user environment requests the `rtk` command
 prefix, but `rtk` is unavailable, so PowerShell commands were run directly.
 
-Local verification does not replace CI. AP startup remains disabled pending
-real per-CPU scheduler, TCB/FPU, timer-context, syscall, and QEMU SMP work.
+PR #23 passed all three required GitHub Actions jobs and merged to `main` at
+`81c90ad99e1de6b776eb03e94f916e5f20429f09`. Local verification does not
+replace multi-CPU hardware coverage. AP startup remains disabled pending real
+per-CPU scheduler, TCB/FPU, timer-context, syscall, and QEMU SMP work.

@@ -1,8 +1,8 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-20  
-**Repository tip checked:** `main` at `90af0e05358e22d14b0d70bab52e7ffcee91bf29`
-**Current task branch:** `codex/scheduler-reject-duplicate-ready`
+**Repository tip checked:** `main` at `81c90ad99e1de6b776eb03e94f916e5f20429f09`
+**Current task branch:** `main`
 **Current engineering task:** Reject duplicate ready-queue entries; continue A11 SMP groundwork
 
 ## Completed in this task
@@ -373,5 +373,7 @@ task identity on multiple CPUs before enabling any AP.
   unrelated formatting was applied. See evidence for exact limits.
 - The T2 harness run observed its entropy event only; it did not test CPU
   scheduling. APs remain parked; A11 remains incomplete.
+- PR #23 passed all three required GitHub Actions jobs and merged to `main` at
+  `81c90ad99e1de6b776eb03e94f916e5f20429f09`.
 - PR #22 passed all three required CI jobs and merged to `main` at
   `3ee53f4bd9e3bc868df6a8154042298e673b44a5`; local `main` was fast-forwarded.
