@@ -246,13 +246,14 @@ pub fn print_hardware_report() {
     let (_, iommu_units, _) = super::vtd::get_iommu_status();
     let iommu_active = iommu_units > 0;
     let tpm_status = super::tpm::get_tpm_status();
-    let cpus = super::smp::cpu_count();
+    let discovered_cpus = super::smp::cpu_count();
+    let active_cpus = super::smp::online_cpu_count();
 
     crate::kprintln!("\n╔══════════════════════════════════════════════════════════════════════╗");
     crate::kprintln!("║            KASH-OS HARDWARE COMPLIANCE & SECURITY REPORT             ║");
     crate::kprintln!("╠══════════════════════════════════════════════════════════════════════╣");
     let vendor_str = core::str::from_utf8(&f.vendor).unwrap_or("Unknown");
-    crate::kprintln!("║ CPU Vendor / Cores    : {:<20} ({} active cores)        ║", vendor_str, cpus);
+    crate::kprintln!("║ CPU Vendor / Cores    : {:<20} ({} active / {} discovered) ║", vendor_str, active_cpus, discovered_cpus);
     crate::kprintln!("║ Detected Platform Tier: {:<45}║", tier.name());
     crate::kprintln!("╠──────────────────────────────────────────────────────────────────────╣");
     crate::kprintln!("║ HARDWARE SECURITY CAPABILITY AUDIT (NO SILENT DOWNGRADES):           ║");

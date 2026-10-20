@@ -226,7 +226,7 @@ the A10 per-CPU syscall-entry branch was created.
 - This did not finish A10: the normal UI remains in Ring 0 and APs still lack
   per-CPU architecture/user-task setup; F8 and F10 remain present.
 
-## A10 per-CPU syscall-entry follow-up (local branch; awaiting PR)
+## A10 per-CPU syscall-entry follow-up (PR #12 merged)
 
 - Replaced global syscall stack and saved-RSP storage with per-CPU entry state
   selected by current APIC ID.
@@ -238,16 +238,34 @@ the A10 per-CPU syscall-entry branch was created.
   `docs/design/a10-syscall-entry.md`.
 - Local syscall-entry guard (10 checks), release kernel check/build, T0 QEMU
   boot, full host workspace suite, all repository source guards, claims lint,
-  findings audit, and diff check passed. T13 exercised Ring 3 entry/return;
-  this is single-CPU evidence only.
+  findings audit, and diff check passed before PR #12 merged. T13 exercised
+  Ring 3 entry/return; this is single-CPU evidence only.
 - No claim of SMP userland support: APs still idle without per-CPU GDT/IDT/TSS,
   syscall MSRs, and scheduler integration.
 
+## A11 AP startup revalidation (active branch)
+
+- Intel SDM review confirmed AP INIT returns processor core state to reset
+  defaults; IDTR is initialized with base 0 and limit 0xffff, and an interrupt
+  vector outside the IDT limit causes #GP. Source review found the previous AP
+  path started a periodic timer then enabled interrupts without loading an
+  AP-local IDT/TSS or scheduler context.
+- Disabled INIT-SIPI-SIPI startup pending per-CPU setup. AP entry now parks
+  with interrupts disabled and cannot report itself online. Hardware reporting
+  separates discovered from active CPU counts. A regression guard was added to
+  CI; see `docs/EVIDENCE/A11.md`.
+- Regression guard (9 checks), workspace host tests, all source honesty gates,
+  claims lint, release kernel check/build, `git diff --check`, T0 QEMU boot and
+  a 4-CPU T2 QEMU boot passed. T2 found four MADT CPU slots and confirmed only
+  the BSP active with AP startup disabled. Findings verifier still reports F8
+  and F10. This is an A11 fail-closed correction, not SMP implementation; only
+  the BSP is usable until AP setup and multi-core execution tests are complete.
+
 ## Next task
 
-After the A10 per-CPU syscall-entry follow-up is merged, validate AP GDT/IDT/TSS
-and scheduler setup, then design a real Ring 3 init/session lifecycle and
-migrate the shell and compositor behind it. Keep the current prototype UI
-clearly labeled Ring 0. Revisit A2/A3 if persistent-data behavior changes; the
-local audit does not establish TPM-backed key provisioning or production
-recovery.
+Implement and validate AP-local GDT/IDT/TSS, syscall MSRs, stacks, scheduler
+context and interrupt handling before enabling SMP. Then design a real Ring 3
+init/session lifecycle and migrate the shell and compositor behind it. Keep
+the current prototype UI clearly labeled Ring 0. Revisit A2/A3 if persistent-
+data behavior changes; the local audit does not establish TPM-backed key
+provisioning or production recovery.

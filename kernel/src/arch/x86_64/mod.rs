@@ -410,7 +410,7 @@ pub fn init(kernel_stack_top: u64) {
     smp::init(apic::bsp_id());
     syscall::init();
 
-    // Boot secondary CPU cores (APs) via INIT-SIPI-SIPI sequence
+    // Report discovered CPUs but keep APs parked until their local execution state exists.
     let mut kernel_cr3: u64 = 0;
     unsafe {
         core::arch::asm!("mov {0}, cr3", out(reg) kernel_cr3, options(nostack));

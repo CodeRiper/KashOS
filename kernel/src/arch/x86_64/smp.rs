@@ -1,11 +1,8 @@
 //! Symmetric Multiprocessing (SMP) and ACPI MADT Parser for x86-64.
 //!
-//! Features:
-//! 1. Parses the ACPI MADT ("APIC") table to discover all hardware cores and APIC IDs.
-//! 2. Maintains `PerCpuData` structures tracking per-core status, current PID, and stacks.
-//! 3. Implements standard INIT-SIPI-SIPI multi-core bootstrap protocol for Application Processors (APs).
-//! 4. Sets up 16-bit to 64-bit trampoline page at physical 0x8000.
-//! 5. Implements Inter-Processor Interrupts (IPIs) for TLB shootdown and multicore synchronization.
+//! Current support discovers ACPI MADT CPU slots and tracks which CPUs have
+//! initialized state. AP startup is intentionally disabled until per-CPU GDT,
+//! IDT, TSS, syscall, and scheduler state are implemented and tested.
 #![allow(unsafe_code)]
 
 use crate::arch::x86_64::acpi;
@@ -43,10 +40,6 @@ impl PerCpuData {
 pub static mut PER_CPU: [PerCpuData; MAX_CPUS] = [PerCpuData::empty(); MAX_CPUS];
 static CPU_COUNT: AtomicUsize = AtomicUsize::new(1);
 
-#[repr(C, align(4096))]
-struct ApStack([u8; 16384]);
-static mut AP_STACK_POOL: [ApStack; MAX_CPUS] = [const { ApStack([0u8; 16384]) }; MAX_CPUS];
-
 /// Hand-off structure between BSP and AP at 0x8F00.
 #[repr(C)]
 pub struct ApBootHandoff {
@@ -61,20 +54,17 @@ pub fn cpu_count() -> usize {
     CPU_COUNT.load(Ordering::Acquire)
 }
 
+/// Returns the number of discovered CPU slots that have initialized execution state.
+pub fn online_cpu_count() -> usize {
+    (0..cpu_count().min(MAX_CPUS))
+        .filter(|&index| unsafe { PER_CPU[index].online })
+        .count()
+}
+
 /// Resolve a firmware-discovered CPU slot by its local APIC ID.
 pub fn cpu_index_for_apic_id(apic_id: u8) -> Option<usize> {
     (0..cpu_count().min(MAX_CPUS))
         .find(|&index| unsafe { PER_CPU[index].apic_id == apic_id })
-}
-
-/// Helper to delay by approximately `us` microseconds using RDTSC.
-fn delay_us(us: u64) {
-    let tsc_hz = crate::arch::tsc_frequency_hz().max(1_000_000);
-    let cycles = (tsc_hz / 1_000_000) * us;
-    let start = crate::arch::rdtsc();
-    while crate::arch::rdtsc().saturating_sub(start) < cycles {
-        core::hint::spin_loop();
-    }
 }
 
 /// Discover CPU cores from ACPI MADT and initialize BSP PerCpuData.
@@ -253,96 +243,31 @@ pub fn prepare_ap_trampoline() {
     }
 }
 
-/// Boot all discovered secondary cores (APs) using the standard INIT-SIPI-SIPI sequence.
-pub fn boot_secondary_cores(kernel_cr3: u64) -> usize {
+/// Keep secondary cores parked until per-CPU GDT/IDT/TSS and scheduler state exist.
+///
+/// The AP trampoline and INIT-SIPI-SIPI helpers are retained for the future SMP
+/// implementation, but launching APs before their local interrupt state is
+/// installed can fault as soon as a local timer interrupt is delivered.
+pub fn boot_secondary_cores(_kernel_cr3: u64) -> usize {
     let count = CPU_COUNT.load(Ordering::Acquire);
-    if count <= 1 {
-        kprintln!("[smp] Single core detected (profile T0); skipping AP bootstrap.");
-        return 1;
+    if count > 1 {
+        kprintln!("[smp] Secondary CPU startup is disabled until per-CPU GDT/IDT/TSS and scheduler state are installed ({} discovered; 1 active).", count);
+    } else {
+        kprintln!("[smp] Single core detected; secondary CPU startup is unavailable.");
     }
-
-    kprintln!("[smp] Bootstrapping {} secondary core(s) via INIT-SIPI-SIPI sequence...", count - 1);
-    prepare_ap_trampoline();
-
-    let mut online_count = 1usize; // BSP is core 0
-    let handoff = AP_HANDOFF_ADDR as *mut ApBootHandoff;
-
-    for i in 1..count {
-        let apic_id = unsafe { PER_CPU[i].apic_id };
-        kprintln!("[smp] Starting AP core #{} (APIC ID {})...", i, apic_id);
-
-        let stack_top = unsafe {
-            (AP_STACK_POOL[i].0.as_ptr() as u64) + 16384
-        };
-
-        unsafe {
-            PER_CPU[i].kernel_stack_top = stack_top;
-            core::ptr::write_volatile(&mut (*handoff).cr3, kernel_cr3);
-            core::ptr::write_volatile(&mut (*handoff).stack_top, stack_top);
-            core::ptr::write_volatile(&mut (*handoff).cpu_id, i as u32);
-            core::ptr::write_volatile(&mut (*handoff).online_flag, 0);
-        }
-
-        // 1. Send INIT IPI
-        apic::send_init_ipi(apic_id);
-        delay_us(10_000); // 10 ms delay
-
-        // 2. Send 1st SIPI with vector 0x08
-        apic::send_sipi(apic_id, AP_TRAMPOLINE_PAGE);
-        delay_us(200); // 200 us delay
-
-        // 3. Send 2nd SIPI with vector 0x08
-        apic::send_sipi(apic_id, AP_TRAMPOLINE_PAGE);
-
-        // 4. Poll for AP to set online_flag with timeout
-        let mut spins = 0;
-        let mut online = false;
-        while spins < 100_000 {
-            if unsafe { core::ptr::read_volatile(&(*handoff).online_flag) } == 1 {
-                online = true;
-                break;
-            }
-            core::hint::spin_loop();
-            spins += 1;
-        }
-
-        if online {
-            unsafe { PER_CPU[i].online = true; }
-            kprintln!("[smp]   Core #{} (APIC ID {}) is ONLINE", i, apic_id);
-            online_count += 1;
-        } else {
-            kprintln!("[smp]   Core #{} (APIC ID {}) timed out (single-core profile or offline socket)", i, apic_id);
-        }
-    }
-
-    kprintln!("[smp] SMP bootstrap complete: {}/{} core(s) active", online_count, count);
-    online_count
+    1 // The BSP is the only CPU with initialized interrupt and task state.
 }
 
-/// Entry point for Application Processors once in 64-bit Long Mode.
+/// Fail-closed AP entry retained for the future per-CPU initialization path.
 #[no_mangle]
 pub extern "C" fn ap_entry(cpu_id: u32) -> ! {
-    let id = cpu_id as usize;
-    crate::arch::x86_64::fpu::enable_sse();
-    crate::arch::x86_64::apic::init_ap();
-
-    let handoff = AP_HANDOFF_ADDR as *mut ApBootHandoff;
+    let _ = cpu_id;
     unsafe {
-        core::ptr::write_volatile(&mut (*handoff).online_flag, 1);
-        if id < MAX_CPUS {
-            PER_CPU[id].online = true;
-        }
+        core::arch::asm!("cli", options(nomem, nostack));
     }
-
-    crate::kprintln!("[smp] AP core #{} online and entered idle loop", id);
-
-    unsafe {
-        core::arch::asm!("sti", options(nomem, nostack));
-    }
-
     loop {
         unsafe {
-            core::arch::asm!("hlt", options(nomem, nostack));
+            core::arch::asm!("cli; hlt", options(nomem, nostack));
         }
     }
 }

@@ -151,7 +151,7 @@ pub fn print_boot_banner() {
         ("IDT & Interrupt / Exception Handlers", reg.idt_interrupts, "kernel exception handling"),
         ("Timer & RTC", reg.apic_timer, "platform timer and RTC support varies"),
         ("Preemptive QoS Scheduler", reg.kscheduler_preempt, "3-band timer preemption"),
-        ("SMP Multicore Processor Cores", reg.smp_multicore, "ACPI MADT multi-core discovery"),
+        ("SMP Multicore Processor Cores", reg.smp_multicore, "AP startup disabled; only initialized CPUs are online"),
         ("Physical Frame Domain Quotas", reg.quota_frames, "per-domain frame quotas"),
         ("Ring 3 User Mode & Syscalls", reg.user_mode_ring3, "T13 test only; UI remains in Ring 0"),
         ("ELF64 Loader & W^X Enforcement", reg.elf_loader, "validates ELF64 and enforces W^X"),

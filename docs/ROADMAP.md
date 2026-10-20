@@ -1,9 +1,9 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `2931a8c5a57dbe6706d6f9377322fa2cfe70a8d3` (PR #11)
-**Active work branch:** `codex/a10-percpu-syscall-entry`
-**Current gate:** A10 user-space revalidation; ordinary desktop and shell still run in Ring 0.
+**Repository state checked:** `main` at `bfed3b1a2c7247be1a9b260f50fee1b49b9215f2` (PR #12)
+**Active work branch:** `codex/a11-park-unconfigured-aps`
+**Current gate:** A11 SMP revalidation; secondary CPUs remain parked until CPU-local interrupt and scheduler state are initialized.
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
@@ -15,7 +15,7 @@ See [`RESEARCH_SECURITY_MODELS.md`](RESEARCH_SECURITY_MODELS.md) for the
 official-source comparison of the requested reference systems and Linux app
 compatibility.
 
-## Current verified gate: A10 process-authority safeguards (user-space migration incomplete)
+## Current verified gate: A10/A11 fail-closed revalidation (user-space migration and SMP incomplete)
 
 - PR #8 corrected the normal boot-session claim: the desktop, settings UI, and
   shell remain kernel-resident in Ring 0. Ring 3 tests do not establish that
@@ -30,11 +30,13 @@ compatibility.
   ambiguous endpoint IDs, and disables fabricated driver service
   registration/provisioning and restart reporting. It is merged to `main` at
   `2931a8c`.
-- Branch `codex/a10-percpu-syscall-entry` now uses per-CPU syscall stack/RSP
-  state selected by the BSP APIC ID and builds malformed-return IRET frames on
-  the trusted kernel stack. Release check/build and T0 QEMU passed locally.
-  APs still do not install a per-CPU GDT/IDT/TSS or run user tasks, so this
-  does not establish SMP userland safety.
+- PR #12 merged per-CPU syscall stack/RSP state for the initialized BSP and
+  builds malformed-return IRET frames on the trusted kernel stack. T13 syscall
+  entry evidence remains single-CPU only.
+- A11 source revalidation found AP startup enabled a local periodic timer and
+  interrupts without loading AP-local IDT/TSS state or initializing a scheduler
+  context. The active follow-up disables AP startup and keeps AP entry parked;
+  only initialized CPUs are reported online. SMP scheduling remains unavailable.
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.
