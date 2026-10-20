@@ -69,6 +69,22 @@
   The UI suite passed, as did 13 UI honesty checks, 24 network checks, and the
   claims linter. This does not add package inventory, signature checks, or
   kernel-enforced permission policy.
+- Further A18 review removed the developer's hard-coded name/Kash ID and fake
+  hardware serial, processor inventory, disk name, refresh rate, and `7 / 7`
+  UI self-test claim. About views use the crate version and clearly mark boot
+  results as not reported to the UI; the startup panel is labeled as a
+  prototype sequence, not firmware POST. The UI tests, 18 UI honesty checks,
+  claims linter and 12-finding check passed; this does not implement a live
+  account, firmware, CPU inventory or self-test status service.
+- Settings follow-up changed unimplemented preference rows from `Standard` to
+  `Unavailable`, removed the inactive domain-profile claim, and marked missing
+  re-authentication, hardware-key, and vault-key services explicitly. The real
+  inactivity auto-lock control remains wired to the desktop idle timer. The
+  lock-screen text no longer ties notification privacy to its unconnected
+  Lockdown demo. UI tests, 24 UI honesty checks, and the claims linter pass; release kernel
+  target check and the 12-finding check pass. QEMU T0 reached the shell with
+  all smoke markers; this run's Conroe CPU profile does not support SMEP,
+  SMAP or UMIP.
 
 ## Verification
 

@@ -37,18 +37,18 @@ impl Settings {
         { let r = cx.group_row(&mut g); let lc = cx.th.label(); cx.text(r.x + 14.0, r.cy() + 4.7, "Lock after inactivity", 13.5, Weight::Regular, lc);
           cx.segmented("seg_lock_idle", Rect::new(r.right() - 14.0 - 270.0, r.cy() - 14.0, 270.0, 28.0), &["Never", "1 min", "5 min", "10 min"], &mut s); }
         cx.sys.lock_idle = s;
-        self.seg_row(cx, &mut g, 3, "Require passphrase after lock", &["Now", "5 sec", "1 min", "5 min"], 270.0);
+        cx.row_value(&mut g, "Re-authentication delay", "Unavailable · timeout policy not implemented");
 
         cx.heading(f, "Lock screen");
         let mut g = cx.group_begin(f, 5, 50.0);
-        let (mut a, mut b, mut c, mut d, mut e) = (cx.sys.lock_clock, cx.sys.lock_user, cx.sys.lock_buttons, cx.sys.lock_gateway, cx.sys.bios_on_boot);
+        let (mut a, mut b, mut c, mut d) = (cx.sys.lock_clock, cx.sys.lock_user, cx.sys.lock_buttons, cx.sys.lock_gateway);
         cx.row_toggle(&mut g, "lk_clock", "Show large clock", "", &mut a);
-        cx.row_toggle(&mut g, "lk_user", "Show user name and Kash ID photo", "", &mut b);
+        cx.row_toggle(&mut g, "lk_user", "Show local session marker", "No account identity service is connected", &mut b);
         cx.row_toggle(&mut g, "lk_btn", "Show sleep, restart and shut down buttons", "", &mut c);
-        cx.row_toggle(&mut g, "lk_gw", "Show Anonymity Gateway status", "", &mut d);
-        cx.row_toggle(&mut g, "lk_bios", "Show firmware startup screen", "POST lines and boot logo before the lock screen", &mut e);
-        cx.sys.lock_clock = a; cx.sys.lock_user = b; cx.sys.lock_buttons = c; cx.sys.lock_gateway = d; cx.sys.bios_on_boot = e;
-        cx.caption(f, "The lock screen never reveals notification contents while Lockdown Mode is on.");
+        cx.row_toggle(&mut g, "lk_gw", "Show gateway status row", "The row reports unavailable", &mut d);
+        cx.row_value(&mut g, "Firmware startup screen", "Prototype sequence · preference not connected");
+        cx.sys.lock_clock = a; cx.sys.lock_user = b; cx.sys.lock_buttons = c; cx.sys.lock_gateway = d;
+        cx.caption(f, "Notifications are not displayed on this prototype lock screen.");
 
         self.pane_credentials(cx, f);
     }
@@ -116,9 +116,9 @@ impl Settings {
         let dm = self.dz_msg.clone(); msg_line(cx, f, &dm);
         self.dz_f = df;
         cx.caption(f, "The UI can recognize a duress passphrase, but decoy-vault mounting, key revocation, and gateway alerts are not connected. Credentials are kept in RAM for this session only.");
-        let mut g = cx.group_begin(f, 2, 54.0);
-        self.opt(cx, &mut g, 44, "Erase kvault keys after 10 failed attempts", "Cannot be undone — requires recovery key");
-        self.opt(cx, &mut g, 45, "Lock the screen when the hardware key is removed", "");
+        let mut g = cx.group_begin(f, 2, 48.0);
+        cx.row_value(&mut g, "Erase vault keys after failed attempts", "Unavailable · no vault key service");
+        cx.row_value(&mut g, "Lock on hardware-key removal", "Unavailable · no hardware-key service");
     }
 
     pub(crate) fn pane_users(&mut self, cx: &mut Ctx, f: &mut Form) {
@@ -127,11 +127,11 @@ impl Settings {
         cx.cv.fill_circle(r.x + 56.0, r.cy(), 32.0, Paint::Linear { p0: Pt::new(r.x + 24.0, r.y), p1: Pt::new(r.x + 88.0, r.bottom()), c0: Color::hex(0x62CBFF), c1: Color::hex(0x5A2BD2) });
         draw_kash_mark(cx.cv, Rect::new(r.x + 34.0, r.cy() - 22.0, 44.0, 44.0), Color::WHITE, Some(Color::hex(0xB6F3FF)));
         let lc = cx.th.label(); let l2 = cx.th.label2();
-        cx.text(r.x + 108.0, r.cy() - 4.0, "Akash J", 17.0, Weight::Semibold, lc);
-        cx.text(r.x + 108.0, r.cy() + 16.0, "Administrator · Kash ID", 12.0, Weight::Regular, l2);
+        cx.text(r.x + 108.0, r.cy() - 4.0, "Local session", 17.0, Weight::Semibold, lc);
+        cx.text(r.x + 108.0, r.cy() + 16.0, "Single-user prototype · no account service", 12.0, Weight::Regular, l2);
         f.y += 118.0;
         let mut g = cx.group_begin(f, 2, 44.0);
-        cx.row_value(&mut g, "Login options", "Passphrase + hardware key");
+        cx.row_value(&mut g, "Login options", "In-memory passphrase · no hardware key");
         let dz = if cx.sys.duress_pass.is_empty() { "Not set" } else { "Armed" };
         cx.row_value(&mut g, "Duress passphrase", dz);
         self.pane_credentials(cx, f);
@@ -226,35 +226,35 @@ impl Settings {
         cx.app_icon(AppKind::About, Rect::new(r.cx() - 52.0, r.y + 22.0, 104.0, 104.0));
         let lc = cx.th.label(); let l2 = cx.th.label2();
         cx.text_in(Rect::new(r.x, r.y + 136.0, r.w, 30.0), "KashOS", 26.0, Weight::Bold, lc, Align::Center);
-        cx.text_in(Rect::new(r.x, r.y + 166.0, r.w, 20.0), "Development build · 0.1.0", 13.0, Weight::Regular, l2, Align::Center);
+        cx.text_in(Rect::new(r.x, r.y + 166.0, r.w, 20.0), &format!("Development build · {}", env!("CARGO_PKG_VERSION")), 13.0, Weight::Regular, l2, Align::Center);
         let b = Rect::new(r.cx() - 62.0, r.y + 192.0, 124.0, 28.0);
         if cx.button("about_upd", b, "Software Update…", false) { cx.sys.settings_pane_request = Some(19); }
         f.y += 250.0;
 
         cx.heading(f, "Device");
         let mut g = cx.group_begin(f, 7, 40.0);
-        cx.row_value(&mut g, "Name", "akash@kash");
-        cx.row_value(&mut g, "Processor", "x86-64 · 4 cores · NX · SMEP · SMAP");
+        cx.row_value(&mut g, "Session", "Local · account service unavailable");
+        cx.row_value(&mut g, "Processor", "x86-64 build target · CPU inventory unavailable");
         cx.row_value(&mut g, "Memory", "Runtime total unavailable");
-        cx.row_value(&mut g, "Startup disk", "Kash HD");
-        cx.row_value(&mut g, "Display", &format!("{} × {} · 60 Hz", cx.sys.screen.w as i32, cx.sys.screen.h as i32));
-        cx.row_value(&mut g, "Serial number", "KASH-0027-A1B2C3");
+        cx.row_value(&mut g, "Startup source", "Unavailable · no boot-device report");
+        cx.row_value(&mut g, "Framebuffer", &format!("{} × {} · refresh rate unavailable", cx.sys.display_output.w as i32, cx.sys.display_output.h as i32));
+        cx.row_value(&mut g, "Hardware serial", "Unavailable · no firmware inventory");
         let up = cx.io.time as i64;
-        cx.row_value(&mut g, "Uptime", &format!("{} min {} s", up / 60, up % 60));
+        cx.row_value(&mut g, "UI session time", &format!("{} min {} s", up / 60, up % 60));
 
         cx.heading(f, "System");
         let mut g = cx.group_begin(f, 5, 40.0);
-        cx.row_value(&mut g, "Kernel", "KashOS kernel 0.1.0");
-        cx.row_value(&mut g, "Capability self-tests", "7 / 7 passed");
-        cx.row_value(&mut g, "Encrypted vault", "kvault · AEAD sealed");
+        cx.row_value(&mut g, "Kernel", &format!("KashOS kernel {}", env!("CARGO_PKG_VERSION")));
+        cx.row_value(&mut g, "Capability self-tests", "Boot log only · not reported to UI");
+        cx.row_value(&mut g, "Encrypted vault", "Status unavailable · no UI service feed");
         let (a, k, d) = cx.sys.reg.totals(); let _ = (a, k, d);
         let tot = cx.sys.reg.apps.len();
-        cx.row_value(&mut g, "Registered software", &format!("{} items (apps, CLI tools, drivers)", tot));
-        cx.row_value(&mut g, "Lockdown Mode", if cx.sys.reg.lockdown { "On" } else { "Off" });
+        cx.row_value(&mut g, "UI demo registry", &format!("{} built-in demos · no package inventory", tot));
+        cx.row_value(&mut g, "Lockdown demo", if cx.sys.reg.lockdown { "On" } else { "Off" });
 
         cx.heading(f, "Kash UI");
         let mut g = cx.group_begin(f, 6, 40.0);
-        cx.row_value(&mut g, "Version", "1.0.0");
+        cx.row_value(&mut g, "Version", env!("CARGO_PKG_VERSION"));
         cx.row_value(&mut g, "Crate", "kash-ui · Rust 2021 · no_std + alloc");
         cx.row_value(&mut g, "Renderer", "Software · 0x00RRGGBB framebuffer");
         cx.row_value(&mut g, "Effects", "Liquid Glass · spring animations");

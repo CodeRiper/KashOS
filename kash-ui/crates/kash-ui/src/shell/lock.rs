@@ -167,7 +167,7 @@ impl Lock {
             cx.cv.shadow_rrect(Rect::new(cxm - 38.0, ay - 38.0, 76.0, 76.0).offset(0.0, 6.0), 38.0, 14.0, Color::rgba(0, 0, 0, 90), false);
             cx.cv.fill_circle(cxm, ay, 38.0, Paint::Linear { p0: Pt::new(cxm - 38.0, ay - 38.0), p1: Pt::new(cxm + 38.0, ay + 38.0), c0: Color::hex(0x62CBFF), c1: Color::hex(0x5A2BD2) });
             draw_kash_mark(cx.cv, Rect::new(cxm - 26.0, ay - 26.0, 52.0, 52.0), Color::WHITE, Some(Color::hex(0xB6F3FF)));
-            cx.text_in(Rect::new(cxm - 150.0, ay + 48.0, 300.0, 24.0), "Akash J", 17.0, Weight::Semibold, white, Align::Center);
+            cx.text_in(Rect::new(cxm - 150.0, ay + 48.0, 300.0, 24.0), "Local session", 17.0, Weight::Semibold, white, Align::Center);
         }
         let fy = ay + if show_user { 86.0 } else { 0.0 };
         let (fw, fh) = (256.0, 40.0);
@@ -248,16 +248,16 @@ impl Lock {
 // ───────────────────────── boot screens ─────────────────────────
 
 const POST: [(f32, &str, &str); 11] = [
-    (0.35, "CPU    x86-64 · features reported by kernel", "OK"),
-    (0.55, "Memory", "MEM"),
+    (0.35, "CPU    x86-64 build target", "inventory unavailable"),
+    (0.55, "Memory inventory", "unavailable to UI"),
     (1.55, "Measured boot (TPM 2.0)", "unavailable"),
     (1.75, "IOMMU / DMA protection (VT-d)", "not verified"),
-    (1.95, "KashOS Microkernel 0.2.0", "loaded"),
-    (2.15, "Capability core self-test", "passed"),
+    (1.95, "KashOS Microkernel", "running"),
+    (2.15, "Capability core self-test", "result not reported to UI"),
     (2.35, "Vault encrypted storage", "locked · unlock required"),
     (2.55, "Anonymity Gateway", "planned (Part C)"),
     (2.75, "Remote networking", "unavailable · egress blocked"),
-    (2.8, "Device drivers", "support varies"),
+    (2.8, "Device driver inventory", "unavailable to UI"),
     (3.0, "Starting kash-ui compositor", "OK"),
 ];
 
@@ -269,8 +269,8 @@ pub fn draw_bios(cv: &mut Canvas, fonts: &mut Fonts, t: f32) {
     let x0 = (w * 0.06).max(40.0);
     let dest = Rect::new(x0, 42.0, 40.0, 40.0);
     fonts.icons.draw(cv, 900, dest, 1.0, &|c, rr| draw_kash_mark(c, rr, Color::WHITE, Some(Color::hex(0x7BE3FF))));
-    fonts.draw(cv, x0 + 54.0, 60.0, "KashOS Firmware 1.0", 20.0, Weight::Semibold, Color::rgb(235, 240, 250));
-    fonts.draw(cv, x0 + 54.0, 80.0, "KashOS Boot ROM · Kash Labs", 12.5, Weight::Regular, Color::rgb(120, 130, 150));
+    fonts.draw(cv, x0 + 54.0, 60.0, "KashOS Boot Status", 20.0, Weight::Semibold, Color::rgb(235, 240, 250));
+    fonts.draw(cv, x0 + 54.0, 80.0, "Prototype UI · not firmware POST", 12.5, Weight::Regular, Color::rgb(120, 130, 150));
     let size = 13.5;
     let cw = fonts.measure("M", size, mono);
     let cols = ((w - x0 * 2.0) / cw).min(74.0) as usize;

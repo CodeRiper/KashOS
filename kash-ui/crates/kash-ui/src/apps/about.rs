@@ -1,5 +1,6 @@
 //! About KashOS.
 use alloc::string::String;
+use alloc::format;
 use crate::app::*;
 use crate::geom::*;
 use crate::mathf::*;
@@ -30,12 +31,12 @@ impl App for About {
         cx.cv.shadow_rrect(big.offset(0.0, 10.0 + bob * 0.5), icon_size * 0.23, 16.0, th.shadow(0.22), false);
         cx.app_icon(AppKind::About, big.offset(0.0, bob));
         cx.text_in(Rect::new(0.0, title_y, area.w, 34.0), "KashOS", if compact { 24.0 } else { 28.0 }, Weight::Bold, th.label(), Align::Center);
-        cx.text_in(Rect::new(0.0, version_y, area.w, 20.0), "Development build · 0.1.0", 13.0, Weight::Regular, th.label2(), Align::Center);
+        cx.text_in(Rect::new(0.0, version_y, area.w, 20.0), &format!("Development build · {}", env!("CARGO_PKG_VERSION")), 13.0, Weight::Regular, th.label2(), Align::Center);
         #[cfg(target_arch = "x86_64")]
         let arch = "x86-64";
         #[cfg(target_arch = "aarch64")]
         let arch = "AArch64";
-        let rows = [("Build", "Experimental · 0.1.0"), ("Target", arch), ("Memory", "Runtime total unavailable"), ("Security", "Not independently audited")];
+        let rows = [("Build", "Experimental prototype"), ("Target", arch), ("Memory", "Runtime total unavailable"), ("Security", "Not independently audited")];
         for (i, (k, v)) in rows.iter().enumerate() {
             let y = rows_y + i as f32 * row_step;
             let row_font = if compact { 10.5 } else { 12.5 };

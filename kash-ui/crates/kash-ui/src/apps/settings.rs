@@ -1,4 +1,4 @@
-//! System Settings — edge-to-edge glass sidebar, grouped panes, live-wired controls.
+//! System Settings — edge-to-edge glass sidebar and grouped prototype panes.
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -32,7 +32,6 @@ pub struct Settings {
     sb_total: f32,
     pane_t: Spring,
     thumbs: Vec<Option<Canvas>>,
-    pub(crate) segs: [usize; 8],
     pub(crate) kb: [f32; 2],
     privacy: crate::apps::privacy::Privacy,
     pub(crate) pw_f: [FieldState; 4],
@@ -44,7 +43,7 @@ pub struct Settings {
 
 impl Settings {
     pub fn new() -> Settings {
-        let mut s = Settings { sel: 5, search: FieldState::default(), scroll: Scroll::default(), sb_scroll: Scroll::default(), sb_total: 0.0, pane_t: Spring::new(1.0, 0.3, 1.0), thumbs: Vec::new(), segs: [0, 1, 1, 2, 0, 0, 0, 0], kb: [0.6, 0.4], privacy: crate::apps::privacy::Privacy::new(), pw_f: [FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState::default()], dz_f: [FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }], pw_msg: (String::new(), true), dz_msg: (String::new(), true), notif_open: None };
+        let mut s = Settings { sel: 5, search: FieldState::default(), scroll: Scroll::default(), sb_scroll: Scroll::default(), sb_total: 0.0, pane_t: Spring::new(1.0, 0.3, 1.0), thumbs: Vec::new(), kb: [0.6, 0.4], privacy: crate::apps::privacy::Privacy::new(), pw_f: [FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState::default()], dz_f: [FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }, FieldState { mask: true, ..FieldState::default() }], pw_msg: (String::new(), true), dz_msg: (String::new(), true), notif_open: None };
         s.pane_t.snap(1.0);
         for _ in 0..5 { s.thumbs.push(None); }
         s
@@ -142,8 +141,8 @@ impl App for Settings {
             if h.hovered { cx.cv.fill_rrect(pr, 12.0, th.hover_fill()); }
             cx.cv.fill_circle(pr.x + 30.0, pr.cy(), 20.0, Paint::Linear { p0: Pt::new(pr.x + 10.0, pr.y), p1: Pt::new(pr.x + 50.0, pr.bottom()), c0: Color::hex(0x62CBFF), c1: Color::hex(0x5A2BD2) });
             draw_kash_mark(cx.cv, Rect::new(pr.x + 17.0, pr.cy() - 13.0, 26.0, 26.0), Color::WHITE, Some(Color::hex(0xB6F3FF)));
-            cx.text(pr.x + 60.0, pr.cy() - 3.0, "Akash J", 14.0, Weight::Semibold, th.label());
-            cx.text(pr.x + 60.0, pr.cy() + 13.0, "Kash ID", 11.5, Weight::Regular, th.label2());
+            cx.text(pr.x + 60.0, pr.cy() - 3.0, "Local session", 14.0, Weight::Semibold, th.label());
+            cx.text(pr.x + 60.0, pr.cy() + 13.0, "Account service unavailable", 11.5, Weight::Regular, th.label2());
             if h.clicked { self.open_pane(17); }
             y += 70.0;
         }
@@ -207,18 +206,18 @@ impl Settings {
         cx.app_icon(AppKind::About, Rect::new(r.cx() - 44.0, r.y + 18.0, 88.0, 88.0));
         let lc = cx.th.label(); let l2 = cx.th.label2();
         cx.text_in(Rect::new(r.x, r.y + 112.0, r.w, 22.0), "KashOS", 18.0, Weight::Bold, lc, Align::Center);
-        cx.text_in(Rect::new(r.x, r.y + 136.0, r.w, 18.0), "KashOS development build · 0.1.0", 12.0, Weight::Regular, l2, Align::Center);
+        cx.text_in(Rect::new(r.x, r.y + 136.0, r.w, 18.0), &format!("KashOS development build · {}", env!("CARGO_PKG_VERSION")), 12.0, Weight::Regular, l2, Align::Center);
         f.y += 188.0;
         cx.heading(f, "About");
         let mut g = cx.group_begin(f, 6, 40.0);
-        cx.row_value(&mut g, "Kernel", "KashOS kernel 0.1.0");
+        cx.row_value(&mut g, "Kernel", &format!("KashOS kernel {}", env!("CARGO_PKG_VERSION")));
         #[cfg(target_arch = "x86_64")]
         cx.row_value(&mut g, "Build target", "x86-64");
         #[cfg(target_arch = "aarch64")]
         cx.row_value(&mut g, "Build target", "AArch64");
         cx.row_value(&mut g, "Memory", "Runtime total unavailable");
-        cx.row_value(&mut g, "Capability self-tests", "7 / 7 passed");
-        cx.row_value(&mut g, "Encrypted vault", "kvault · AEAD sealed");
+        cx.row_value(&mut g, "Capability self-tests", "Boot log only · not reported to UI");
+        cx.row_value(&mut g, "Encrypted vault", "Status unavailable · no UI service feed");
         cx.row_value(&mut g, "Display server", "kash-ui · software renderer");
     }
 
@@ -411,7 +410,7 @@ impl Settings {
     fn pane_generic(&mut self, cx: &mut Ctx, f: &mut Form) {
         let name = PANES[self.sel].0;
         let mut g = cx.group_begin(f, 1, 48.0);
-        cx.row_value(&mut g, name, "Default configuration");
-        cx.caption(f, "Standard operating profile active for this domain. Specific policy tuning is configured via kctl.");
+        cx.row_value(&mut g, name, "Unavailable · no service connected");
+        cx.caption(f, "This settings pane has no connected service in this build.");
     }
 }

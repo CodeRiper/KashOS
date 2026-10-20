@@ -14,15 +14,7 @@ use crate::apps::settings::Settings;
 
 impl Settings {
     pub(crate) fn opt(&mut self, cx: &mut Ctx, g: &mut Group, _key: usize, label: &str, _sub: &str) {
-        cx.row_value(g, label, "Standard");
-    }
-    pub(crate) fn seg_row(&mut self, cx: &mut Ctx, g: &mut Group, slot: usize, label: &str, labels: &[&str], w: f32) {
-        let r = cx.group_row(g);
-        let lc = cx.th.label();
-        cx.text(r.x + 14.0, r.cy() + 4.7, label, 13.5, Weight::Regular, lc);
-        let mut s = self.segs[slot];
-        cx.segmented(&format!("seg{}", slot), Rect::new(r.right() - 14.0 - w, r.cy() - 14.0, w, 28.0), labels, &mut s);
-        self.segs[slot] = s;
+        cx.row_value(g, label, "Unavailable in this build");
     }
     pub(crate) fn card(&mut self, cx: &mut Ctx, f: &mut Form, h: f32, ic: Icon, col: u32, title: &str, sub: &str) -> Rect {
         let r = Rect::new(f.x, f.y, f.w, h);
