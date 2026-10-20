@@ -1,6 +1,6 @@
 # KashOS Master Task Ledger
 
-> Audit note (2026-10-20): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#16 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
+> Audit note (2026-10-20): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#18 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
 
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | In progress (GDT/TSS groundwork; AP startup disabled) | codex/a11-percpu-arch-foundation | docs/EVIDENCE/A11.md |
+| A11 | SMP and scheduler | In progress (GDT/TSS groundwork; AP startup disabled) | main | docs/EVIDENCE/A11.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
@@ -51,13 +51,13 @@
 
 ## Current implementation handoff
 
-- Verified repository tip before this follow-up: `main` at `26f8781c1d32b7ad9281c046fdc37ca3f672bf5e` (PR #16).
+- Verified repository tip: `main` at `0995f4dfea3374e0f55809d105f9f17e5d42e695` (PR #18).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
 - PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
 - PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.
 - A10 is still incomplete: ordinary desktop/settings/shell boot in Ring 0. APs do not have the per-CPU architecture state or user-task setup required for SMP userland; see `docs/EVIDENCE/A10.md`.
 - PR #13 merged the A11 revalidation: the AP path previously enabled local timer interrupts before loading an AP-local IDT and had no TSS or scheduler context. Secondary CPUs now remain parked and only initialized CPUs report online. SMP remains unavailable pending full per-CPU setup and multi-core execution tests.
-- Current isolated branch adds CPU-indexed GDT/TSS/IST state and APIC-indexed TSS stack updates. It does not yet add per-CPU IDT/exception state or SMP scheduler/timer state; AP startup remains disabled. Verification is recorded in `docs/EVIDENCE/A11.md`.
+- PR #18 merged CPU-indexed GDT/TSS/IST state and APIC-indexed TSS stack updates. It does not add per-CPU IDT/exception state or SMP scheduler/timer state; AP startup remains disabled. Verification is recorded in `docs/EVIDENCE/A11.md`.
 - PR #15 corrected README, threat model and claims inventory to describe the prototype status and unavailable networking, TPM, DMA isolation, user services and SMP; see `docs/EVIDENCE/READINESS.md`.
 - Next: implement and validate AP-local IDT/exception state, scheduler and timer context, and syscall MSRs/stacks before re-enabling SMP execution.
 

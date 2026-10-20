@@ -292,7 +292,7 @@ provisioning or production recovery.
 
 ## A11 CPU-local GDT/TSS groundwork (2026-10-20)
 
-- Work is isolated on `codex/a11-percpu-arch-foundation`; it replaces shared
+- PR #18 replaces shared
   GDT/TSS/IST globals with per-CPU state, resolves TSS stack updates through
   the current APIC ID, and discovers the BSP slot before installing its GDT.
 - AP startup remains disabled. The IDT and expected-fault state remain shared,
@@ -304,6 +304,8 @@ provisioning or production recovery.
 - The handoff requests `rtk` prefixes, but `rtk` is unavailable in this shell;
   direct PowerShell commands were used. T2 needed an explicit path to the
   built kernel because the harness default path is absent in this checkout.
-- This code and evidence are on the local task branch pending publication and
-  CI review. Next, make IDT/exception state and scheduler/timer context CPU-local
+- PR #18 merged to `main` at `0995f4dfea3374e0f55809d105f9f17e5d42e695`.
+  GitHub CI passed all three jobs on both the code commit and the later branch
+  head. Local verification is recorded above. Next, make IDT/exception state
+  and scheduler/timer context CPU-local
   and test those paths before any AP startup is re-enabled.
