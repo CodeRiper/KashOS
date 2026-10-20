@@ -248,16 +248,16 @@ impl Lock {
 // ───────────────────────── boot screens ─────────────────────────
 
 const POST: [(f32, &str, &str); 11] = [
-    (0.35, "CPU    x86-64 · 4 cores · NX · SMEP · SMAP", "OK"),
+    (0.35, "CPU    x86-64 · features reported by kernel", "OK"),
     (0.55, "Memory", "MEM"),
-    (1.55, "Measured boot (TPM 2.0)", "verified"),
-    (1.75, "IOMMU / DMA protection (VT-d)", "active"),
+    (1.55, "Measured boot (TPM 2.0)", "unavailable"),
+    (1.75, "IOMMU / DMA protection (VT-d)", "not verified"),
     (1.95, "KashOS Microkernel 0.2.0", "loaded"),
     (2.15, "Capability core self-test", "passed"),
-    (2.35, "kvault · AEAD sealed storage", "ready"),
+    (2.35, "Vault encrypted storage", "locked · unlock required"),
     (2.55, "Anonymity Gateway", "planned (Part C)"),
-    (2.75, "Packet filter", "active (knet)"),
-    (2.8, "Drivers (NVMe, AHCI, GPU, xHCI)", "active"),
+    (2.75, "Remote networking", "unavailable · egress blocked"),
+    (2.8, "Device drivers", "support varies"),
     (3.0, "Starting kash-ui compositor", "OK"),
 ];
 

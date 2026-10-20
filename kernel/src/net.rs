@@ -1,17 +1,13 @@
-//! User-Mode Network Service, PacketFilter Firewall, and Fail-Closed Kill Switch for KashOS.
+//! Network service scaffolding for KashOS.
 //!
-//! Grounded in the seL4 microkernel domain isolation model and KashOS Threat Model:
-//! - App VMs and sandboxes hold ONLY an unforgeable IPC endpoint capability to this proxy service.
-//! - Enforces default-deny packet filtering, blacklisted port/domain dropping, and TCP/IP fingerprint normalization.
-//! - Fail-closed network kill switch: when Tor/WireGuard anonymity gateway drops, 100% of packets are dropped.
-//! - Bare-metal CSPRNG-seeded MAC address rotation prevents physical OUI tracking on local LANs.
-//! - Circular SPSC lock-free packet queues for hardware NIC (Intel e1000 / VirtIO) and loopback IPC transport.
+//! Remote HTTP(S), DNS, and anonymity routing are unavailable until complete
+//! protocol implementations and end-to-end tests exist. The service therefore
+//! starts with its egress gate closed and must not claim a tunnel is active.
 
 #![forbid(unsafe_code)]
 
 extern crate alloc;
 use alloc::boxed::Box;
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -27,9 +23,8 @@ pub struct SocketInfo {
     pub trust_domain: &'static str,
 }
 use knet::{
-    AnonProfile, AnonymityGateway, EtherType, FilterRule, FilterTable, FingerprintNorm, FrameMeta,
-    GatewayStatus, IpProto, MacAddr, NetworkIdentity, PacketRing, RawFrame, SocketHandle,
-    TcpIpStack, TcpState, Verdict, MAX_PACKET_SIZE,
+    AnonProfile, AnonymityGateway, EtherType, FilterRule, FilterTable, FrameMeta, GatewayStatus,
+    IpProto, MacAddr, NetworkIdentity, PacketRing, TcpIpStack, TcpState, Verdict, MAX_PACKET_SIZE,
 };
 use crate::sync::SpinLock;
 use crate::csprng::Csprng;
@@ -65,7 +60,7 @@ pub struct NetworkService {
     pub filter: FilterTable,
     pub gateway: AnonymityGateway,
     pub identity: NetworkIdentity,
-    pub loopback_ring: PacketRing,
+    pub loopback_ring: Box<PacketRing>,
     pub stats: NetStats,
     pub killswitch_armed: bool,
 }
@@ -94,7 +89,8 @@ impl NetworkService {
         // 4. Fail-closed kill switch: drop everything if gateway is disconnected
         filter.add_rule(FilterRule::BlockAllIfGatewayDown);
 
-        let gateway = AnonymityGateway::new(AnonProfile::TorStreamIsolated, seed);
+        let mut gateway = AnonymityGateway::new(AnonProfile::Disabled, seed);
+        gateway.status = GatewayStatus::Down;
 
         Self {
             stack,
@@ -102,7 +98,7 @@ impl NetworkService {
             filter,
             gateway,
             identity,
-            loopback_ring: PacketRing::new(),
+            loopback_ring: Box::new(PacketRing::new()),
             stats: NetStats::default(),
             killswitch_armed: true,
         }
@@ -114,11 +110,6 @@ impl NetworkService {
         self.identity.rotate_mac(new_seed);
         self.stack.mac = self.identity.current_mac;
         self.identity.current_mac
-    }
-
-    /// Sets the status of the Anonymity Gateway (Up, Connecting, Down, Degraded).
-    pub fn set_gateway_status(&mut self, status: GatewayStatus) {
-        self.gateway.status = status;
     }
 
     /// Evaluates an outbound packet against the security filter and transmits if permitted.
@@ -318,128 +309,15 @@ impl NetworkService {
         Some(ip)
     }
 
-    /// Executes an HTTP/HTTPS GET request with fail-closed privacy protection and TLS 1.3 framing.
+    /// Remote web access is unavailable until real DNS, TCP, and TLS are integrated.
     pub fn http_get(&mut self, url: &str) -> Result<String, NetError> {
-        // 1. Fail-closed kill switch check
-        if self.gateway.status == knet::GatewayStatus::Down {
-            self.stats.killswitch_drops += 1;
-            return Err(NetError::KillSwitchBlocked);
-        }
-
-        // 2. Parse URL components
-        let parsed = knet::tls::parse_url(url).ok_or(NetError::InvalidUrl)?;
-
-        // 3. Packet filter inspection against tracking/surveillance domains
-        let meta = FrameMeta {
-            src_mac: self.stack.mac,
-            dst_mac: knet::MacAddr([0xFF; 6]),
-            ether_type: EtherType::IPv4,
-            src_ip: Some([self.stack.ip[0], self.stack.ip[1], self.stack.ip[2], self.stack.ip[3], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            dst_ip: None,
-            src_port: Some(49152),
-            dst_port: Some(parsed.port),
-            proto: Some(IpProto::TCP),
-            ttl: Some(64),
-            tcp_window: Some(65535),
-            sni: Some(String::from(parsed.host)),
-            payload_len: 0,
-        };
-        let verdict = self.filter.evaluate(&meta, self.gateway.status != knet::GatewayStatus::Down);
-        match verdict {
-            knet::Verdict::Drop | knet::Verdict::DropAlert => {
-                self.stats.packets_dropped += 1;
-                return Err(NetError::PacketFiltered);
-            }
-            _ => {}
-        }
-
-        // 4. Resolve destination IP
-        let remote_ip = self.dns_resolve(parsed.host)
-            .or_else(|| Self::parse_ipv4(parsed.host))
-            .unwrap_or([10, 0, 2, 2]); // Default QEMU user-net gateway address
-
-        // 5. Connect native smoltcp socket
-        let local_port = 49152 + (self.stats.packets_sent % 1000) as u16;
-        let _ = self.smol.tcp_connect(remote_ip, parsed.port, local_port);
-
-        // 6. Build HTTP GET request
-        let http_req = knet::tls::build_http_get_request(parsed.host, parsed.path);
-
-        if parsed.is_https {
-            // TLS 1.3 ClientHello with SNI and KeyShare extensions
-            let random = [0x4Au8; 32];
-            let key_share = [0x5Bu8; 32];
-            let client_hello = knet::tls::build_tls13_client_hello(parsed.host, &random, &key_share);
-            let _ = self.smol.tcp_send(&client_hello);
-
-            // Wrap HTTP request into TLS ApplicationData record
-            let tls_app_data = knet::tls::wrap_tls_application_data(http_req.as_bytes());
-            let _ = self.smol.tcp_send(&tls_app_data);
-        } else {
-            // Raw HTTP 1.1 request
-            let _ = self.smol.tcp_send(http_req.as_bytes());
-        }
-
-        self.stats.packets_sent += 1;
-        self.stats.bytes_sent += http_req.len() as u64;
-
-        // Poll interface to trigger transmission
-        self.smol.poll(10);
-
-        // 7. Receive response
-        let mut rx_buf = [0u8; 4096];
-        let mut received_bytes = Vec::new();
-        for _ in 0..10 {
-            if let Ok(n) = self.smol.tcp_recv(&mut rx_buf) {
-                if n > 0 {
-                    received_bytes.extend_from_slice(&rx_buf[..n]);
-                    break;
-                }
-            }
-            self.smol.poll(5);
-        }
-
-        if received_bytes.is_empty() {
-            // Default authenticated HTML response for offline/loopback test environments
-            let default_html = alloc::format!(
-                "<!DOCTYPE html><html><head><title>{}</title></head><body><h1>{}</h1><p>Connected securely via KashOS TLS 1.3 client and smoltcp network stack.</p><p>Host: {} (Port {})</p><p>Security: Fail-closed kill switch armed; SNI encrypted; Zero cookies or tracking.</p><p><a href=\"about:kashos\">Return to KashOS Dashboard</a></p></body></html>",
-                parsed.host, parsed.host, parsed.host, parsed.port
-            );
-            return Ok(default_html);
-        }
-
-        let raw_str = alloc::string::String::from_utf8_lossy(&received_bytes);
-        if let Some(resp) = knet::tls::parse_http_response(&raw_str) {
-            Ok(resp.body)
-        } else {
-            Ok(String::from(raw_str.as_ref()))
-        }
+        let _ = url;
+        Err(NetError::NotAvailable)
     }
 
     /// Returns list of active sockets in the network stack.
     pub fn get_socket_table(&self) -> Vec<SocketInfo> {
         let mut list = Vec::new();
-        // Baseline system listeners
-        list.push(SocketInfo {
-            id: 1,
-            proto: "tcp",
-            local_ip: self.stack.ip,
-            local_port: 9050,
-            remote_ip: None,
-            remote_port: None,
-            state: "LISTEN",
-            trust_domain: "Tor Anonymity Daemon",
-        });
-        list.push(SocketInfo {
-            id: 2,
-            proto: "udp",
-            local_ip: self.stack.ip,
-            local_port: 53,
-            remote_ip: Some([1, 1, 1, 1]),
-            remote_port: Some(53),
-            state: "ESTABLISHED",
-            trust_domain: "Encrypted DNS Proxy",
-        });
         for sock in &self.stack.sockets {
             let proto_str = match sock.proto {
                 IpProto::TCP => "tcp",
@@ -462,7 +340,7 @@ impl NetworkService {
                 remote_ip: sock.remote_ip,
                 remote_port: sock.remote_port,
                 state: state_str,
-                trust_domain: "Sandboxed App Capsule",
+                trust_domain: "Kernel socket (compartment isolation not yet implemented)",
             });
         }
         list
@@ -471,31 +349,23 @@ impl NetworkService {
 
 pub static NET_SERVICE: SpinLock<Option<Box<NetworkService>>> = SpinLock::new(None);
 
-/// Initializes the user-mode network stack, security packet filter, and anonymity gateway.
+/// Initializes network scaffolding with remote egress disabled.
 pub fn init() {
     let mut net_lock = NET_SERVICE.lock();
     if net_lock.is_none() {
-        crate::kprintln!("[net] Initializing knet sovereign TCP/IP network stack and security proxy...");
+        crate::kprintln!("[net] Initializing network scaffolding with remote egress disabled...");
 
-        // Derive cryptographic hardware seed for MAC address randomization
+        // Obtain a seed from the kernel CSPRNG for the local network identity.
         let mut rng = Csprng::new();
         let seed = rng.next_u64();
 
-        let mut service = Box::new(NetworkService::new(seed));
-        // Gateway starts Up so authorized traffic flows until a kill-switch event occurs
-        service.set_gateway_status(GatewayStatus::Up);
-
+        let service = Box::new(NetworkService::new(seed));
         let mac = service.identity.current_mac;
         crate::kprintln!(
-            "[net] Network service active: Locally-Administered MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            "[net] Network scaffolding initialized; remote egress disabled. MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             mac.0[0], mac.0[1], mac.0[2], mac.0[3], mac.0[4], mac.0[5]
         );
-        crate::kprintln!("[net] Default-deny firewall armed (Telnet/FTP dropped, fingerprint normalized)");
-        crate::kprintln!("[net] Fail-closed kill switch armed (Tor/WireGuard anonymity gateway integration)");
-
-        crate::status::update(|s| {
-            s.nic_e1000 = crate::status::ComponentStatus::Real;
-        });
+        crate::kprintln!("[net] Remote HTTP(S), DNS, and anonymity routing are unavailable; outbound traffic is blocked.");
 
         *net_lock = Some(service);
     }
@@ -508,14 +378,6 @@ pub fn rotate_mac() -> Result<MacAddr, NetError> {
     let mut rng = Csprng::new();
     let seed = rng.next_u64();
     Ok(service.rotate_mac(seed))
-}
-
-/// Sets the Anonymity Gateway state (used by test harness and tunnel monitor).
-pub fn set_gateway_status(status: GatewayStatus) -> Result<(), NetError> {
-    let mut net_lock = NET_SERVICE.lock();
-    let service = net_lock.as_mut().ok_or(NetError::NotInitialized)?;
-    service.set_gateway_status(status);
-    Ok(())
 }
 
 /// Transmits a network packet through the security filter.

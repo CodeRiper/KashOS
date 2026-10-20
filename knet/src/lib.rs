@@ -15,7 +15,7 @@
 #![forbid(unsafe_code)]
 
 extern crate alloc;
-use alloc::{string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 
 pub mod tls;
 pub use tls::*;
@@ -233,6 +233,8 @@ pub enum TelemetryEvent {
 /// Which anonymization path to use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnonProfile {
+    /// No anonymity route is configured; remote egress must remain disabled.
+    Disabled,
     /// Tor with stream isolation per application.
     TorStreamIsolated,
     /// WireGuard tunnel to a trusted exit node.
@@ -363,15 +365,18 @@ pub use smoltcp;
 
 /// Device driver adapter bridging `PacketRing` with `smoltcp::phy::Device`.
 pub struct RingDevice {
-    pub rx_ring: PacketRing,
-    pub tx_ring: PacketRing,
+    pub rx_ring: Box<PacketRing>,
+    pub tx_ring: Box<PacketRing>,
 }
 
 impl RingDevice {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            rx_ring: PacketRing::new(),
-            tx_ring: PacketRing::new(),
+            // Keep two 12 KiB packet rings off the boot stack. The kernel's
+            // small early stack must still be able to construct the network
+            // service without overflowing while returning this device value.
+            rx_ring: Box::new(PacketRing::new()),
+            tx_ring: Box::new(PacketRing::new()),
         }
     }
 }

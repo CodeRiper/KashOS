@@ -259,7 +259,7 @@ pub fn print_hardware_report() {
     crate::kprintln!("║   * SMAP (Supervisor Mode Access Prev)    : [{:<12}]               ║", if f.has_smap { "ACTIVE" } else { "NOT AVAILABLE" });
     crate::kprintln!("║   * Intel VT-x Hardware Virtualization    : [{:<12}]               ║", if f.has_vmx { "ACTIVE" } else { "NOT AVAILABLE" });
     crate::kprintln!("║   * IOMMU / VT-d DMA Bus-Master Remapping : [{:<12}]               ║", if iommu_active { "ACTIVE" } else { "REDUCED (T0)" });
-    crate::kprintln!("║   * Hardware TPM 2.0 Cryptographic Root   : [{:<12}]               ║", if tpm_status.contains("Active") { "ACTIVE" } else { "REDUCED (T0)" });
+    crate::kprintln!("║   * Hardware TPM 2.0 Cryptographic Root   : [{:<12}]               ║", if tpm_status.contains("ACTIVE") { "ACTIVE" } else { "NOT AVAILABLE" });
     crate::kprintln!("║   * AES-NI Hardware Crypto Acceleration   : [{:<12}]               ║", if f.has_aesni { "ACTIVE" } else { "SOFTWARE (XChaCha20)" });
     crate::kprintln!("║   * RDRAND / RDSEED Hardware Entropy      : [{:<12}]               ║", if f.has_rdrand { "ACTIVE" } else { "FALLBACK (Jitter)" });
     crate::kprintln!("╠──────────────────────────────────────────────────────────────────────╣");

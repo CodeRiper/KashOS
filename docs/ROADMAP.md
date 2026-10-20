@@ -1,0 +1,103 @@
+# KashOS implementation roadmap
+
+**Audit date:** 2026-10-20  
+**Current branch:** `codex/a1-remove-fake-network-claims`
+
+This repository is an operating-system prototype and is not production ready.
+Verification claims are not available. Do not infer feature completion from
+names, UI labels, task IDs, or old evidence files. Use source, reproducible
+tests, and dated evidence for every completion claim. The engineering plan in
+[`MASTER_PLAN.md`](MASTER_PLAN.md) remains the full long-term specification.
+
+See [`RESEARCH_SECURITY_MODELS.md`](RESEARCH_SECURITY_MODELS.md) for the
+official-source comparison of the requested reference systems and Linux app
+compatibility.
+
+## Current gate: A1 network honesty
+
+- Remote HTTP and HTTPS requests return `NotAvailable`.
+- DNS resolution only parses IPv4 literals; DNS protocol lookup is not present.
+- The anonymity gateway starts down. Tor, WireGuard, and I2P are not integrated.
+- The local HTML-to-text parser is a prototype, not ELinks, Dillo, or Ladybird.
+- Graphical web browsers are not implemented.
+- The kernel's hand-built TLS record helpers are not a TLS implementation and
+  must not be used to send application data as HTTPS.
+- CI now has a source regression guard for fabricated network/browser success.
+- Boot initialization now prepares the heap before the acceptance suite uses
+  allocations, and large packet rings are allocated off the early kernel stack.
+- The QEMU T0 boot smoke test was run against the newly built release kernel;
+  it reached the shell and observed its configured markers. This does not
+  verify security properties printed by model tests or hardware TPM/IOMMU behavior.
+
+## A2 storage safety audit
+
+- `mount_root` does not format automatically after an open failure.
+- The old T25 boot test still formatted an unmounted root volume, and it wrote
+  then raw-tampered a test file when a volume was mounted. This follow-up was
+  removed; the test is now read-only and skips an unavailable mount.
+- Mount no longer provisions missing folders or baseline files; the explicit
+  format path initializes those. The test disk SHA-256 stayed unchanged across
+  the final QEMU boot.
+- A CI regression guard and kvault in-memory wrong-password non-mutation test
+  cover these properties. See [`EVIDENCE/A2.md`](EVIDENCE/A2.md).
+- The legacy `install-os` path wrote a fabricated partition table and test
+  marker/noise to raw sectors, then reported a successful install. It is now
+  disabled and guarded in CI; a real installer remains unimplemented.
+
+### A3 re-audit finding
+
+The old A3 evidence was stale. This revision removes automatic use of the
+public bootstrap credential and starts KMS locked; a hidden console prompt
+unlocks the vault, and the GUI is gated until storage mounts. The compiled-in
+salt/HKDF transform and in-memory TPM handle remain insufficient for the
+planned key hierarchy. Keep A3 marked Needs revalidation until credential
+enrollment, protected GUI input, persistent TPM provisioning, and legacy
+volume migration are designed and tested.
+
+### A4/A5 TPM audit finding
+
+- The existing TIS/CRB path was not validated: ACPI TPM2 contents were not
+  parsed into a transport address, CRB execution returned synthetic success,
+  hardware errors were ignored, and PCR/sealed-key state used RAM-only models.
+  Production discovery, measurement, sealing, and NV anti-rollback APIs now
+  fail unavailable. Hardware/swtpm conformance, event-log verification,
+  persistent sealed-object lifecycle, and rollback-counter tests remain future
+  work. See [`EVIDENCE/A4.md`](EVIDENCE/A4.md) and
+  [`EVIDENCE/A5.md`](EVIDENCE/A5.md).
+
+## Next work, in order
+
+1. **Revalidate Part A evidence.** The legacy ledger marks A1-A21 complete, but
+   several old claims are contradicted by current source. Re-audit each task,
+   replace unsupported evidence, and only then restore a completed status.
+2. **A2/A3 data and key safety.** Independently verify vault open/format
+   behavior, passphrase handling, key derivation, and crash recovery before
+   enabling persistent user data.
+3. **A6 real networking.** Design and test a real NIC-to-IP-to-DNS-to-TCP path;
+   keep egress disabled until packet-level/QEMU tests demonstrate it works.
+4. **A8 TLS.** Integrate a maintained, reviewed TLS implementation compatible
+   with the target and trust-store model. Verify certificates, hostname checks,
+   handshake completion, record encryption/authentication, and failure cases.
+5. **A18/A21 honest settings and probes.** Make UI controls reflect actual
+   service state and ensure settings cannot assert protections that are absent.
+6. **Part B kernel audit.** Compare implemented capability, memory, scheduling,
+   address-space, IRQ, DMA, and verification properties with seL4's documented
+   guarantees. Feature similarity does not establish equivalent assurance.
+7. **Linux application support.** Specify a compatibility boundary (ABI,
+   userspace, packaging, graphics, syscall policy) and prove the isolation
+   model before advertising support.
+8. **Platform comparison.** Qubes and GrapheneOS security properties are not available
+   in KashOS until separately implemented and tested. Treat these
+   as platform-specific design references, not labels. Domain/VM isolation and
+   verified-boot/hardware claims need their own design and test evidence.
+
+## Release gates
+
+- No simulated success or fabricated security status.
+- Every feature claim links to implementation and reproducible evidence.
+- Kernel builds and host tests pass; QEMU profiles pass for the changes they
+  cover; hardware-specific claims have hardware evidence.
+- `docs/TASKS.md`, task evidence, UI, and README agree on status.
+- Avoid superiority claims about other operating systems without a precise,
+  independently measured comparison on the same supported hardware/threat
+  model.

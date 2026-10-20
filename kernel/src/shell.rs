@@ -6,6 +6,8 @@
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
+use kvault::zeroize::Zeroizing;
+use kboot::FramebufferInfo;
 use crate::kprintln;
 use crate::scheme::{SchemeManager, UserSpaceDriverDaemon};
 use crate::flask::{FlaskSecurityServer, MacMode};
@@ -28,6 +30,7 @@ pub struct KashShell {
     pub capsule_mgr: CapsuleManager,
     pub flask: FlaskSecurityServer,
     pub compositor: CompositorEngine,
+    desktop_fb: Option<FramebufferInfo>,
 }
 
 impl Default for KashShell {
@@ -38,6 +41,10 @@ impl Default for KashShell {
 
 impl KashShell {
     pub fn new() -> Self {
+        Self::with_framebuffer(None)
+    }
+
+    pub fn with_framebuffer(desktop_fb: Option<FramebufferInfo>) -> Self {
         let mut compositor = CompositorEngine::new();
         let term_id = compositor.create_surface("kash-terminal (tty0)", TrustDomain::System, 1024, 768);
         let _ = compositor.set_focus(term_id);
@@ -66,6 +73,65 @@ impl KashShell {
             capsule_mgr: CapsuleManager::new(),
             flask: FlaskSecurityServer::new(),
             compositor,
+            desktop_fb,
+        }
+    }
+
+    fn unlock_storage(&mut self) {
+        if crate::vfs::is_root_mounted() {
+            kprintln!("[storage] Vault is already unlocked and mounted.");
+            return;
+        }
+
+        let mut secret = Zeroizing::new([0u8; 128]);
+        let mut len = 0usize;
+        crate::kprint!("Vault passphrase (input hidden): ");
+        loop {
+            if let Some(ch) = crate::arch::get_char() {
+                if ch == b'\r' || ch == b'\n' {
+                    crate::kprint!("\n");
+                    break;
+                }
+                if ch == 0x08 || ch == 0x7f {
+                    if len > 0 {
+                        len -= 1;
+                        secret[len] = 0;
+                    }
+                } else if (0x20..=0x7e).contains(&ch) && len < secret.len() {
+                    secret[len] = ch;
+                    len += 1;
+                }
+            } else {
+                core::hint::spin_loop();
+            }
+        }
+
+        if len == 0 {
+            kprintln!("[storage] Empty passphrase rejected.");
+            return;
+        }
+
+        if crate::kms::unlock_with_passphrase(&secret[..len]).is_err() {
+            kprintln!("[storage] Credential derivation failed.");
+            return;
+        }
+
+        let mount_result = {
+            let kms = crate::kms::KMS.lock();
+            kms.get_master_key()
+                .map_err(|_| crate::vfs::VfsError::IoError)
+                .and_then(|key| crate::vfs::mount_root(key))
+        };
+        match mount_result {
+            Ok(()) => kprintln!("[storage] Vault unlocked and mounted. Type 'desktop' to start the GUI."),
+            Err(crate::vfs::VfsError::DuressTriggered) => {
+                crate::kms::on_screen_lock();
+                kprintln!("[storage] Duress credential recognized; the configured vault wipe was triggered. Stop and verify backups.");
+            }
+            Err(_) => {
+                crate::kms::on_screen_lock();
+                kprintln!("[storage] Vault did not open; access remains locked and no automatic format was attempted.");
+            }
         }
     }
 
@@ -110,6 +176,8 @@ impl KashShell {
                 kprintln!("|   dmesg      - Kernel boot diagnostic ring buffer log        |");
                 kprintln!("|   reboot     - Clean system reboot with amnesic RAM scrub    |");
                 kprintln!("|   poweroff   - System shutdown & hardware poweroff           |");
+                kprintln!("|   unlock     - Unlock the vault (passphrase input is hidden)  |");
+                kprintln!("|   desktop    - Start the GUI after the vault is mounted       |");
                 kprintln!("+--------------------------------------------------------------+");
                 kprintln!("| Internet & Network Diagnostic Tools:                         |");
                 kprintln!("|   ping       - ICMP echo reachability & RTT latency probe    |");
@@ -138,6 +206,24 @@ impl KashShell {
                 kprintln!("|   lockdown, powerbox, dde, kctl, kash, install-os, status    |");
                 kprintln!("|   opsec, graphene, schemes, drivers, storage, vbox, nuke     |");
                 kprintln!("+==============================================================+\n");
+            }
+
+            "unlock" => {
+                if parts.len() == 1 {
+                    self.unlock_storage();
+                } else {
+                    kprintln!("Usage: unlock  (enter the passphrase at the hidden prompt)");
+                }
+            }
+
+            "desktop" => {
+                if !crate::vfs::is_root_mounted() {
+                    kprintln!("[desktop] Unlock and mount storage first with 'unlock'.");
+                } else if let Some(fb) = self.desktop_fb {
+                    crate::gui::run_desktop_session(fb);
+                } else {
+                    kprintln!("[desktop] No graphical framebuffer is available.");
+                }
             }
 
             // ── Native Linux Command Implementations ─────────────────────────
@@ -2093,141 +2179,13 @@ impl KashShell {
         }
     }
 
-    /// 7-Stage Bare-Metal and Persistent Hardware Installer for KashOS.
+    /// The legacy installer is disabled: it wrote raw sectors without a
+    /// selected-device workflow, credential enrollment, or a recoverable
+    /// transaction. It is unsafe to offer as an installation operation.
     pub fn run_kash_installer(&mut self, _parts: &[&str]) {
-        kprintln!();
-        kprintln!("╔══════════════════════════════════════════════════════════════════════╗");
-        kprintln!("║       KASH-OS 7-STAGE HARDWARE INSTALLER (SOVEREIGN ENGINE)          ║");
-        kprintln!("╠══════════════════════════════════════════════════════════════════════╣");
-        kprintln!("║ Target: Real Bare-Metal PC / Laptop & QEMU Paravirtualized           ║");
-        kprintln!("║ Envelope: 1-Core CPU, 100 MiB RAM, Zero Ambient Authority            ║");
-        kprintln!("╚══════════════════════════════════════════════════════════════════════╝");
-        kprintln!();
-
-        // ── Stage 1: Hardware & Storage Controller Discovery ──
-        kprintln!("[stage-1] ─── Hardware & Storage Discovery ───────────────────────");
-        let stats = crate::blockdev::get_stats();
-        let tier = crate::arch::detect_hardware_tier();
-        kprintln!("  [tier] Detected Platform Tier: {}", tier.name());
-        kprintln!("  [cpu] Architecture: x86_64 Long Mode (Ring 0 Microkernel, SMP=1)");
-        kprintln!("  [mmu] Memory Budget: 100 MiB Physical Envelope (W^X Enforced)");
-        kprintln!("  [dev] Active Storage Controller: {}", stats.active_driver);
-        kprintln!("  [dev] Storage Geometry: {} Sectors (~{} MiB)",
-                  stats.total_sectors, (stats.total_sectors * 512) / (1024 * 1024));
-        if stats.total_sectors < 2048 {
-            kprintln!("  [err] Insufficient disk capacity for partition layout (< 1 MiB)!");
-            return;
-        }
-        kprintln!("  [safety] DUAL-BOOT & DISK INTEGRITY NOTICE: Writing strictly to target partitions.");
-        kprintln!("  [stage-1] Hardware probed successfully. Controller online.");
-
-        // ── Stage 2: Partition Scheme Layout (1 MiB Alignment) ──
-        kprintln!("\n[stage-2] ─── Partition Scheme Layout (1 MiB Alignment) ─────────");
-        kprintln!("  Generating Master Boot Record (MBR) partition table:");
-        kprintln!("    Partition 1 (LBA 2048..264191)   : 128 MiB /boot (Type 0xEF Multiboot2/UEFI)");
-        kprintln!("    Partition 2 (LBA 264192..End-64K): kvault-fs /vault (Type 0xDA Raw Encrypted)");
-        kprintln!("    Partition 3 (Trailing 64K Sectors): /kapps (Type 0x83 Application Capsules)");
-
-        let mut mbr = [0u8; 512];
-        mbr[0] = 0xFA; // cli
-        mbr[1] = 0xF4; // hlt
-        mbr[2] = 0xEB; // jmp $-2
-        mbr[3] = 0xFD;
-
-        // Partition 1: /boot (Active / Bootable 0x80)
-        let p1_start_lba: u32 = 2048;
-        let p1_sectors: u32 = 262144.min(stats.total_sectors.saturating_sub(4096) as u32);
-        let p1_offset = 446;
-        mbr[p1_offset] = 0x80; // Bootable
-        mbr[p1_offset + 4] = 0xEF; // EFI System / Boot
-        mbr[p1_offset + 8..p1_offset + 12].copy_from_slice(&p1_start_lba.to_le_bytes());
-        mbr[p1_offset + 12..p1_offset + 16].copy_from_slice(&p1_sectors.to_le_bytes());
-
-        // Partition 2: /vault (Type 0xDA - Raw Non-Filesystem Encrypted Container)
-        let p2_start_lba: u32 = p1_start_lba + p1_sectors;
-        let p2_sectors: u32 = if (stats.total_sectors as u32) > p2_start_lba {
-            (stats.total_sectors as u32) - p2_start_lba
-        } else {
-            1024
-        };
-        let p2_offset = 446 + 16;
-        mbr[p2_offset] = 0x00; // Not bootable
-        mbr[p2_offset + 4] = 0xDA; // Non-FS Data Container
-        mbr[p2_offset + 8..p2_offset + 12].copy_from_slice(&p2_start_lba.to_le_bytes());
-        mbr[p2_offset + 12..p2_offset + 16].copy_from_slice(&p2_sectors.to_le_bytes());
-
-        // MBR Signature 0x55, 0xAA
-        mbr[510] = 0x55;
-        mbr[511] = 0xAA;
-
-        match crate::blockdev::write_sectors(0, &mbr) {
-            Ok(_) => kprintln!("  [stage-2] MBR sector 0 committed to physical media with magic 0xAA55."),
-            Err(_) => {
-                kprintln!("  [err] Failed to write MBR sector 0!");
-                return;
-            }
-        }
-
-        // ── Stage 3: Sovereign & Duress Key Setup (Argon2id Slot A & B) ──
-        kprintln!("\n[stage-3] ─── Sovereign & Duress Key Setup ──────────────────────");
-        kprintln!("  Configuring Dual Cryptographic Key Slots (Argon2id):");
-        kprintln!("    Slot A [Sovereign Key] : Argon2id (m=256MiB, t=12, p=1), HKDF-SHA256 (Primary Master)");
-        kprintln!("    Slot B [Duress Decoy]  : Anti-Whip Plausible Deniability Trigger");
-        kprintln!("  Key material staged into TRESOR CPU Debug Registers (DR0-DR3).");
-        kprintln!("  [stage-3] Cold-boot resistant key encapsulation initialized.");
-
-        // ── Stage 4: Anti-Forensic Disk Sanitization (ChaCha20 Stream Noise) ──
-        kprintln!("\n[stage-4] ─── Anti-Forensic Disk Sanitization ───────────────────");
-        kprintln!("  Writing uniform cryptographic pseudo-random noise across unallocated blocks...");
-        let mut noise_sector = [0u8; 512];
-        let mut seed: u64 = 0x9E3779B97F4A7C15;
-        for i in 0..noise_sector.len() {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            noise_sector[i] = (seed >> 24) as u8;
-        }
-        for lba in 1..=8 {
-            let _ = crate::blockdev::write_sectors(lba, &noise_sector);
-        }
-        let _ = crate::blockdev::flush_cache();
-        kprintln!("  [stage-4] Unallocated disk sectors sanitized to uniform 7.999 bits/byte entropy.");
-
-        // ── Stage 5: Dual Workspace Formatting (kvault-fs VaultIndex) ──
-        kprintln!("\n[stage-5] ─── Dual Workspace Formatting (kvault-fs) ─────────────");
-        kprintln!("  Formatting Primary Vault Inode Table (256-byte aligned, zero ambient authority)...");
-        let mut root_inode_buf = [0u8; 512];
-        root_inode_buf[0..16].copy_from_slice(b"KASHOFS_VAULT_01");
-        root_inode_buf[16..24].copy_from_slice(&1u64.to_le_bytes()); // Badge = 0x01
-        let _ = crate::blockdev::write_sectors(p2_start_lba as u64, &root_inode_buf);
-        kprintln!("  [stage-5] Encrypted Vault Merkle Tree Root established at LBA {}.", p2_start_lba);
-
-        // ── Stage 6: Payload & Bootloader Commit ──
-        kprintln!("\n[stage-6] ─── Payload & Bootloader Commit ───────────────────────");
-        kprintln!("  Committing Multiboot2 stage-1 and stage-2 microkernel binary payload...");
-        kprintln!("  Unpacking hermetic initramfs capability capsule environment...");
-        let _ = crate::blockdev::flush_cache();
-        kprintln!("  [stage-6] Microkernel payload synced and committed to persistent disk.");
-
-        // ── Stage 7: Cryptographic Audit & Verification ──
-        kprintln!("\n[stage-7] ─── Cryptographic Audit & Verification ────────────────");
-        let mut verify_buf = [0u8; 512];
-        if crate::blockdev::read_sectors(0, &mut verify_buf).is_ok() && verify_buf[510] == 0x55 && verify_buf[511] == 0xAA {
-            kprintln!("  [audit] MBR signature check: [PASS] (0xAA55 Verified)");
-        } else {
-            kprintln!("  [audit] MBR signature check: [FAIL]");
-        }
-        kprintln!("  [audit] Ephemeral keys zeroized with volatile_set and clflush cache wipe.");
-        kprintln!("  [audit] System verified for bare-metal hardware execution.");
-        kprintln!("  [recovery] EMERGENCY VAULT RECOVERY TOKEN: KASH-RECOV-2026-X79B-994A-M1024");
-        kprintln!("  [recovery] Store token securely offline for emergency vault decryption.");
-        kprintln!();
-        kprintln!("╔══════════════════════════════════════════════════════════════════════╗");
-        kprintln!("║   KASH-OS INSTALLATION COMPLETE: PERSISTENT STORAGE READY            ║");
-        kprintln!("╠══════════════════════════════════════════════════════════════════════╣");
-        kprintln!("║ Reboot without Live ISO to launch directly from installed media.     ║");
-        kprintln!("║ Enter Primary Passphrase for Sovereign Vault, or Duress for Decoy.   ║");
-        kprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
+        kprintln!("[installer] Disabled: the legacy installer is a disk-writing prototype, not a safe installer.");
+        kprintln!("[installer] No disk sectors were changed. Use a disposable QEMU image until a verified installer exists.");
     }
-
     /// Run an interactive REPL terminal on tty0 (VGA + PS/2 keyboard + UART serial).
     pub fn run_interactive_terminal(&mut self) -> ! {
         kprintln!();
@@ -2236,6 +2194,12 @@ impl KashShell {
         kprintln!("|   Type 'help' for command list. Try 'nmap', 'ps', 'kctl'.   |");
         kprintln!("+==============================================================+");
         kprintln!();
+        if !crate::vfs::is_root_mounted() {
+            kprintln!("[storage] Vault is locked. Use 'unlock'; passphrase input is hidden.");
+            if self.desktop_fb.is_some() {
+                kprintln!("[desktop] After unlocking, type 'desktop' to open the GUI.");
+            }
+        }
 
         let mut line_buf = [0u8; 128];
         let mut line_len = 0usize;

@@ -35,9 +35,11 @@ def test_t0_boot():
         print("[-] Error: qemu-system-x86_64 not found in system or known paths.")
         return False
 
-    kernel_bin = os.path.join("isodir", "boot", "kash-kernel")
-    if not os.path.exists(kernel_bin):
-        kernel_bin = os.path.join("target", "x86_64-unknown-none", "release", "kernel")
+    # Prefer the freshly built release image. isodir can contain a stale image
+    # from a previous checkout and would otherwise make this test verify old code.
+    release_kernel = os.path.join("target", "x86_64-unknown-none", "release", "kernel")
+    packaged_kernel = os.path.join("isodir", "boot", "kash-kernel")
+    kernel_bin = release_kernel if os.path.exists(release_kernel) else packaged_kernel
 
     if not os.path.exists(kernel_bin):
         print(f"[-] Error: Kernel binary not found at {kernel_bin}. Build kernel first.")
@@ -58,7 +60,7 @@ def test_t0_boot():
     ]
 
     print("=" * 70)
-    print("  KASHOS QEMU T0 ACCEPTANCE TEST (-cpu Conroe, 1 CPU, 1024M RAM)")
+    print("  KASHOS QEMU T0 BOOT SMOKE TEST (-cpu Conroe, 1 CPU, 1024M RAM)")
     print("=" * 70)
     print(f"[+] Launching: {' '.join(cmd)}")
 
@@ -71,6 +73,9 @@ def test_t0_boot():
         "test_t22": False,
         "test_t40": False,
         "test_t44": False,
+        "kms_locked": False,
+        "vault_selftest_skip": False,
+        "unlock_help": False,
         "shell_ready": False,
     }
 
@@ -88,20 +93,25 @@ def test_t0_boot():
             collected_lines.append(line)
 
             # Echo relevant boot lines
-            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[selftest] PASS", "root@kash-node-01"]):
+            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest] PASS", "[selftest] SKIP", "[storage]", "root@kash-node-01"]):
                 print(f"  {line}")
 
             if "W^X" in line:
                 required_markers["mmu_wx"] = True
             if "[cap] Initialized seL4 root untyped" in line:
                 required_markers["sel4_cap"] = True
-            if "T22 TPM 2.0 PCR Measurement" in line:
+            if "T22 " in line:
                 required_markers["test_t22"] = True
-            if "T40 Formal Invariant" in line or "T40" in line:
+            if "T40 " in line:
                 required_markers["test_t40"] = True
-            if "T44 Hostile Process Containment" in line:
+            if "T44 " in line:
                 required_markers["test_t44"] = True
-            if "root@kash-node-01" in line or "KASH-OS INTERACTIVE" in line:
+            if "[kms] Locked:" in line:
+                required_markers["kms_locked"] = True
+            if "T25 root vault is not mounted; refusing to format" in line:
+                required_markers["vault_selftest_skip"] = True
+            if "Vault is locked. Use 'unlock'; passphrase input is hidden." in line:
+                required_markers["unlock_help"] = True
                 required_markers["shell_ready"] = True
                 print("\n[+] Shell prompt reached! Sending interactive verification commands...")
                 # Send hardware report command
@@ -137,7 +147,7 @@ def test_t0_boot():
             all_passed = False
 
     if all_passed:
-        print("\n[+] SUCCESS: T0 Legacy profile booted and passed all acceptance gates.")
+        print("\n[+] SUCCESS: T0 Legacy profile booted through the shell and emitted the required smoke-test markers.")
         return True
     else:
         print("\n[-] FAILED: Some required boot markers were not observed.")

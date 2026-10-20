@@ -211,7 +211,7 @@ pub fn print_privacy_config() {
     let reg = crate::status::get();
     if reg.kvault_fs.is_real() {
         kprintln!("[prv] kvault authenticated storage mounted as root (/) filesystem over kblock");
-        kprintln!("[prv] Master Vault Key sealed to TPM 2.0 PCR 4 & 7 with fail-closed tamper protection");
+        kprintln!("[prv] TPM-backed key sealing is unavailable; the vault is unlocked by the entered passphrase.");
         kprintln!("[prv] Anti-forensic memory zeroization & clflush active on screen lock");
     } else {
         kprintln!("[prv] kvault contains an authenticated-encryption library with passing unit tests; it is not mounted as system storage");

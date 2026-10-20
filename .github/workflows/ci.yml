@@ -2,7 +2,7 @@ name: KashOS CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
   pull_request:
     branches: [ "main" ]
 
@@ -64,6 +64,21 @@ jobs:
 
       - name: Verify Ground Truth Findings (Master Plan Section 1)
         run: python3 tools/verify_findings.py
+
+      - name: Verify Remote Network Fails Closed Until Implemented
+        run: python3 tools/test_network_fail_closed.py
+
+      - name: Verify Boot Storage Tests Are Non-Destructive
+        run: python3 tools/test_storage_non_destructive.py
+
+      - name: Verify KMS Boots Locked
+        run: python3 tools/test_kms_boot_locked.py
+
+      - name: Verify Legacy Installer Cannot Write Disks
+        run: python3 tools/test_installer_fail_closed.py
+
+      - name: Verify TPM Production APIs Fail Closed
+        run: python3 tools/test_tpm_fail_closed.py
 
 
 

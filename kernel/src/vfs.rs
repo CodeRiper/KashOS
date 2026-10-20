@@ -23,6 +23,7 @@ pub enum VfsError {
     NotADirectory,
     IoError,
     CorruptFilesystem,
+    DuressTriggered,
     UnsupportedOperation,
     BadgeMismatch,
 }
@@ -333,14 +334,14 @@ impl RootVaultFs {
 
         // Attempt 1: Open existing formatted vault
         let open_res = Vault::open(dev, &mut rng, master_key);
-        let mut vault = match open_res {
+        let vault = match open_res {
             Ok(OpenOutcome::Unlocked(v)) => {
                 crate::kprintln!("[vfs] Existing kvault root volume unlocked successfully");
                 v
             }
             Ok(OpenOutcome::Duress(_)) => {
                 crate::kprintln!("[vfs] [ALERT] Duress unlock occurred; all vault key slots wiped!");
-                return Err(VfsError::CorruptFilesystem);
+                return Err(VfsError::DuressTriggered);
             }
             Err(open_err) => {
                 crate::kprintln!(
@@ -350,30 +351,6 @@ impl RootVaultFs {
                 return Err(VfsError::CorruptFilesystem);
             }
         };
-
-        // Ensure baseline directory hierarchy exists: system, apps, personal, etc
-        let folders = ["system", "apps", "personal", "etc"];
-        for f in &folders {
-            if !vault.list_folders().iter().any(|fi| fi.name == *f) {
-                let _ = vault.create_folder(&mut rng, f, None);
-            }
-        }
-
-        // Provision standard baseline files if missing
-        if vault.read_file("system", "os-release").is_err() {
-            let os_rel = b"NAME=KashOS\nVERSION=0.2.0\nID=kashos\nPRETTY_NAME=\"KashOS Microkernel\"\n";
-            let _ = vault.write_file(&mut rng, "system", "os-release", os_rel);
-        }
-
-        if vault.read_file("etc", "kashos.conf").is_err() {
-            let conf = b"# KashOS Core Configuration\nlockdown=enforcing\nw_xor_x=strict\niommu=strict\ntpm_measured_boot=enabled\n";
-            let _ = vault.write_file(&mut rng, "etc", "kashos.conf", conf);
-        }
-
-        if vault.read_file("personal", "welcome.txt").is_err() {
-            let welcome = b"Welcome to KashOS: Native Authenticated Storage with XChaCha20-Poly1305 and Anti-Evil Maid TPM 2.0.\n";
-            let _ = vault.write_file(&mut rng, "personal", "welcome.txt", welcome);
-        }
 
         let free_blks = vault.free_blocks();
         crate::kprintln!("[vfs] Persistent root filesystem mounted at '/' ({} free blocks, {} KiB available)",

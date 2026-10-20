@@ -1,40 +1,42 @@
 # KashOS Master Task Ledger
 
+> Audit note (2026-10-20): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan.
+
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
-| A1 | Remove every fake network and Tor output | Done | main | docs/EVIDENCE/A1.md |
-| A2 | Stop the data-loss bug (vault open versus format) | Done | main | docs/EVIDENCE/A2.md |
-| A3 | Real key hierarchy: passphrase first, TPM second | Done | main | docs/EVIDENCE/A3.md |
-| A4 | Real TPM 2.0 driver (TIS first, CRB second) | Done | main | docs/EVIDENCE/A4.md |
-| A5 | Measured boot, sealing and anti-rollback | Done | main | docs/EVIDENCE/A5.md |
-| A6 | Real TCP/IP with smoltcp | Done | main | docs/EVIDENCE/A6.md |
-| A7 | NIC drivers: real, many, tested | Done | main | docs/EVIDENCE/A7.md |
-| A8 | TLS and HTTPS | Done | main | docs/EVIDENCE/A8.md |
-| A9 | Real IOMMU (Intel VT-d) | Done | main | docs/EVIDENCE/A9.md |
-| A10 | Move out of Ring 0: real user-space services | Done | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | Done | main | docs/EVIDENCE/A11.md |
-| A12 | Persistent filesystem and disk layout | Done | main | docs/EVIDENCE/A12.md |
-| A13 | USB: xHCI, HID and mass storage | Done | main | docs/EVIDENCE/A13.md |
-| A14 | UEFI boot, Secure Boot and a loader that measures | Done | main | docs/EVIDENCE/A14.md |
-| A15 | Storage drivers: NVMe, hardened AHCI | Done | main | docs/EVIDENCE/A15.md |
-| A16 | Display (double-buffering, virtio-gpu 2D) | Done | main | docs/EVIDENCE/A16.md |
-| A17 | ACPI, power and platform | Done | main | docs/EVIDENCE/A17.md |
-| A18 | Make the UI honest and connected to real services | Done | main | docs/EVIDENCE/A18.md |
-| A19 | libc, Rust std and a POSIX layer | Done | main | docs/EVIDENCE/A19.md |
-| A20 | Re-verify the old audit and finish hardening | Done | main | docs/EVIDENCE/A20.md |
-| A21 | Status registry from real probes; CI that blocks fakes | Done | main | docs/EVIDENCE/A21.md |
+| A1 | Remove every fake network and Tor output | Ready for review | codex/a1-remove-fake-network-claims | docs/EVIDENCE/A1.md |
+| A2 | Stop the data-loss bug (vault open versus format) | Ready for review | codex/a1-remove-fake-network-claims | docs/EVIDENCE/A2.md |
+| A3 | Real key hierarchy: passphrase first, TPM second | Needs revalidation | main | docs/EVIDENCE/A3.md |
+| A4 | Real TPM 2.0 driver (TIS first, CRB second) | Not implemented | main | docs/EVIDENCE/A4.md |
+| A5 | Measured boot, sealing and anti-rollback | Not implemented | main | docs/EVIDENCE/A5.md |
+| A6 | Real TCP/IP with smoltcp | Needs revalidation | main | docs/EVIDENCE/A6.md |
+| A7 | NIC drivers: real, many, tested | Needs revalidation | main | docs/EVIDENCE/A7.md |
+| A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
+| A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
+| A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
+| A11 | SMP and scheduler | Needs revalidation | main | docs/EVIDENCE/A11.md |
+| A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
+| A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
+| A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
+| A15 | Storage drivers: NVMe, hardened AHCI | Needs revalidation | main | docs/EVIDENCE/A15.md |
+| A16 | Display (double-buffering, virtio-gpu 2D) | Needs revalidation | main | docs/EVIDENCE/A16.md |
+| A17 | ACPI, power and platform | Needs revalidation | main | docs/EVIDENCE/A17.md |
+| A18 | Make the UI honest and connected to real services | Needs revalidation | main | docs/EVIDENCE/A18.md |
+| A19 | libc, Rust std and a POSIX layer | Needs revalidation | main | docs/EVIDENCE/A19.md |
+| A20 | Re-verify the old audit and finish hardening | Needs revalidation | main | docs/EVIDENCE/A20.md |
+| A21 | Status registry from real probes; CI that blocks fakes | Needs revalidation | main | docs/EVIDENCE/A21.md |
 
 ## Part B: Kash Kernel 2.0 (seL4-Class Microkernel in Rust)
 
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
-| B0 | Architecture & CapRights Foundations | Done | main | docs/EVIDENCE/B0.md |
-| B1 | Untyped Memory Model & Watermark Allocator | Done | main | docs/EVIDENCE/B1.md |
-| B2 | CNode Guarded Radix Trees & Capability Derivation Tree (CDT) | Done | main | docs/EVIDENCE/B2.md |
-| B3 | Transitive Revocation & Amnesic Memory Zeroing | Done | main | docs/EVIDENCE/B3.md |
-| B4 | Badged Synchronous Endpoints & Capability Routing | Done | main | docs/EVIDENCE/B4.md |
-| B5 | Asynchronous Notifications & Event Signaling | Done | main | docs/EVIDENCE/B5.md |
-| B6 | Thread Control Blocks (TCBs), Fault Handlers & State | Done | main | docs/EVIDENCE/B6.md |
+| B0 | Architecture & CapRights Foundations | Needs revalidation | main | docs/EVIDENCE/B0.md |
+| B1 | Untyped Memory Model & Watermark Allocator | Needs revalidation | main | docs/EVIDENCE/B1.md |
+| B2 | CNode Guarded Radix Trees & Capability Derivation Tree (CDT) | Needs revalidation | main | docs/EVIDENCE/B2.md |
+| B3 | Transitive Revocation & Amnesic Memory Zeroing | Needs revalidation | main | docs/EVIDENCE/B3.md |
+| B4 | Badged Synchronous Endpoints & Capability Routing | Needs revalidation | main | docs/EVIDENCE/B4.md |
+| B5 | Asynchronous Notifications & Event Signaling | Needs revalidation | main | docs/EVIDENCE/B5.md |
+| B6 | Thread Control Blocks (TCBs), Fault Handlers & State | Needs revalidation | main | docs/EVIDENCE/B6.md |
 | B7 | Mixed-Criticality Scheduling (MCS): SchedContext & Temporal Isolation | Planned | - | docs/EVIDENCE/B7.md |
 | B8 | Reply Capabilities & One-Shot RPC Protocol | Planned | - | docs/EVIDENCE/B8.md |
 | B9 | Virtual Memory Architecture: VSpace, PageDirectory, PageTable, Frames | Planned | - | docs/EVIDENCE/B9.md |

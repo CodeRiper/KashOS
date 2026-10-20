@@ -14,6 +14,8 @@ import re
 EXEMPT_FILES = {
     os.path.normpath("docs/KASHOS_BUILD_GUIDE.md"),
     os.path.normpath("docs/MASTER_PLAN.md"),
+    # This file is a source-linked research comparison, not a KashOS feature claim.
+    os.path.normpath("docs/RESEARCH_SECURITY_MODELS.md"),
     os.path.normpath("tools/claims_lint.py"),
 }
 
