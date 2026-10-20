@@ -84,7 +84,7 @@ pub struct E1000Device {
     pub mmio_base: u64,
     pub io_port_base: u16,
     pub mac_address: [u8; 6],
-    pub is_up: bool,
+    is_up: bool,
     rx_cur: usize,
     tx_cur: usize,
     pub rx_ring: [E1000RxDesc; NUM_RX_DESCRIPTORS],
@@ -140,78 +140,13 @@ impl E1000Device {
     }
 
     pub fn init(&mut self) -> Result<(), &'static str> {
-        // Read MAC address from RAL0/RAH0 or EEPROM
-        if self.mmio_base != 0 {
-            let ral = unsafe { self.read32(E1000_REG_RAL0) };
-            let rah = unsafe { self.read32(E1000_REG_RAH0) };
-            if ral != 0 {
-                self.mac_address[0] = (ral & 0xFF) as u8;
-                self.mac_address[1] = ((ral >> 8) & 0xFF) as u8;
-                self.mac_address[2] = ((ral >> 16) & 0xFF) as u8;
-                self.mac_address[3] = ((ral >> 24) & 0xFF) as u8;
-                self.mac_address[4] = (rah & 0xFF) as u8;
-                self.mac_address[5] = ((rah >> 8) & 0xFF) as u8;
-            }
-        }
-
-        // Initialize Receive Descriptors
-        for i in 0..NUM_RX_DESCRIPTORS {
-            let buf_phys = self.rx_buffers[i].as_ptr() as usize as u64;
-            self.rx_ring[i].buffer_addr = buf_phys;
-            self.rx_ring[i].status = 0;
-        }
-
-        // Initialize Transmit Descriptors
-        for i in 0..NUM_TX_DESCRIPTORS {
-            let buf_phys = self.tx_buffers[i].as_ptr() as usize as u64;
-            self.tx_ring[i].buffer_addr = buf_phys;
-            self.tx_ring[i].cmd = 0;
-            self.tx_ring[i].status = 1; // Descriptor Done
-        }
-
-        if self.mmio_base != 0 {
-            let rx_phys = self.rx_ring.as_ptr() as usize as u64;
-            let tx_phys = self.tx_ring.as_ptr() as usize as u64;
-
-            unsafe {
-                // Program RX Descriptor Ring Base & Length
-                self.write32(E1000_REG_RDBAL, (rx_phys & 0xFFFF_FFFF) as u32);
-                self.write32(E1000_REG_RDBAH, (rx_phys >> 32) as u32);
-                self.write32(E1000_REG_RDLEN, (NUM_RX_DESCRIPTORS * core::mem::size_of::<E1000RxDesc>()) as u32);
-                self.write32(E1000_REG_RDH, 0);
-                self.write32(E1000_REG_RDT, (NUM_RX_DESCRIPTORS - 1) as u32);
-
-                // Enable Receiver
-                self.write32(E1000_REG_RCTL, E1000_RCTL_EN | E1000_RCTL_BAM | E1000_RCTL_BSIZE_2048);
-
-                // Program TX Descriptor Ring Base & Length
-                self.write32(E1000_REG_TDBAL, (tx_phys & 0xFFFF_FFFF) as u32);
-                self.write32(E1000_REG_TDBAH, (tx_phys >> 32) as u32);
-                self.write32(E1000_REG_TDLEN, (NUM_TX_DESCRIPTORS * core::mem::size_of::<E1000TxDesc>()) as u32);
-                self.write32(E1000_REG_TDH, 0);
-                self.write32(E1000_REG_TDT, 0);
-
-                // Enable Transmitter
-                self.write32(E1000_REG_TCTL, E1000_TCTL_EN | E1000_TCTL_PSP);
-
-                // Force Link Up
-                let ctrl = self.read32(E1000_REG_CTRL);
-                self.write32(E1000_REG_CTRL, ctrl | E1000_CTRL_SLU);
-            }
-        }
-
-        self.is_up = true;
-        crate::kprintln!(
-            "[e1000] Intel 82540EM Gigabit Ethernet ready — MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            self.mac_address[0], self.mac_address[1], self.mac_address[2],
-            self.mac_address[3], self.mac_address[4], self.mac_address[5]
-        );
-        Ok(())
+        let _ = self;
+        Err("e1000 DMA is disabled until physical DMA memory and IOMMU isolation are verified")
     }
 
     /// Transmits a raw Ethernet frame onto the physical wire.
     pub fn transmit_frame(&mut self, frame: &[u8]) -> Result<(), ()> {
-        if frame.len() > TX_BUFFER_SIZE {
+        if !self.is_up || frame.len() > TX_BUFFER_SIZE {
             return Err(());
         }
 
@@ -240,6 +175,9 @@ impl E1000Device {
 
     /// Polls for an incoming Ethernet frame from the RX ring.
     pub fn receive_frame(&mut self, out_buf: &mut [u8]) -> Option<usize> {
+        if !self.is_up {
+            return None;
+        }
         let desc = &mut self.rx_ring[self.rx_cur];
         if (desc.status & 1) == 0 {
             // Descriptor not done (no packet pending)
@@ -324,7 +262,7 @@ pub struct VirtqUsed {
 pub struct VirtioNetDevice {
     pub io_base: u16,
     pub mac_address: [u8; 6],
-    pub is_up: bool,
+    is_up: bool,
     tx_cur: usize,
     rx_last_used: u16,
     pub rx_desc: [VirtqDesc; 8],
@@ -365,63 +303,14 @@ impl VirtioNetDevice {
     }
 
     pub fn init(&mut self) -> Result<(), &'static str> {
-        if self.io_base == 0 {
-            return Err("Invalid I/O port base");
-        }
-
-        // 1. Reset device
-        crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, 0);
-
-        // 2. Acknowledge device
-        crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE);
-
-        // 3. Set Driver status
-        crate::arch::x86_64::pci::outb(self.io_base + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER);
-
-        // 4. Read MAC address from VirtIO config space (offset 0x14..0x19)
-        for i in 0..6 {
-            let byte = crate::arch::x86_64::pci::inb(self.io_base + 0x14 + i as u16);
-            if byte != 0 && byte != 0xFF {
-                self.mac_address[i] = byte;
-            }
-        }
-
-        // 5. Setup RX Virtqueue (Queue 0)
-        crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_SEL, 0);
-        let rx_phys = self.rx_desc.as_ptr() as usize as u32;
-        crate::arch::x86_64::pci::outl(self.io_base + VIRTIO_PCI_QUEUE_PFN, rx_phys >> 12);
-
-        // Populate RX Descriptors
-        for i in 0..8 {
-            let buf_phys = self.rx_buffers[i].as_ptr() as usize as u64;
-            self.rx_desc[i].addr = buf_phys;
-            self.rx_desc[i].len = 1536;
-            self.rx_desc[i].flags = VIRTQ_DESC_F_WRITE;
-            self.rx_avail.ring[i] = i as u16;
-        }
-        self.rx_avail.idx = 8;
-
-        // 6. Setup TX Virtqueue (Queue 1)
-        crate::arch::x86_64::pci::outw(self.io_base + VIRTIO_PCI_QUEUE_SEL, 1);
-        let tx_phys = self.tx_desc.as_ptr() as usize as u32;
-        crate::arch::x86_64::pci::outl(self.io_base + VIRTIO_PCI_QUEUE_PFN, tx_phys >> 12);
-
-        // 7. Driver OK
-        crate::arch::x86_64::pci::outb(
-            self.io_base + VIRTIO_PCI_STATUS,
-            VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_DRIVER_OK,
-        );
-
-        self.is_up = true;
-        crate::kprintln!(
-            "[virtio-net] VirtIO split-queue network adapter ready — MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            self.mac_address[0], self.mac_address[1], self.mac_address[2],
-            self.mac_address[3], self.mac_address[4], self.mac_address[5]
-        );
-        Ok(())
+        let _ = self;
+        Err("VirtIO-Net DMA is disabled until physical DMA memory and IOMMU isolation are verified")
     }
 
     pub fn transmit_frame(&mut self, frame: &[u8]) -> Result<(), ()> {
+        if !self.is_up {
+            return Err(());
+        }
         let hdr_size = 10; // VirtIO net header size
         let max_frame = 1536 - hdr_size;
         if frame.len() > max_frame {
@@ -457,6 +346,9 @@ impl VirtioNetDevice {
     }
 
     pub fn receive_frame(&mut self, out_buf: &mut [u8]) -> Option<usize> {
+        if !self.is_up {
+            return None;
+        }
         let current_used_idx = self.rx_used.idx;
         if self.rx_last_used == current_used_idx {
             return None;
@@ -528,7 +420,7 @@ pub const RTL8139_RX_BUF_LEN: usize  = 8192 + 16 + 1500;
 pub struct Rtl8139Device {
     pub io_base: u16,
     pub mac_address: [u8; 6],
-    pub is_up: bool,
+    is_up: bool,
     tx_cur: usize,
     rx_offset: usize,
     pub rx_buffer: Box<[u8; RTL8139_RX_BUF_LEN]>,
@@ -557,49 +449,12 @@ impl Rtl8139Device {
     }
 
     pub fn init(&mut self) -> Result<(), &'static str> {
-        if self.io_base == 0 {
-            return Err("Invalid I/O port base");
-        }
-        // Power on device (Config1 = 0)
-        crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CONFIG1, 0x00);
-
-        // Software reset
-        crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CR, RTL8139_CR_RST);
-        let mut spins = 0;
-        while (crate::arch::x86_64::pci::inb(self.io_base + RTL8139_REG_CR) & RTL8139_CR_RST) != 0 {
-            spins += 1;
-            if spins > 100_000 {
-                break;
-            }
-        }
-
-        // Read hardware MAC address from ports io_base + 0..5
-        for i in 0..6 {
-            self.mac_address[i] = crate::arch::x86_64::pci::inb(self.io_base + i as u16);
-        }
-
-        // Program RX buffer physical address
-        let rx_phys = self.rx_buffer.as_ptr() as usize as u32;
-        crate::arch::x86_64::pci::outl(self.io_base + RTL8139_REG_RBSTART, rx_phys);
-
-        // Program Receive Configuration Register: Accept Broadcast, Multicast, Match, All, WRAP
-        let rcr = RTL8139_RCR_AAP | RTL8139_RCR_APM | RTL8139_RCR_AM | RTL8139_RCR_AB | RTL8139_RCR_WRAP;
-        crate::arch::x86_64::pci::outl(self.io_base + RTL8139_REG_RCR, rcr);
-
-        // Enable Transmitter and Receiver
-        crate::arch::x86_64::pci::outb(self.io_base + RTL8139_REG_CR, RTL8139_CR_RE | RTL8139_CR_TE);
-        self.is_up = true;
-        crate::kprintln!(
-            "[rtl8139] Realtek RTL8139 Fast Ethernet ready at Port {:#x} — MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            self.io_base,
-            self.mac_address[0], self.mac_address[1], self.mac_address[2],
-            self.mac_address[3], self.mac_address[4], self.mac_address[5]
-        );
-        Ok(())
+        let _ = self;
+        Err("RTL8139 DMA is disabled until physical DMA memory and IOMMU isolation are verified")
     }
 
     pub fn transmit_frame(&mut self, frame: &[u8]) -> Result<(), ()> {
-        if frame.len() > TX_BUFFER_SIZE {
+        if !self.is_up || frame.len() > TX_BUFFER_SIZE {
             return Err(());
         }
         if self.io_base == 0 {
@@ -628,6 +483,9 @@ impl Rtl8139Device {
     }
 
     pub fn receive_frame(&mut self, out_buf: &mut [u8]) -> Option<usize> {
+        if !self.is_up {
+            return None;
+        }
         if self.io_base == 0 {
             return None;
         }
@@ -680,90 +538,22 @@ impl Rtl8139Device {
 
 // ── 4. Global Network Driver Subsystem & Lock-Free kipc Rings ────────────────
 
-pub struct NetworkDriverSubsystem {
-    pub e1000: Option<Box<E1000Device>>,
-    pub virtio: Option<Box<VirtioNetDevice>>,
-    pub rtl8139: Option<Box<Rtl8139Device>>,
+struct NetworkDriverSubsystem {
+    e1000: Option<Box<E1000Device>>,
+    virtio: Option<Box<VirtioNetDevice>>,
+    rtl8139: Option<Box<Rtl8139Device>>,
 }
 
 static mut GLOBAL_NIC: Option<NetworkDriverSubsystem> = None;
 
 pub fn init() {
-    let pci_devices = crate::arch::scan_pci();
-    let mut e1000 = None;
-    let mut virtio = None;
-    let mut rtl8139 = None;
-
-    for dev in &pci_devices {
-        // Intel e1000 (82540EM / 82545GB / 82574L)
-        if dev.is_e1000() {
-            dev.enable_bus_mastering();
-            let mmio = dev.bar_mem_address(0).unwrap_or(0);
-            let io = dev.bar_io_port(1).or_else(|| dev.bar_io_port(2)).unwrap_or(0);
-            let mut card = Box::new(E1000Device::new(mmio, io));
-            let _ = card.init();
-            e1000 = Some(card);
-            break;
-        }
-        // VirtIO-Net
-        if dev.is_virtio_net() {
-            dev.enable_bus_mastering();
-            let io = dev.bar_io_port(0).unwrap_or(0);
-            let mut vnet = Box::new(VirtioNetDevice::new(io));
-            let _ = vnet.init();
-            virtio = Some(vnet);
-            break;
-        }
-        // Realtek RTL8139
-        if dev.is_rtl8139() {
-            dev.enable_bus_mastering();
-            let io = dev.bar_io_port(0).unwrap_or(0);
-            let mut rtl = Box::new(Rtl8139Device::new(io));
-            let _ = rtl.init();
-            rtl8139 = Some(rtl);
-            break;
-        }
-    }
-
-    if let Some(ref card) = e1000 {
-        crate::status::update(|s| s.nic_e1000 = crate::status::ComponentStatus::Real);
-        crate::kprintln!(
-            "[nic] Intel e1000 NIC initialized: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            card.mac_address[0], card.mac_address[1], card.mac_address[2],
-            card.mac_address[3], card.mac_address[4], card.mac_address[5]
-        );
-    }
-
-    if let Some(ref vnet) = virtio {
-        crate::status::update(|s| s.nic_virtio = crate::status::ComponentStatus::Real);
-        crate::kprintln!(
-            "[nic] VirtIO-Net initialized: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            vnet.mac_address[0], vnet.mac_address[1], vnet.mac_address[2],
-            vnet.mac_address[3], vnet.mac_address[4], vnet.mac_address[5]
-        );
-    }
-
-    if let Some(ref rtl) = rtl8139 {
-        crate::status::update(|s| s.nic_rtl8139 = crate::status::ComponentStatus::Real);
-        crate::kprintln!(
-            "[nic] Realtek RTL8139 Fast Ethernet initialized: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            rtl.mac_address[0], rtl.mac_address[1], rtl.mac_address[2],
-            rtl.mac_address[3], rtl.mac_address[4], rtl.mac_address[5]
-        );
-    }
-
-    if e1000.is_none() && virtio.is_none() && rtl8139.is_none() {
-        crate::status::update(|s| {
-            s.nic_e1000 = crate::status::ComponentStatus::NotAvailable;
-            s.nic_virtio = crate::status::ComponentStatus::NotAvailable;
-            s.nic_rtl8139 = crate::status::ComponentStatus::NotAvailable;
-        });
-        crate::kprintln!("[nic] No PCI network card detected (Intel e1000 / VirtIO-Net / RTL8139 NOT AVAILABLE)");
-    }
-
-    unsafe {
-        GLOBAL_NIC = Some(NetworkDriverSubsystem { e1000, virtio, rtl8139 });
-    }
+    crate::status::update(|s| {
+        s.nic_e1000 = crate::status::ComponentStatus::Stub;
+        s.nic_virtio = crate::status::ComponentStatus::Stub;
+        s.nic_rtl8139 = crate::status::ComponentStatus::Stub;
+    });
+    crate::kprintln!("[nic] NIC drivers are disabled: DMA-safe physical buffers and verified IOMMU isolation are unavailable");
+    unsafe { GLOBAL_NIC = None; }
 }
 
 pub fn transmit(frame: &[u8]) -> Result<(), ()> {
