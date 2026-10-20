@@ -58,6 +58,11 @@ volume migration are designed and tested.
   heap block. This blocks forged headers from requesting up to 4 GiB and
   exhausting the OS. It does not replace A3's missing versioned KDF, enrollment,
   recovery, and legacy-volume migration.
+- New volume formatting now rejects KDF costs below the 19 MiB, t=2, p=1
+  Argon2id floor. Lower-cost legacy volumes remain readable for recovery. The
+  fast 64 KiB test profile requires a debug build and explicit Cargo feature;
+  the kernel boot self-test uses the production floor. Passphrase enrollment,
+  recovery keys, TPM provisioning, and GUI credential entry remain incomplete.
 
 ### A4/A5 TPM audit finding
 

@@ -45,7 +45,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run Workspace Tests
-        run: cargo test --workspace --exclude kernel
+        run: cargo test --workspace --exclude kernel --features kvault/test-fast-kdf
 
   honesty-gate:
     name: Build Guide v2 Claims & Honesty Gate

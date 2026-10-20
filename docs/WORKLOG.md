@@ -46,13 +46,20 @@
   minus a 16 MiB reserve. Added a non-mutation regression test, CI guard, and
   A3 evidence; an explicit-budget recovery API preserves access to higher-cost
   volumes on systems with enough memory.
+- Follow-up A3 audit found that new volume formatting accepted 8 KiB KDF costs
+  and the runtime kernel self-test used a 64 KiB profile. New persistent
+  formats now require the 19 MiB Argon2id floor; low-cost old volumes remain
+  openable for recovery. The fast test fixture requires an explicit debug-only
+  feature, and the kernel self-test uses the production floor. The legacy
+  64 MiB profile's invalid 32-pass value was corrected to 16.
 
 ## Verification
 
-See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) for exact commands and limits. Current
-local results: workspace host tests pass, kernel target check/release build
-pass, `kash-ui` tests pass, installer/KMS/storage/network/TPM source guards and
-claims linter pass, and the QEMU T0 smoke test reaches the locked shell with
+See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) and [`EVIDENCE/A3.md`](EVIDENCE/A3.md)
+for exact commands and limits. Current local results: workspace host tests
+pass (the full vault corruption test took 324 seconds), kernel target check/release build
+pass, `kash-ui` tests pass, installer/KMS/storage/network/TPM/KDF source guards
+and claims linter pass, and the QEMU T0 smoke test reaches the locked shell with
 its required markers. The QEMU vault image SHA-256 was unchanged
 (`31B809229EFA682DB6B6041AF61743D3E54D79DDFEB42C79E5BEDD853C5AE012`).
 This does not establish TPM, IOMMU, TLS, Tor, browser isolation, Linux

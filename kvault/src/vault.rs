@@ -374,7 +374,7 @@ impl<D: BlockDevice> Vault<D> {
         hidden_pw: Option<&[u8]>,
         duress_pw: Option<&[u8]>,
     ) -> VaultResult<D> {
-        opts.params.validate()?;
+        opts.params.validate_for_format()?;
         let count = dev.block_count();
         if opts.hidden_percent > 80 || outer_pw.is_empty() {
             return Err(VaultError::InvalidParams);

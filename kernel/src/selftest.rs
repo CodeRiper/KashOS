@@ -1229,7 +1229,7 @@ fn test_tpm_sealed_master_vault_key_integration() {
     let mem_dev = MemDevice::new(64);
     let mut rng = crate::csprng::Csprng::new();
     let opts = FormatOptions {
-        params: KdfParams::TEST_ONLY_INSECURE_FAST,
+        params: KdfParams::LOW_END,
         hidden_percent: 0,
     };
 

@@ -16,6 +16,8 @@ pub type Key = Zeroizing<[u8; 32]>;
 pub const NONCE_LEN: usize = 24;
 pub const TAG_LEN: usize = 16;
 pub const SEAL_OVERHEAD: usize = NONCE_LEN + TAG_LEN;
+/// Lowest supported password-storage profile (OWASP Argon2id floor), in KiB.
+pub const MIN_KDF_MEMORY_KIB: u32 = 19 * 1024;
 /// Normal vault operations cap Argon2id at the largest KashOS supported profile.
 pub const DEFAULT_MAX_KDF_MEMORY_KIB: u32 = 256 * 1024;
 /// Explicit recovery callers may opt into RFC 9106's 2 GiB profile after
@@ -41,12 +43,13 @@ impl KdfParams {
     /// KashOS 1 GiB Legacy Profile (Pages 10-11 of Architectural Blueprint):
     /// 256 MiB RAM scratchpad, 12 passes, 1 lane. Uses exactly 25% of 1 GiB RAM.
     pub const KASHOS_1GIB_LEGACY: KdfParams = KdfParams { m_kib: 256 * 1024, t: 12, p: 1 };
-    /// KashOS Ultra-Low RAM Fallback (for 100 MiB systems):
-    /// 64 MiB scratchpad, 32 passes, 1 lane.
-    pub const KASHOS_ULTRA_LOW_RAM: KdfParams = KdfParams { m_kib: 64 * 1024, t: 32, p: 1 };
+    /// KashOS low-memory profile: 64 MiB scratchpad, 16 passes, 1 lane.
+    pub const KASHOS_ULTRA_LOW_RAM: KdfParams = KdfParams { m_kib: 64 * 1024, t: 16, p: 1 };
     /// Floor for small devices (OWASP minimum): 19 MiB, t=2, p=1. Pair with a long passphrase.
     pub const LOW_END: KdfParams = KdfParams { m_kib: 19 * 1024, t: 2, p: 1 };
-    /// FOR TESTS ONLY: trivially brute-forceable.
+    /// Test-only low-cost profile. Vault formatting permits it only in debug
+    /// builds with the explicit `test-fast-kdf` feature enabled.
+    #[cfg(feature = "test-fast-kdf")]
     pub const TEST_ONLY_INSECURE_FAST: KdfParams = KdfParams { m_kib: 64, t: 1, p: 1 };
 
     /// Reject values that are nonsensical or would let a hostile header exhaust memory/time.
@@ -55,7 +58,8 @@ impl KdfParams {
     }
 
     /// Validate a stored KDF profile against the caller's actual memory budget.
-    /// The caller-provided limit is itself capped to the supported Argon2 range.
+    /// This accepts older low-memory profiles for data recovery; new volume
+    /// creation must use `validate_for_new_vault` instead.
     pub fn validate_with_memory_limit(&self, max_memory_kib: u32) -> VaultResult<()> {
         let max_memory_kib = max_memory_kib.min(ABSOLUTE_MAX_KDF_MEMORY_KIB);
         let ok = (1..=16).contains(&self.p)
@@ -63,6 +67,24 @@ impl KdfParams {
             && self.m_kib >= 8 * self.p
             && self.m_kib <= max_memory_kib;
         if ok { Ok(()) } else { Err(VaultError::InvalidParams) }
+    }
+
+    /// Validate a profile permitted for creating a new persistent vault.
+    /// Existing low-cost volumes remain readable for explicit data recovery.
+    pub fn validate_for_new_vault(&self) -> VaultResult<()> {
+        self.validate()?;
+        if self.m_kib < MIN_KDF_MEMORY_KIB {
+            return Err(VaultError::InvalidParams);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_for_format(&self) -> VaultResult<()> {
+        #[cfg(all(feature = "test-fast-kdf", debug_assertions))]
+        if *self == Self::TEST_ONLY_INSECURE_FAST {
+            return self.validate();
+        }
+        self.validate_for_new_vault()
     }
 }
 
