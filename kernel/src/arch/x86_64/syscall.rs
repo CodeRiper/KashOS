@@ -170,7 +170,10 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
             let cptr = arg1;
             let op = arg2;
             let current_pid = crate::task::current_tid();
-            let cspace_idx = (current_pid as usize) % crate::process::MAX_PROCESSES;
+            let cspace_idx = match crate::process::process_slot_for_pid(current_pid as u32) {
+                Some(slot) => slot,
+                None => return SyscallError::InvalidCapability as i64,
+            };
             let mut cspaces = crate::process::PROCESS_CSPACES.lock();
             let cs = &mut cspaces[cspace_idx];
 
@@ -185,7 +188,10 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
                 }
                 1 => {
                     // Copy: src = cptr, dst = arg3, mask = arg4
-                    let mask = kcore::Rights::from_bits(arg4 as u8).unwrap_or(kcore::Rights::ALL);
+                    let mask = match kcore::Rights::from_bits(arg4 as u8) {
+                        Some(mask) => mask,
+                        None => return SyscallError::InvalidArgument as i64,
+                    };
                     match cs.copy(cptr, arg3, mask) {
                         Ok(()) => 0,
                         Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
@@ -194,7 +200,10 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
                 }
                 2 => {
                     // Mint: src = cptr, dst = arg3, mask = arg4, badge = arg5
-                    let mask = kcore::Rights::from_bits(arg4 as u8).unwrap_or(kcore::Rights::ALL);
+                    let mask = match kcore::Rights::from_bits(arg4 as u8) {
+                        Some(mask) => mask,
+                        None => return SyscallError::InvalidArgument as i64,
+                    };
                     match cs.mint(cptr, arg3, mask, arg5 as u64) {
                         Ok(()) => 0,
                         Err(kcore::KError::InsufficientRights) => SyscallError::InsufficientRights as i64,
@@ -284,7 +293,10 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
                 _ => return SyscallError::InvalidArgument as i64,
             };
             let current_pid = crate::task::current_tid();
-            let cspace_idx = (current_pid as usize) % crate::process::MAX_PROCESSES;
+            let cspace_idx = match crate::process::process_slot_for_pid(current_pid as u32) {
+                Some(slot) => slot,
+                None => return SyscallError::InvalidCapability as i64,
+            };
             let mut cspaces = crate::process::PROCESS_CSPACES.lock();
             let cs = &mut cspaces[cspace_idx];
             match cs.retype(untyped_slot, target_type, dest_slot, &mut |_paddr, _len| {}) {
@@ -297,7 +309,10 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
         nr::SYS_REVOKE => {
             let slot_idx = arg1;
             let current_pid = crate::task::current_tid();
-            let cspace_idx = (current_pid as usize) % crate::process::MAX_PROCESSES;
+            let cspace_idx = match crate::process::process_slot_for_pid(current_pid as u32) {
+                Some(slot) => slot,
+                None => return SyscallError::InvalidCapability as i64,
+            };
             let mut cspaces = crate::process::PROCESS_CSPACES.lock();
             let cs = &mut cspaces[cspace_idx];
             match cs.revoke(slot_idx) {

@@ -166,6 +166,14 @@
   the locked shell and printed the corrected T13 scope. Ground-truth findings
   report F8 and F10 present (2/12); neither hardware DMA containment nor normal
   boot user-service isolation is implemented.
+- A second A10 audit also found fabricated broad process capabilities and PID
+  modulo-based CSpace indexing. Follow-up work starts process CSpaces empty,
+  maps syscalls through the process table, and rejects malformed rights masks.
+  The syscall entry still has one global kernel stack, so SMP userland remains
+  unsafe and disabled.
+- Process-authority guard (7 checks), release kernel build, and T0 QEMU boot
+  passed. T13 verified its test process resolves to its actual process-table
+  slot despite a different PID modulo value and begins with an empty CSpace.
 
 ## Verification
 
@@ -188,8 +196,10 @@ PR #6 (A7 NIC DMA revalidation) is merged to `main` at
 [`76d5451`](https://github.com/CodeRiper/KashOS/commit/76d545148791f2991316dc215052a81d56503db8).
 PR #7 (A9 VT-d revalidation) is merged to `main` at
 [`06892cf`](https://github.com/CodeRiper/KashOS/commit/06892cf612d111fee3e1a07c5d700a32effbd13a).
-The A10 user-space revalidation correction is in progress on
-`codex/a10-revalidation`; branch pushes trigger GitHub Actions.
+PR #8 (A10 Ring 0 session honesty) is merged to `main` at
+[`a41c98b`](https://github.com/CodeRiper/KashOS/commit/a41c98b537cc8df4a6c91af240e13467da9ae874).
+The process-authority A10 follow-up is in progress on
+`codex/a10-process-authority-hardening`; branch pushes trigger GitHub Actions.
 
 ## Next task
 
