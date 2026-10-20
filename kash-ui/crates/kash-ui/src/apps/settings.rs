@@ -187,11 +187,11 @@ impl Settings {
 
     fn pane_network(&mut self, cx: &mut Ctx, f: &mut Form) {
         let mut g = cx.group_begin(f, 4, 44.0);
-        cx.row_value(&mut g, "Network interface", "Native Ethernet (e1000/virtio-net)");
-        cx.row_value(&mut g, "Anonymity Gateway", "Planned (Part C Arti)");
-        cx.row_value(&mut g, "Network kill-switch", "Active (Fail-closed drop on disconnect)");
-        cx.row_value(&mut g, "Packet Filter", "Active (knet RingDevice)");
-        cx.caption(f, "Hardware NICs are bound via smoltcp ring buffers. Tor anonymity routing is handled via user-space daemon (Part C).");
+        cx.row_value(&mut g, "Network interface", "Unavailable (no active NIC service)");
+        cx.row_value(&mut g, "Anonymity gateway", "Unavailable (not implemented)");
+        cx.row_value(&mut g, "Remote networking", "Unavailable (no verified protocol path)");
+        cx.row_value(&mut g, "Packet filter", "Policy helper only (not NIC-integrated)");
+        cx.caption(f, "This build has no verified NIC-to-TCP, DNS, or HTTPS path. Network and Tor access are unavailable; the policy helper is not connected to hardware egress.");
     }
 
     fn pane_battery(&mut self, cx: &mut Ctx, f: &mut Form) {

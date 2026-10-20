@@ -52,6 +52,11 @@
   openable for recovery. The fast test fixture requires an explicit debug-only
   feature, and the kernel self-test uses the production floor. The legacy
   64 MiB profile's invalid 32-pass value was corrected to 16.
+- A18 re-audit found that Settings still claimed native e1000/virtio networking,
+  a running `smoltcp` path, and active hardware filtering even though remote
+  networking is disabled and the filter is not NIC-integrated. The network
+  pane now reports these unavailable states, with regression checks added to
+  the network honesty gate. This does not complete A18 or implement networking.
 
 ## Verification
 
@@ -84,6 +89,10 @@ Run [`39400063060`](https://github.com/CodeRiper/KashOS/actions/runs/39400063060
 for commit `55ab3aa095454b931bdd21d564d4d4ac236ee86d` completed successfully
 with Workspace Subsystem Tests, Build Microkernel (x86-64), and Build Guide v2
 Claims & Honesty Gate all passing.
+Run [`39403735414`](https://github.com/CodeRiper/KashOS/actions/runs/39403735414)
+for commit `764c483dc2f876313bc50610e8717b3c48939179` completed successfully
+with all three jobs passing. These results precede the current uncommitted
+A18 Settings-pane follow-up.
 
 ## Next task
 

@@ -21,7 +21,7 @@
 | A15 | Storage drivers: NVMe, hardened AHCI | Needs revalidation | main | docs/EVIDENCE/A15.md |
 | A16 | Display (double-buffering, virtio-gpu 2D) | Needs revalidation | main | docs/EVIDENCE/A16.md |
 | A17 | ACPI, power and platform | Needs revalidation | main | docs/EVIDENCE/A17.md |
-| A18 | Make the UI honest and connected to real services | Needs revalidation | main | docs/EVIDENCE/A18.md |
+| A18 | Make the UI honest and connected to real services | Needs revalidation | codex/a1-remove-fake-network-claims | docs/EVIDENCE/A18.md |
 | A19 | libc, Rust std and a POSIX layer | Needs revalidation | main | docs/EVIDENCE/A19.md |
 | A20 | Re-verify the old audit and finish hardening | Needs revalidation | main | docs/EVIDENCE/A20.md |
 | A21 | Status registry from real probes; CI that blocks fakes | Needs revalidation | main | docs/EVIDENCE/A21.md |

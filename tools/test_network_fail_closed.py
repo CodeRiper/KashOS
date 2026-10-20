@@ -8,6 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 NET = (ROOT / "kernel/src/net.rs").read_text(encoding="utf-8")
 BROWSER = (ROOT / "kernel/src/browser.rs").read_text(encoding="utf-8")
+SETTINGS = (ROOT / "kash-ui/crates/kash-ui/src/apps/settings.rs").read_text(encoding="utf-8")
 
 
 def method_body(source: str, start_marker: str, end_marker: str) -> str:
@@ -43,6 +44,21 @@ def main() -> int:
         "seL4 Guarded",
     ):
         checks.append((f"Browser excludes unimplemented claim: {claim}", claim not in BROWSER))
+
+    for claim in (
+        "Native Ethernet (e1000/virtio-net)",
+        "Active (Fail-closed drop on disconnect)",
+        "Active (knet RingDevice)",
+        "Hardware NICs are bound via smoltcp ring buffers",
+        "Tor anonymity routing is handled via user-space daemon",
+    ):
+        checks.append((f"Network settings excludes unverified claim: {claim}", claim not in SETTINGS))
+    for status in (
+        "Unavailable (no active NIC service)",
+        "Unavailable (no verified protocol path)",
+        "Policy helper only (not NIC-integrated)",
+    ):
+        checks.append((f"Network settings reports: {status}", status in SETTINGS))
 
     failed = [name for name, passed in checks if not passed]
     for name, passed in checks:
