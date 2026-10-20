@@ -71,5 +71,8 @@ jobs:
       - name: Verify Boot Storage Tests Are Non-Destructive
         run: python3 tools/test_storage_non_destructive.py
 
+      - name: Verify KMS Boots Locked
+        run: python3 tools/test_kms_boot_locked.py
+
 
 

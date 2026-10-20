@@ -65,7 +65,8 @@ impl UserSession {
 pub fn launch_user_session(fb_opt: Option<FramebufferInfo>) -> ! {
     kprintln!("[session] Transitioning out of Ring 0 into user-space services...");
 
-    let mode = if fb_opt.is_some() {
+    let storage_unlocked = crate::vfs::is_root_mounted();
+    let mode = if fb_opt.is_some() && storage_unlocked {
         SessionMode::Desktop
     } else {
         SessionMode::Console
@@ -78,15 +79,19 @@ pub fn launch_user_session(fb_opt: Option<FramebufferInfo>) -> ! {
         kprintln!("[session] User session CSpace established (PID {})", session.session_pid);
     }
 
-    match fb_opt {
-        Some(fb) => {
+    match (fb_opt, storage_unlocked) {
+        (Some(fb), true) => {
             kprintln!("[session] Spawning Ring 3 Desktop Compositor service ({}x{} @ {:#x})...",
                       fb.width, fb.height, fb.base_paddr);
             crate::gui::run_desktop_session(fb);
         }
-        None => {
-            kprintln!("[session] Spawning Ring 3 Interactive Console Shell service...");
-            let mut shell = crate::shell::KashShell::new();
+        (fb, _) => {
+            if fb.is_some() {
+                kprintln!("[session] Storage is locked; entering console for hidden-passphrase unlock.");
+            } else {
+                kprintln!("[session] Spawning interactive console shell service...");
+            }
+            let mut shell = crate::shell::KashShell::with_framebuffer(fb);
             shell.run_interactive_terminal();
         }
     }

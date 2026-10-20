@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-20  
 **Current task branch:** `codex/a1-remove-fake-network-claims`  
-**Current task:** A1 network honesty and boot smoke-test repair
+**Current task:** A1/A2 hardening with A3 locked-boot credential work in progress
 
 ## Completed in this task
 
@@ -25,6 +25,10 @@
 - Removed mount-time provisioning writes, verified the QEMU test disk hash did
   not change during boot, and downgraded A3 after finding the public default
   passphrase, fast HKDF password derivation, and non-persistent TPM handle.
+- A3 follow-up removes automatic use of the public bootstrap phrase, starts
+  KMS locked, adds hidden console unlock and gates desktop startup on a mounted
+  vault. TPM sealing remains explicitly unavailable; old volumes require the
+  legacy phrase and still need a safe migration path.
 
 ## Verification
 

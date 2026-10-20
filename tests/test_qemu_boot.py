@@ -73,6 +73,9 @@ def test_t0_boot():
         "test_t22": False,
         "test_t40": False,
         "test_t44": False,
+        "kms_locked": False,
+        "vault_selftest_skip": False,
+        "unlock_help": False,
         "shell_ready": False,
     }
 
@@ -90,7 +93,7 @@ def test_t0_boot():
             collected_lines.append(line)
 
             # Echo relevant boot lines
-            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[selftest] PASS", "root@kash-node-01"]):
+            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest] PASS", "[selftest] SKIP", "[storage]", "root@kash-node-01"]):
                 print(f"  {line}")
 
             if "W^X" in line:
@@ -103,7 +106,12 @@ def test_t0_boot():
                 required_markers["test_t40"] = True
             if "T44 " in line:
                 required_markers["test_t44"] = True
-            if "root@kash-node-01" in line or "KASH-OS INTERACTIVE" in line:
+            if "[kms] Locked:" in line:
+                required_markers["kms_locked"] = True
+            if "T25 root vault is not mounted; refusing to format" in line:
+                required_markers["vault_selftest_skip"] = True
+            if "Vault is locked. Use 'unlock'; passphrase input is hidden." in line:
+                required_markers["unlock_help"] = True
                 required_markers["shell_ready"] = True
                 print("\n[+] Shell prompt reached! Sending interactive verification commands...")
                 # Send hardware report command

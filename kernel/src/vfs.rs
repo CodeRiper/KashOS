@@ -23,6 +23,7 @@ pub enum VfsError {
     NotADirectory,
     IoError,
     CorruptFilesystem,
+    DuressTriggered,
     UnsupportedOperation,
     BadgeMismatch,
 }
@@ -340,7 +341,7 @@ impl RootVaultFs {
             }
             Ok(OpenOutcome::Duress(_)) => {
                 crate::kprintln!("[vfs] [ALERT] Duress unlock occurred; all vault key slots wiped!");
-                return Err(VfsError::CorruptFilesystem);
+                return Err(VfsError::DuressTriggered);
             }
             Err(open_err) => {
                 crate::kprintln!(

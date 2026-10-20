@@ -43,13 +43,13 @@ compatibility.
 
 ### A3 re-audit finding
 
-The old A3 evidence is stale. `kms.rs` contains a public, fixed bootstrap
-passphrase, derives a predictable master key from a compiled-in salt, and uses
-an in-memory TPM handle that starts at zero on every boot. The passphrase
-unlock path does not establish a TPM-backed key hierarchy. Keep A3 marked
-Needs revalidation and do not describe this KMS as secure or production-ready
-until credential enrollment, persistent TPM provisioning, and migration are
-designed and tested.
+The old A3 evidence was stale. This revision removes automatic use of the
+public bootstrap credential and starts KMS locked; a hidden console prompt
+unlocks the vault, and the GUI is gated until storage mounts. The compiled-in
+salt/HKDF transform and in-memory TPM handle remain insufficient for the
+planned key hierarchy. Keep A3 marked Needs revalidation until credential
+enrollment, protected GUI input, persistent TPM provisioning, and legacy
+volume migration are designed and tested.
 
 ## Next work, in order
 

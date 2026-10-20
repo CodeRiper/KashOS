@@ -1081,6 +1081,7 @@ pub fn run_storage_crypto_tests() {
 #[cfg(target_arch = "x86_64")]
 fn test_hardware_csprng_and_kms() {
     use crate::csprng::Csprng;
+    use crate::kms::KeyManagementService;
     use kvault::rand_core::RngCore;
 
     let mut rng = Csprng::new();
@@ -1106,7 +1107,11 @@ fn test_hardware_csprng_and_kms() {
     check!(r3 != r1 && r3 != r2);
 
     // 3. KMS Subkey Derivation
-    let kms = crate::kms::KMS.lock();
+    // Exercise derivation on a disposable service with an explicit test phrase.
+    // Boot KMS stays locked until the user supplies a credential.
+    let mut kms = KeyManagementService::new();
+    check!(kms.is_locked());
+    check!(kms.unlock_with_passphrase(b"test-only passphrase").is_ok());
     check!(!kms.is_locked());
     let master = kms.get_master_key().expect("KMS master key uninitialized");
     check!(master != &[0u8; 32]);
@@ -1161,7 +1166,7 @@ fn test_kvault_root_mount_readonly() {
 /// - KMS session lock evicts master keys from memory and locks cryptographic interfaces.
 #[cfg(target_arch = "x86_64")]
 fn test_screen_lock_memory_zeroization_clflush() {
-    use crate::kms;
+    use crate::kms::{self, KeyManagementService};
 
     // 1. Direct memory scrubbing & clflush audit on a 64-byte key buffer
     let mut test_key_buf = [0x5Au8; 64];
@@ -1175,7 +1180,8 @@ fn test_screen_lock_memory_zeroization_clflush() {
     check!(kms::verify_zeroized(&test_key_buf));
 
     // 2. KMS Session Lock Audit
-    let mut kms = kms::KMS.lock();
+    let mut kms = KeyManagementService::new();
+    check!(kms.unlock_with_passphrase(b"test-only passphrase").is_ok());
     check!(!kms.is_locked());
 
     kms.lock_session();
@@ -1183,9 +1189,6 @@ fn test_screen_lock_memory_zeroization_clflush() {
 
     // Attempting to retrieve master key while locked must fail
     check!(matches!(kms.get_master_key(), Err(kms::KmsError::Locked)));
-
-    // Restoring session for subsequent execution
-    let _ = kms.unlock_session();
 
     kprintln!("[selftest] PASS: T26 memory-scrub helper zeroed its test buffer; cache eviction and cold-boot resistance are not established");
 }

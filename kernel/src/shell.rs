@@ -6,6 +6,8 @@
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
+use kvault::zeroize::Zeroizing;
+use kboot::FramebufferInfo;
 use crate::kprintln;
 use crate::scheme::{SchemeManager, UserSpaceDriverDaemon};
 use crate::flask::{FlaskSecurityServer, MacMode};
@@ -28,6 +30,7 @@ pub struct KashShell {
     pub capsule_mgr: CapsuleManager,
     pub flask: FlaskSecurityServer,
     pub compositor: CompositorEngine,
+    desktop_fb: Option<FramebufferInfo>,
 }
 
 impl Default for KashShell {
@@ -38,6 +41,10 @@ impl Default for KashShell {
 
 impl KashShell {
     pub fn new() -> Self {
+        Self::with_framebuffer(None)
+    }
+
+    pub fn with_framebuffer(desktop_fb: Option<FramebufferInfo>) -> Self {
         let mut compositor = CompositorEngine::new();
         let term_id = compositor.create_surface("kash-terminal (tty0)", TrustDomain::System, 1024, 768);
         let _ = compositor.set_focus(term_id);
@@ -66,6 +73,65 @@ impl KashShell {
             capsule_mgr: CapsuleManager::new(),
             flask: FlaskSecurityServer::new(),
             compositor,
+            desktop_fb,
+        }
+    }
+
+    fn unlock_storage(&mut self) {
+        if crate::vfs::is_root_mounted() {
+            kprintln!("[storage] Vault is already unlocked and mounted.");
+            return;
+        }
+
+        let mut secret = Zeroizing::new([0u8; 128]);
+        let mut len = 0usize;
+        crate::kprint!("Vault passphrase (input hidden): ");
+        loop {
+            if let Some(ch) = crate::arch::get_char() {
+                if ch == b'\r' || ch == b'\n' {
+                    crate::kprint!("\n");
+                    break;
+                }
+                if ch == 0x08 || ch == 0x7f {
+                    if len > 0 {
+                        len -= 1;
+                        secret[len] = 0;
+                    }
+                } else if (0x20..=0x7e).contains(&ch) && len < secret.len() {
+                    secret[len] = ch;
+                    len += 1;
+                }
+            } else {
+                core::hint::spin_loop();
+            }
+        }
+
+        if len == 0 {
+            kprintln!("[storage] Empty passphrase rejected.");
+            return;
+        }
+
+        if crate::kms::unlock_with_passphrase(&secret[..len]).is_err() {
+            kprintln!("[storage] Credential derivation failed.");
+            return;
+        }
+
+        let mount_result = {
+            let kms = crate::kms::KMS.lock();
+            kms.get_master_key()
+                .map_err(|_| crate::vfs::VfsError::IoError)
+                .and_then(|key| crate::vfs::mount_root(key))
+        };
+        match mount_result {
+            Ok(()) => kprintln!("[storage] Vault unlocked and mounted. Type 'desktop' to start the GUI."),
+            Err(crate::vfs::VfsError::DuressTriggered) => {
+                crate::kms::on_screen_lock();
+                kprintln!("[storage] Duress credential recognized; the configured vault wipe was triggered. Stop and verify backups.");
+            }
+            Err(_) => {
+                crate::kms::on_screen_lock();
+                kprintln!("[storage] Vault did not open; access remains locked and no automatic format was attempted.");
+            }
         }
     }
 
@@ -110,6 +176,8 @@ impl KashShell {
                 kprintln!("|   dmesg      - Kernel boot diagnostic ring buffer log        |");
                 kprintln!("|   reboot     - Clean system reboot with amnesic RAM scrub    |");
                 kprintln!("|   poweroff   - System shutdown & hardware poweroff           |");
+                kprintln!("|   unlock     - Unlock the vault (passphrase input is hidden)  |");
+                kprintln!("|   desktop    - Start the GUI after the vault is mounted       |");
                 kprintln!("+--------------------------------------------------------------+");
                 kprintln!("| Internet & Network Diagnostic Tools:                         |");
                 kprintln!("|   ping       - ICMP echo reachability & RTT latency probe    |");
@@ -138,6 +206,24 @@ impl KashShell {
                 kprintln!("|   lockdown, powerbox, dde, kctl, kash, install-os, status    |");
                 kprintln!("|   opsec, graphene, schemes, drivers, storage, vbox, nuke     |");
                 kprintln!("+==============================================================+\n");
+            }
+
+            "unlock" => {
+                if parts.len() == 1 {
+                    self.unlock_storage();
+                } else {
+                    kprintln!("Usage: unlock  (enter the passphrase at the hidden prompt)");
+                }
+            }
+
+            "desktop" => {
+                if !crate::vfs::is_root_mounted() {
+                    kprintln!("[desktop] Unlock and mount storage first with 'unlock'.");
+                } else if let Some(fb) = self.desktop_fb {
+                    crate::gui::run_desktop_session(fb);
+                } else {
+                    kprintln!("[desktop] No graphical framebuffer is available.");
+                }
             }
 
             // ── Native Linux Command Implementations ─────────────────────────
@@ -2236,6 +2322,12 @@ impl KashShell {
         kprintln!("|   Type 'help' for command list. Try 'nmap', 'ps', 'kctl'.   |");
         kprintln!("+==============================================================+");
         kprintln!();
+        if !crate::vfs::is_root_mounted() {
+            kprintln!("[storage] Vault is locked. Use 'unlock'; passphrase input is hidden.");
+            if self.desktop_fb.is_some() {
+                kprintln!("[desktop] After unlocking, type 'desktop' to open the GUI.");
+            }
+        }
 
         let mut line_buf = [0u8; 128];
         let mut line_len = 0usize;
