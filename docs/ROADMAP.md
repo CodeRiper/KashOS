@@ -1,7 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Current branch:** `codex/a6-network-revalidation`
+**Repository state checked:** `main` at `00672ba85cdd4d27bd15a6166f36129c57995deb` (PR #9)
+**Current gate:** A10 user-space revalidation; ordinary desktop and shell still run in Ring 0.
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
@@ -13,7 +14,32 @@ See [`RESEARCH_SECURITY_MODELS.md`](RESEARCH_SECURITY_MODELS.md) for the
 official-source comparison of the requested reference systems and Linux app
 compatibility.
 
-## Current gate: A6 network revalidation (A1 honesty safeguards retained)
+## Current verified gate: A10 process-authority safeguards (user-space migration incomplete)
+
+- PR #8 corrected the normal boot-session claim: the desktop, settings UI, and
+  shell remain kernel-resident in Ring 0. Ring 3 tests do not establish that
+  these services run with user-mode isolation.
+- PR #9 removed fabricated broad capabilities from process creation, starts
+  user CSpaces empty, resolves syscall and cleanup targets through the process
+  table, and rejects invalid rights masks. The regression test checks PID-slot
+  resolution and an empty initial CSpace; this is not a complete user-session
+  lifecycle or evidence that these services are isolated.
+- The current source audit found remaining modulo-based PID-to-CSpace lookups
+  in `kernel/src/driver.rs` and `kernel/src/ipc.rs`, modulo-based scheduler
+  indexing in IPC, and modulo-based endpoint ID lookup in IPC. These paths are
+  outside the PR #9 regression guard and need fail-closed ID resolution tests
+  before correction; process-authority hardening is not repository-wide yet.
+- A10 remains incomplete. In particular, syscall entry still uses one global
+  kernel stack, so concurrent SMP user-process syscall safety is not
+  established. Close the identifier aliasing paths first, then audit and design
+  per-thread syscall stack ownership and concurrency handling before enabling
+  SMP userland.
+- PR #7 remains fail-closed: hardware VT-d, ACS validation, and DMA containment
+  are not implemented. NIC and DDE hardware DMA paths remain disabled.
+- Current ground-truth findings include F8 (hardware DMA/IOMMU path absent) and
+  F10 (normal boot session remains Ring 0). Do not report these as resolved.
+
+## A6 network revalidation (historical; fail-closed behavior retained)
 
 - Remote HTTP and HTTPS requests return `NotAvailable`.
 - DNS resolution only parses IPv4 literals; DNS protocol lookup is not present.
