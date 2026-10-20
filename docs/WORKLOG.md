@@ -19,6 +19,12 @@
   worktree instead of a potentially stale `isodir` artifact.
 - Added the implementation roadmap and official-source security model research.
 - Marked legacy Part A and B0-B6 completion statuses for revalidation.
+- Audited A2 and removed persistent-disk writes and fallback formatting from
+  the boot self-test. Added a CI regression guard; updated A2 evidence and
+  task status based on the new source audit.
+- Removed mount-time provisioning writes, verified the QEMU test disk hash did
+  not change during boot, and downgraded A3 after finding the public default
+  passphrase, fast HKDF password derivation, and non-persistent TPM handle.
 
 ## Verification
 
@@ -30,12 +36,11 @@ isolation, Linux compatibility, or physical-device security.
 
 ## Current GitHub state
 
-The task branch was pushed successfully to `origin` at commit
-`2b9d696a4b34769fccb16f569c8e6eda73a52b60`. The local tree is clean. No pull
-request has been opened yet: GitHub Actions is configured to run on `main`
-pushes and pull requests targeting `main`, and the available browser session
-is signed out. Do not merge until the user reviews the proposed change and
-platform CI reports its results.
+The task branch is pushed to `origin`. No pull request has been opened yet:
+GitHub Actions is configured to run on `main` pushes and pull requests
+targeting `main`, and the available browser session is signed out. Do not
+merge until the user reviews the proposed change and platform CI reports its
+results.
 
 ## Next task
 

@@ -1054,7 +1054,7 @@ fn test_anti_evil_maid_tpm_sealing_fail_closed() {
     kprintln!("[selftest] PASS: T23 TPM sealing policy model rejected a changed measurement state; hardware-bound key sealing is not established");
 }
 
-/// Runs Phase 6 Acceptance Gates on live persistent storage, heap, and cryptographic services.
+/// Runs Phase 6 acceptance checks without mutating live persistent storage.
 #[cfg(target_arch = "x86_64")]
 pub fn run_storage_crypto_tests() {
     kprintln!("\n[selftest] ─── Phase 6: Storage & Crypto Acceptance Gates ───");
@@ -1062,8 +1062,8 @@ pub fn run_storage_crypto_tests() {
     // ── Test 24: Hardware-Entropy Seeded CSPRNG & Key Management Service ──
     test_hardware_csprng_and_kms();
 
-    // ── Test 25: kvault Root Filesystem Mount via kblock & Bit-Flip Gate ─
-    test_kvault_root_mount_and_bitflip_tamper_gate();
+    // ── Test 25: Read-only check of an already-mounted root vault ─────────
+    test_kvault_root_mount_readonly();
 
     // ── Test 26: Anti-Forensic Screen Lock Memory Scrubbing & clflush ────
     test_screen_lock_memory_zeroization_clflush();
@@ -1071,9 +1071,6 @@ pub fn run_storage_crypto_tests() {
     // ── Test 27: TPM-Sealed Master Vault Key Bootstrapping & Fail-Closed ──
     test_tpm_sealed_master_vault_key_integration();
 
-    crate::status::update(|s| {
-        s.kvault_fs = crate::status::ComponentStatus::Real;
-    });
 }
 
 /// Test 24: Hardware-Entropy Seeded CSPRNG & Key Management Service (KMS)
@@ -1130,70 +1127,31 @@ fn test_hardware_csprng_and_kms() {
     kprintln!("[selftest] PASS: T24 CSPRNG and KMS derivation checks passed; hardware entropy and RDRAND/RDSEED are not verified by this test");
 }
 
-/// Test 25: kvault Root Filesystem Mount via kblock & Tamper-Evident Bit-Flip Gate
-/// Verifies:
-/// - kvault mounted as real root filesystem at `/` over `kblock`.
-/// - Reading baseline files (`/system/os-release`, `/etc/kashos.conf`).
-/// - Writing and reading an authenticated user file (`/personal/secret.txt`).
-/// - Injected Bit-Flip Detection: 1-byte tamper in physical storage block traps Poly1305 MAC failure
-///   and returns `VfsError::CorruptFilesystem`, rejecting corruption without silent execution.
+/// Test 25: read-only check of the persistent root vault.
+///
+/// Never formats or writes to the user's persistent disk from a boot self-test.
+/// Corruption and wrong-key behavior are covered against disposable in-memory
+/// devices by the kvault host tests.
 #[cfg(target_arch = "x86_64")]
-fn test_kvault_root_mount_and_bitflip_tamper_gate() {
+fn test_kvault_root_mount_readonly() {
     use crate::vfs;
 
-    // 1. Verify root filesystem is active (explicitly format if running acceptance test suite on pristine disk)
     if !vfs::is_root_mounted() {
-        if let Ok(master_key) = crate::kms::KMS.lock().get_master_key() {
-            let _ = vfs::format_root(master_key);
-        }
+        kprintln!("[selftest] SKIP: T25 root vault is not mounted; refusing to format or modify persistent storage");
+        return;
     }
-    check!(vfs::is_root_mounted());
 
-    // 2. Verify root directory contains baseline directories
+    // Check mount visibility and baseline reads without modifying user data.
     let root_dirs = vfs::list("/").expect("list root failed");
     check!(root_dirs.iter().any(|d| d == "system"));
     check!(root_dirs.iter().any(|d| d == "apps"));
     check!(root_dirs.iter().any(|d| d == "personal"));
     check!(root_dirs.iter().any(|d| d == "etc"));
 
-    // 3. Verify reading baseline OS files
     let os_release = vfs::read("/system/os-release").expect("read os-release failed");
     check!(os_release.starts_with(b"NAME=KashOS"));
 
-    let conf = vfs::read("/etc/kashos.conf").expect("read conf failed");
-    check!(conf.len() > 10);
-
-    // 4. Write an authenticated user file to /personal/secret.txt
-    let secret_payload = b"KashOS Authenticated Storage Verification Payload 2026";
-    vfs::write("/personal/secret.txt", secret_payload).expect("write secret.txt failed");
-
-    let read_back = vfs::read("/personal/secret.txt").expect("read secret.txt failed");
-    check!(read_back == secret_payload);
-
-    // ── 5. Tamper-Evident Bit-Flip Gate ──
-    // Determine the exact physical sector containing /personal/secret.txt's ciphertext
-    let (file_lba, _sectors) = vfs::file_lba_range("/personal/secret.txt")
-        .expect("query file lba range failed");
-
-    let mut sector = [0u8; 512];
-    crate::blockdev::read_sectors(file_lba, &mut sector).expect("read file sector failed");
-
-    // Invert byte 48 in the encrypted storage block to invalidate Poly1305 authentication tag
-    sector[48] ^= 0xFF;
-    crate::blockdev::write_sectors(file_lba, &sector).expect("write tampered sector failed");
-
-    // Attempt to read file: Poly1305 MAC verification MUST fail closed
-    let tamper_result = vfs::read("/personal/secret.txt");
-    check!(matches!(tamper_result, Err(vfs::VfsError::CorruptFilesystem)));
-
-    // Restore original sector to leave filesystem consistent
-    sector[48] ^= 0xFF;
-    crate::blockdev::write_sectors(file_lba, &sector).expect("restore sector failed");
-
-    let restored_read = vfs::read("/personal/secret.txt").expect("read after restore failed");
-    check!(restored_read == secret_payload);
-
-    kprintln!("[selftest] PASS: T25 VFS and vault integrity test data round-tripped; bit-flip test data was rejected by authentication checks");
+    kprintln!("[selftest] PASS: T25 mounted root vault baseline read succeeded; no persistent data was modified");
 }
 
 /// Test 26: Anti-Forensic Screen Lock Memory Zeroization & Cache Eviction

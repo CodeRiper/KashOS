@@ -5,7 +5,7 @@
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
 | A1 | Remove every fake network and Tor output | Ready for review | codex/a1-remove-fake-network-claims | docs/EVIDENCE/A1.md |
-| A2 | Stop the data-loss bug (vault open versus format) | Needs revalidation | main | docs/EVIDENCE/A2.md |
+| A2 | Stop the data-loss bug (vault open versus format) | Ready for review | codex/a1-remove-fake-network-claims | docs/EVIDENCE/A2.md |
 | A3 | Real key hierarchy: passphrase first, TPM second | Needs revalidation | main | docs/EVIDENCE/A3.md |
 | A4 | Real TPM 2.0 driver (TIS first, CRB second) | Needs revalidation | main | docs/EVIDENCE/A4.md |
 | A5 | Measured boot, sealing and anti-rollback | Needs revalidation | main | docs/EVIDENCE/A5.md |

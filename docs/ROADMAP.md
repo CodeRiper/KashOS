@@ -29,6 +29,28 @@ compatibility.
   it reached the shell and observed its configured markers. This does not
   verify security properties printed by model tests or hardware TPM/IOMMU behavior.
 
+## A2 storage safety audit
+
+- `mount_root` does not format automatically after an open failure.
+- The old T25 boot test still formatted an unmounted root volume, and it wrote
+  then raw-tampered a test file when a volume was mounted. This follow-up was
+  removed; the test is now read-only and skips an unavailable mount.
+- Mount no longer provisions missing folders or baseline files; the explicit
+  format path initializes those. The test disk SHA-256 stayed unchanged across
+  the final QEMU boot.
+- A CI regression guard and kvault in-memory wrong-password non-mutation test
+  cover these properties. See [`EVIDENCE/A2.md`](EVIDENCE/A2.md).
+
+### A3 re-audit finding
+
+The old A3 evidence is stale. `kms.rs` contains a public, fixed bootstrap
+passphrase, derives a predictable master key from a compiled-in salt, and uses
+an in-memory TPM handle that starts at zero on every boot. The passphrase
+unlock path does not establish a TPM-backed key hierarchy. Keep A3 marked
+Needs revalidation and do not describe this KMS as secure or production-ready
+until credential enrollment, persistent TPM provisioning, and migration are
+designed and tested.
+
 ## Next work, in order
 
 1. **Revalidate Part A evidence.** The legacy ledger marks A1-A21 complete, but

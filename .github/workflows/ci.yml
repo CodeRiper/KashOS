@@ -68,5 +68,8 @@ jobs:
       - name: Verify Remote Network Fails Closed Until Implemented
         run: python3 tools/test_network_fail_closed.py
 
+      - name: Verify Boot Storage Tests Are Non-Destructive
+        run: python3 tools/test_storage_non_destructive.py
+
 
 
