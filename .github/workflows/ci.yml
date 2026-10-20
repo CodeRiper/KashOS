@@ -80,6 +80,9 @@ jobs:
       - name: Verify Userland Claims Match Ring 0 Boot Paths
         run: python3 tools/test_userland_fail_closed.py
 
+      - name: Verify User Process Capabilities Fail Closed
+        run: python3 tools/test_process_authority_fail_closed.py
+
       - name: Verify UI Privacy and Network Claims
         run: python3 tools/test_ui_honesty.py
 

@@ -443,6 +443,12 @@ pub fn test_user_mode_execution_and_fault_containment() {
         Ok(p) => p,
         Err(e) => panic!("selftest: failed to spawn user-hello: {}", e),
     };
+    let process_slot = crate::process::process_slot_for_pid(pid1)
+        .expect("spawned process must resolve to its process-table slot");
+    check!(process_slot != (pid1 as usize % crate::process::MAX_PROCESSES));
+    check!(crate::process::PROCESS_CSPACES.lock()[process_slot]
+        .lookup(0, kcore::Rights::NONE)
+        .is_err());
 
     let mut spins = 0;
     let mut exited_cleanly = false;
