@@ -65,5 +65,8 @@ jobs:
       - name: Verify Ground Truth Findings (Master Plan Section 1)
         run: python3 tools/verify_findings.py
 
+      - name: Verify Remote Network Fails Closed Until Implemented
+        run: python3 tools/test_network_fail_closed.py
+
 
 

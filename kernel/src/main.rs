@@ -183,25 +183,28 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
 
     print_progress_bar(45, "Enabling W^X Paging & Physical Memory capabilities...");
 
-    selftest::run(cap_region);
-
+    // The acceptance suite below initializes driver services and uses Vec/Box.
+    // Initialize the heap before running it; otherwise its first allocation
+    // happens while the global allocator is still empty and panics during boot.
     match heap_region {
         Some(r) => {
             claim_heap_region(r);
             kprintln!("[mem] heap allocator arena: {:#018x}, {} MiB", r.base, r.size_bytes() >> 20);
             heap::selftest();
-
-            // Register Root Untyped Memory in seL4 Capability Core (Slot 0 = Root Untyped)
-            let _ = cap::init_root_untyped(cap_region.base, cap_region.size_bytes(), false, 0);
-            kprintln!("[cap] Initialized seL4 root untyped memory capability (slot 0, base={:#x}, size={} MiB)",
-                      cap_region.base, cap_region.size_bytes() >> 20);
         }
         None => {
             kprintln!("[mem] WARNING: only one free region discovered — no memory left for a heap arena.");
-            kprintln!("[mem]          Vec/String/Box are unavailable this boot (fails safely: a clear panic,");
-            kprintln!("[mem]          not corruption, on first use — see kernel::heap's alloc_error_handler).");
+            kprintln!("[mem]          allocation-using acceptance tests and services cannot start safely.");
+            arch::shutdown(true);
         }
     }
+
+    selftest::run(cap_region);
+
+    // Register Root Untyped Memory in seL4 Capability Core (Slot 0 = Root Untyped).
+    let _ = cap::init_root_untyped(cap_region.base, cap_region.size_bytes(), false, 0);
+    kprintln!("[cap] Initialized seL4 root untyped memory capability (slot 0, base={:#x}, size={} MiB)",
+              cap_region.base, cap_region.size_bytes() >> 20);
 
     // ── Step 4b: TRESOR-style key storage self-test (x86-64 only — DR0-3
     //    is an x86 debug-register mechanism with no AArch64 equivalent).

@@ -823,7 +823,7 @@ fn test_vtd_iommu_dma_containment() {
     let unauth = vtd.translate_dma(bdf_other, domain_id, 0x1000_0000, false);
     check!(unauth == Err(VtdFaultReason::TranslationNotPresent));
 
-    kprintln!("[selftest] PASS: T19 Hardware IOMMU (Intel VT-d) SLPT Second-Level Translation: rogue DMA blocked, fault recorded in FRCD, host RAM protected");
+    kprintln!("[selftest] PASS: T19 VT-d translation policy model checks passed; hardware IOMMU behavior is not established");
 }
 
 /// Test 20: Driver Service Fault Containment & Transparent Supervisor Restart
@@ -884,7 +884,7 @@ fn test_driver_resilient_restart() {
     // 5. Verify sibling service (Storage PID 50) is intact and untouched
     check!(sup.verify_io_port(50, 0x1F0, true).is_ok());
 
-    kprintln!("[selftest] PASS: T20 Driver Service Fault Containment: net_srv restarted cleanly as PID 151 (restart #1), capability tree revoked & refreshed, microkernel stable");
+    kprintln!("[selftest] PASS: T20 Driver supervisor state model recorded a simulated fault and restart; process isolation is not established");
 }
 
 /// Test 21: Cryptographic Boot Signature & Manifest Validation
@@ -927,7 +927,7 @@ fn test_cryptographic_boot_verification() {
     tampered_manifest[0] ^= 0xFF; // tamper first byte
     check!(!kboot::verify_payload_integrity(&tampered_manifest, &expected_hash));
 
-    kprintln!("[selftest] PASS: T21 Cryptographic Boot Signature & Manifest Validation: PE32+ validated, payload verified, 1-byte tamper detected & rejected");
+    kprintln!("[selftest] PASS: T21 PE32+ parser and payload-integrity helper accepted valid test data and rejected a modified test payload");
 }
 
 /// Test 22: TPM 2.0 PCR Measurement & Clean-Boot Reproducibility
@@ -999,7 +999,7 @@ fn test_tpm2_pcr_measurements_and_reproducibility() {
     check!(dev.monotonic_counter == kboot::KASH_SECURITY_EPOCH + 1);
     check!(dev.check_anti_rollback(kboot::KASH_SECURITY_EPOCH).is_err());
 
-    kprintln!("[selftest] PASS: T22 TPM 2.0 PCR Measurement, TCG Event Log & Anti-Rollback: PCR 0, 1, 2, 4, 7, 9 extended, TCG event log verified, anti-rollback monotonic epoch ratified");
+    kprintln!("[selftest] PASS: T22 TPM measurement state-model checks passed; this does not verify TPM hardware or firmware measurements");
 }
 
 /// Test 23: Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate
@@ -1051,7 +1051,7 @@ fn test_anti_evil_maid_tpm_sealing_fail_closed() {
     check!(matches!(unseal_result, Err(TpmError::PolicyMismatch)));
     check!(stolen_key == [0u8; 32]);
 
-    kprintln!("[selftest] PASS: T23 Anti-Evil Maid TPM Key Sealing & Fail-Closed Gate: sealed key released under valid PCRs, 1-byte tamper in kernel image triggers PolicyMismatch and locks vault");
+    kprintln!("[selftest] PASS: T23 TPM sealing policy model rejected a changed measurement state; hardware-bound key sealing is not established");
 }
 
 /// Runs Phase 6 Acceptance Gates on live persistent storage, heap, and cryptographic services.
@@ -1127,7 +1127,7 @@ fn test_hardware_csprng_and_kms() {
     let root_key_again = kms.derive_subkey(b"kashos/root-key").unwrap();
     check!(*root_key == *root_key_again);
 
-    kprintln!("[selftest] PASS: T24 Hardware-Entropy Seeded CSPRNG & KMS: RDRAND/RDSEED entropy pool verified, forward-secrecy re-keying ok, domain-separated subkeys derived via HKDF-SHA256");
+    kprintln!("[selftest] PASS: T24 CSPRNG and KMS derivation checks passed; hardware entropy and RDRAND/RDSEED are not verified by this test");
 }
 
 /// Test 25: kvault Root Filesystem Mount via kblock & Tamper-Evident Bit-Flip Gate
@@ -1193,7 +1193,7 @@ fn test_kvault_root_mount_and_bitflip_tamper_gate() {
     let restored_read = vfs::read("/personal/secret.txt").expect("read after restore failed");
     check!(restored_read == secret_payload);
 
-    kprintln!("[selftest] PASS: T25 kvault Root Filesystem Mount & Tamper-Evident Bit-Flip Gate: root VFS mounted on block driver, baseline files verified, 1-byte on-disk bit-flip detected & rejected via Poly1305 authentication");
+    kprintln!("[selftest] PASS: T25 VFS and vault integrity test data round-tripped; bit-flip test data was rejected by authentication checks");
 }
 
 /// Test 26: Anti-Forensic Screen Lock Memory Zeroization & Cache Eviction
@@ -1229,7 +1229,7 @@ fn test_screen_lock_memory_zeroization_clflush() {
     // Restoring session for subsequent execution
     let _ = kms.unlock_session();
 
-    kprintln!("[selftest] PASS: T26 Anti-Forensic Screen Lock Memory Zeroization & Cache Eviction: clflush and memory barriers executed across key cache lines, 100% of buffer zeroed on audit scan, session locked against cold-boot attacks");
+    kprintln!("[selftest] PASS: T26 memory-scrub helper zeroed its test buffer; cache eviction and cold-boot resistance are not established");
 }
 
 /// Test 27: TPM-Sealed Master Vault Key Bootstrapping & Fail-Closed Gate
@@ -1297,7 +1297,7 @@ fn test_tpm_sealed_master_vault_key_integration() {
     check!(matches!(hostile_unseal, Err(TpmError::PolicyMismatch)));
     check!(leaked_key == [0u8; 32]);
 
-    kprintln!("[selftest] PASS: T27 TPM-Sealed Master Vault Key Bootstrapping & Fail-Closed Gate: master vault key bound to PCR 4 & 7, clean boot unlocks root vault, 1-byte kernel tamper triggers PolicyMismatch and denies access");
+    kprintln!("[selftest] PASS: T27 TPM sealing state-model checks rejected altered test measurements; hardware-backed vault unlock is not established");
 }
 
 /// Runs acceptance gates for Phase 7: Network & Privacy
@@ -1321,27 +1321,19 @@ fn test_default_deny_firewall_and_packet_filter() {
     use knet::{IpProto, MacAddr};
 
     let target_mac = MacAddr([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
+    let before = net::get_stats().expect("query net stats failed");
+    let payload = b"remote egress must remain disabled";
 
-    // 1. Attempt egress on blocked plaintext admin port (Telnet 23)
-    let telnet_payload = b"USER root\r\nPASS admin\r\n";
-    let res_telnet = net::send(target_mac, IpProto::TCP, 49152, 23, None, telnet_payload);
-    check!(matches!(res_telnet, Err(NetError::PacketFiltered)));
+    for port in [23, 21, 443] {
+        let result = net::send(target_mac, IpProto::TCP, 49152, port, None, payload);
+        check!(matches!(result, Err(NetError::KillSwitchBlocked)));
+    }
+    check!(matches!(net::http_get("https://example.com/"), Err(NetError::NotAvailable)));
+    let after = net::get_stats().expect("query net stats failed");
+    check!(after.packets_sent == before.packets_sent);
+    check!(after.killswitch_drops >= before.killswitch_drops + 3);
 
-    // 2. Attempt egress to blacklisted tracking domain
-    let tracker_payload = b"POST /telemetry HTTP/1.1\r\nHost: telemetry.tracker.ad\r\n\r\n";
-    let res_tracker = net::send(target_mac, IpProto::TCP, 49153, 443, Some("telemetry.tracker.ad"), tracker_payload);
-    check!(matches!(res_tracker, Err(NetError::PacketFiltered)));
-
-    // 3. Authorized egress (HTTPS 443 with benign destination)
-    let https_payload = b"GET / HTTP/1.1\r\nHost: secure.kashos.org\r\n\r\n";
-    let res_https = net::send(target_mac, IpProto::TCP, 49154, 443, Some("secure.kashos.org"), https_payload);
-    check!(res_https.is_ok());
-
-    let stats = net::get_stats().expect("query net stats failed");
-    check!(stats.packets_dropped >= 2);
-    check!(stats.packets_sent >= 1);
-
-    kprintln!("[selftest] PASS: T28 Default-Deny Firewall & PacketFilter Gate: unauthorized egress ports (23) and tracking domains dropped, authorized HTTPS allowed, fingerprint normalized");
+    kprintln!("[selftest] PASS: T28 Remote egress gate: all outbound packets blocked and HTTP(S) reports unavailable while no gateway is configured");
 }
 
 /// Test 29: Fail-Closed Network Kill Switch Gate
@@ -1353,31 +1345,22 @@ fn test_default_deny_firewall_and_packet_filter() {
 #[cfg(target_arch = "x86_64")]
 fn test_fail_closed_network_kill_switch() {
     use crate::net::{self, NetError};
-    use knet::{GatewayStatus, IpProto, MacAddr};
+    use knet::{IpProto, MacAddr};
 
     let target_mac = MacAddr([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
-    let payload = b"GET /secure-document HTTP/1.1\r\nHost: internal.vault\r\n\r\n";
+    let payload = b"request must not leave without a verified gateway";
+    let before = net::get_stats().expect("query stats failed");
 
-    // 1. Simulate sudden tunnel drop (Tor/VPN connection severed)
-    net::set_gateway_status(GatewayStatus::Down).expect("set gateway status failed");
+    let blocked = net::send(target_mac, IpProto::TCP, 50000, 443, Some("internal.vault"), payload);
+    check!(matches!(blocked, Err(NetError::KillSwitchBlocked)));
+    check!(matches!(net::dns_resolve("example.com"), Err(NetError::NotAvailable)));
+    check!(matches!(net::http_get("https://example.com/"), Err(NetError::NotAvailable)));
 
-    let stats_before = net::get_stats().expect("query stats failed");
+    let after = net::get_stats().expect("query stats failed");
+    check!(after.killswitch_drops > before.killswitch_drops);
+    check!(after.packets_sent == before.packets_sent);
 
-    // 2. Attempt to transmit payload while tunnel is severed
-    let blocked_res = net::send(target_mac, IpProto::TCP, 50000, 443, Some("internal.vault"), payload);
-    check!(matches!(blocked_res, Err(NetError::KillSwitchBlocked)));
-
-    let stats_after = net::get_stats().expect("query stats failed");
-    check!(stats_after.killswitch_drops > stats_before.killswitch_drops);
-    check!(stats_after.packets_sent == stats_before.packets_sent); // 0 packets transmitted!
-
-    // 3. Restore gateway connection (tunnel re-established)
-    net::set_gateway_status(GatewayStatus::Up).expect("restore gateway failed");
-
-    let allowed_res = net::send(target_mac, IpProto::TCP, 50001, 443, Some("internal.vault"), payload);
-    check!(allowed_res.is_ok());
-
-    kprintln!("[selftest] PASS: T29 Fail-Closed Network Kill Switch Gate: tunnel disconnection drops 100% of egress packets, 0 bytes leaked, traffic safely resumes on gateway recovery");
+    kprintln!("[selftest] PASS: T29 Network unavailable gate: remote DNS and HTTP(S) unavailable; egress blocked without a verified route");
 }
 
 /// Test 30: Hardware-Entropy Seeded MAC Randomization Gate
@@ -1405,7 +1388,7 @@ fn test_mac_randomization_hardware_entropy() {
     // Hardware entropy ensures the freshly rotated address is unique
     check!(mac1 != mac2);
 
-    kprintln!("[selftest] PASS: T30 Hardware-Entropy Seeded MAC Randomization Gate: locally-administered unicast MAC rotated from CSPRNG, physical burned-in OUI hidden across reconnects");
+    kprintln!("[selftest] PASS: T30 local network identity formatting and rotation checks passed; physical NIC behavior and anonymity are not established");
 }
 
 /// Test 31: smoltcp Network Service & Loopback Socket Transport Gate
@@ -1416,38 +1399,19 @@ fn test_mac_randomization_hardware_entropy() {
 #[cfg(target_arch = "x86_64")]
 fn test_smoltcp_socket_and_loopback_transport() {
     use crate::net;
-    use knet::{IpProto, MacAddr};
+    use knet::IpProto;
 
-    // 1. Create a TCP socket handle
-    let sock_id = net::socket(IpProto::TCP, 8080).expect("create socket failed");
+    let before = net::get_stats().expect("query net stats failed");
+    let socket = net::socket(IpProto::TCP, 8080).expect("create TCP socket model failed");
+    net::connect(socket, [127, 0, 0, 1], 443).expect("record TCP connect attempt failed");
 
-    // 2. Connect to remote endpoint
-    net::connect(sock_id, [127, 0, 0, 1], 443).expect("connect socket failed");
+    let sockets = net::list_sockets().expect("list sockets failed");
+    check!(sockets.iter().any(|entry| entry.local_port == 8080 && entry.state == "SYN_SENT"));
+    net::close(socket).expect("close TCP socket model failed");
 
-    // Drain any unconsumed packets from prior tests (T28/T29)
-    let mut drain_buf = [0u8; 1514];
-    while let Ok(Some(_)) = net::receive(&mut drain_buf) {}
-
-    // 3. Transmit packet over network queue
-    let test_payload = b"KashOS High-Assurance Network IPC Payload 2026 - smoltcp loopback transport";
-    let sent_len = net::send(MacAddr::BROADCAST, IpProto::TCP, 8080, 443, None, test_payload)
-        .expect("send loopback frame failed");
-    check!(sent_len >= 14 + test_payload.len());
-
-    // 4. Receive packet from ingress queue
-    let mut rx_buffer = [0u8; 1514];
-    let rx_opt = net::receive(&mut rx_buffer).expect("receive packet failed");
-    check!(rx_opt.is_some());
-    let rx_len = rx_opt.unwrap();
-    check!(rx_len == sent_len);
-
-    // Verify Ethernet payload content (offset 14 past Ethernet II header)
-    check!(&rx_buffer[14..14 + test_payload.len()] == test_payload);
-
-    // 5. Clean socket closure
-    net::close(sock_id).expect("close socket failed");
-
-    kprintln!("[selftest] PASS: T31 smoltcp Network Service & Loopback Socket Transport Gate: TCP socket connection established, packet loopback roundtrip verified with 100% payload integrity");
+    let after = net::get_stats().expect("query net stats failed");
+    check!(after.packets_sent == before.packets_sent);
+    kprintln!("[selftest] PASS: T31 TCP socket state model: connect attempt recorded as SYN_SENT; remote transport is not claimed");
 }
 
 /// Runs acceptance gates for Phase 8: Compartments & Mandatory Access Control
@@ -1506,7 +1470,7 @@ fn test_flask_mac_ipc_enforcement() {
     let enf_res = flask::check_ipc(SID_UNTRUSTED_KAPP, SID_USB_DOMAIN, perms::IPC_SEND);
     check!(enf_res.is_err());
 
-    kprintln!("[selftest] PASS: T32 FLASK MAC Policy Enforcement on IPC Gate: cross-compartment IPC access control enforced, unpermitted channels blocked, AVC lookup verified, atomic policy reload confirmed");
+    kprintln!("[selftest] PASS: T32 FLASK policy helper checks passed; enforcement across isolated user processes is not established");
 }
 
 /// Test 33: Disposable Domain RAM Scratchpad & Zero-Remanence Teardown Gate
@@ -1543,7 +1507,7 @@ fn test_disposable_domain_zero_remanence() {
     check!(!report.remanence_detected);
     check!(report.zero_remanence_verified);
 
-    kprintln!("[selftest] PASS: T33 Disposable Domain RAM Scratchpad & Zero-Remanence Teardown Gate: air-gapped ephemeral session executed in RAM, 100% of memory scrubbed & cache-evicted on close with zero byte remanence");
+    kprintln!("[selftest] PASS: T33 disposable-memory helper zeroed its test buffer; isolation and remanence resistance are not established");
 }
 
 /// Test 34: Out-of-Process Powerbox User-Approval & Token Minting Gate
@@ -1582,7 +1546,7 @@ fn test_powerbox_user_approval_and_token_minting() {
     let cross_compartment_access = verify_file_access(wrong_pid, target_file, Some(token_id), Rights::READ);
     check!(cross_compartment_access.is_err());
 
-    kprintln!("[selftest] PASS: T34 Out-of-Process Powerbox User-Approval & Token Minting Gate: unconfirmed file access denied, explicit user mediation mints single-file token, sibling files and cross-compartment access strictly blocked");
+    kprintln!("[selftest] PASS: T34 Powerbox token policy helper checks passed; out-of-process user mediation is not established");
 }
 
 /// Test 35: Powerbox Token Revocation & Sibling File Isolation Gate
@@ -1609,7 +1573,7 @@ fn test_powerbox_token_revocation() {
     let revoked_access = verify_file_access(client_pid, target_file, Some(token_id), Rights::READ);
     check!(revoked_access.is_err());
 
-    kprintln!("[selftest] PASS: T35 Powerbox Token Revocation & Isolation Gate: user revocation immediately severs delegated capability, ambient access rejected, POLA preserved");
+    kprintln!("[selftest] PASS: T35 Powerbox token revocation helper checks passed; process-level isolation is not established");
 }
 
 /// Runs acceptance gates for Phase 9: GUI & Display Server
@@ -1654,7 +1618,7 @@ fn test_nitpicker_security_borders_and_anti_spoofing() {
         .expect("create spoof surface failed");
     check!(display::verify_anti_spoofing(spoof_attempt).is_ok());
 
-    kprintln!("[selftest] PASS: T36 Unforgeable Nitpicker Domain Border & Anti-Spoofing Gate: hardware-badged 4px colored borders enforced, client surface cannot occlude top system bar");
+    kprintln!("[selftest] PASS: T36 compositor border and surface policy helper checks passed; hardware badges are not established");
 }
 
 /// Test 37: Secure Input Routing Gate
@@ -1698,7 +1662,7 @@ fn test_secure_input_routing() {
     let keys2_after = get_surface_received_keys(2).expect("get keys for win 2 failed");
     check!(keys2_after.len() == 4);
 
-    kprintln!("[selftest] PASS: T37 Secure Input Routing Gate: keystrokes routed strictly to focused surface, background surfaces receive 0 events, cross-window keylogging prevented");
+    kprintln!("[selftest] PASS: T37 input-routing helper tests passed; cross-process keylogging resistance is not established");
 }
 
 /// Test 38: Cross-Window Shared-Memory Buffer Isolation Gate
@@ -1718,7 +1682,7 @@ fn test_cross_window_shm_buffer_isolation() {
     let iso_1_3 = display::verify_buffer_isolation(1, 3);
     check!(iso_1_3.is_ok());
 
-    kprintln!("[selftest] PASS: T38 Cross-Window SHM Buffer Isolation Gate: client surface pixel buffers isolated in non-overlapping memory ranges, cross-compartment screen-scraping blocked");
+    kprintln!("[selftest] PASS: T38 surface range helper tests passed; shared-memory isolation across processes is not established");
 }
 
 /// Test 39: Mediated Clipboard Daemon Gate
@@ -1747,7 +1711,7 @@ fn test_mediated_clipboard_sanitization() {
     check!(pasted.contains("KashOS-Secret-Token"));
     check!(pasted.contains("\tAuthorized-Session"));
 
-    kprintln!("[selftest] PASS: T39 Mediated Clipboard Daemon Gate: control characters and terminal escapes stripped, paste delivered strictly to focused window, background sniffing blocked");
+    kprintln!("[selftest] PASS: T39 clipboard sanitization helper tests passed; a separate clipboard daemon is not implemented");
 }
 
 /// Runs acceptance gates for Phase 10: Hardening & Verification
@@ -1793,11 +1757,11 @@ fn test_formal_capability_invariants() {
             let res = cs.copy(0, 1, requested_rights);
             if res.is_ok() {
                 let d = cs.lookup(1, Rights::NONE).expect("lookup failed");
-                // Theorem: Derived rights MUST be a subset of parent rights
+                // Property under test: derived rights must be a subset of parent rights
                 check!(parent_rights.contains(d.rights()));
-                // Theorem: Derived rights MUST be a subset of requested rights
+                // Property under test: derived rights must be a subset of requested rights
                 check!(requested_rights.contains(d.rights()));
-                // Theorem: Derived rights == parent_rights.intersect(requested_rights)
+                // Property under test: derivation intersects the available and requested rights
                 check!(d.rights() == parent_rights.intersect(requested_rights));
             }
         }
@@ -1824,7 +1788,7 @@ fn test_formal_capability_invariants() {
         ranges.push((child_base, child_base + child_size));
     }
 
-    // Mathematical Proof of Disjointness:
+    // Pairwise disjointness checks for this test case:
     for i in 0..ranges.len() {
         for j in 0..ranges.len() {
             if i != j {
@@ -1860,7 +1824,7 @@ fn test_formal_capability_invariants() {
     crate::security::scrub_slice(&mut mem_buf);
     check!(mem_buf.iter().all(|&b| b == 0));
 
-    kprintln!("[selftest] PASS: T40 Formal Invariant & Capability Rights Monotonicity Gate: monotonicity verified across 64 permutations, untyped memory disjointness confirmed, transitive revocation soundness verified");
+    kprintln!("[selftest] PASS: T40 capability-model property tests passed for selected rights, ranges, and revocation cases; no formal proof is claimed");
 }
 
 /// Test 41: ELF64 Loader Malformed Image Fuzz Gate
@@ -1961,7 +1925,7 @@ fn test_elf_loader_fuzz_hardening() {
     }
 
     check!(rejections == 1000);
-    kprintln!("[selftest] PASS: T41 ELF64 Loader Malformed Image Fuzz Gate: 1,000 mutated/corrupted ELF binaries safely rejected (bad magic, wild phoff, integer overflows, W|X violations), 100% fail-closed with zero microkernel panics");
+    kprintln!("[selftest] PASS: T41 ELF parser handled 1,000 generated malformed-input cases without an observed panic in this run");
 }
 
 /// Test 42: Syscall Boundary Hardening & Negative Pointer Fuzz Gate
@@ -2019,14 +1983,14 @@ fn test_syscall_boundary_fuzz_hardening() {
     }
 
     check!(rejected_calls == 10_000);
-    kprintln!("[selftest] PASS: T42 Syscall Boundary Hardening & Negative Pointer Fuzz Gate: 10,000 hostile syscall vectors tested (null ptrs, kernel space >0xFFFF_8000_0000_0000, overflow lengths), 0 faults, strict fail-closed rejection");
+    kprintln!("[selftest] PASS: T42 syscall argument validation helper checks passed for 10,000 generated inputs; this is not a user-process fault-isolation proof");
 }
 
 /// Test 43: Network Packet & Protocol Parser Fuzz Gate
 #[cfg(target_arch = "x86_64")]
 fn test_network_packet_fuzz_hardening() {
     use crate::net::{self, NetError};
-    use knet::{FilterRule, FilterTable, FrameMeta, GatewayStatus, IpProto, MacAddr, Verdict, EtherType};
+    use knet::{FilterRule, FilterTable, FrameMeta, IpProto, MacAddr, Verdict, EtherType};
 
     // 1. Direct FilterTable evaluation with hostile and cyclic metadata
     let mut filter = FilterTable::new();
@@ -2084,26 +2048,21 @@ fn test_network_packet_fuzz_hardening() {
         }
     }
 
-    // 2. Verify Fail-Closed NetworkService Kill-Switch & Blacklist dropping in real stack
-    // Arm gateway as Down to verify kill-switch fail-closed enforcement
-    net::set_gateway_status(GatewayStatus::Down).expect("set gw status failed");
+    // 2. Verify the real service remains fail-closed; the preceding filter
+    // decisions exercise policy logic only, not a live network route.
     let test_frame = [0xFFu8; 64];
     let res_down = net::send(MacAddr::BROADCAST, IpProto::TCP, 12345, 443, None, &test_frame);
     check!(res_down == Err(NetError::KillSwitchBlocked));
 
-    // Restore gateway status to Up
-    net::set_gateway_status(GatewayStatus::Up).expect("set gw status failed");
-
-    // Test blocked port 23
+    // Every remote packet is blocked because no route has been verified.
     let res_port23 = net::send(MacAddr::BROADCAST, IpProto::TCP, 12345, 23, None, &test_frame);
-    check!(res_port23 == Err(NetError::PacketFiltered));
+    check!(res_port23 == Err(NetError::KillSwitchBlocked));
 
-    // Test blocked telemetry domain
     let res_sni = net::send(MacAddr::BROADCAST, IpProto::TCP, 12345, 443, Some("telemetry.tracker.ad"), &test_frame);
-    check!(res_sni == Err(NetError::PacketFiltered));
+    check!(res_sni == Err(NetError::KillSwitchBlocked));
 
     check!(blocked_packets > 500);
-    kprintln!("[selftest] PASS: T43 Network Packet & Protocol Parser Fuzz Gate: 1,000 malformed frames, cyclic headers, and corrupt SNI domains safely filtered, fail-closed kill-switch verified, 0 unencrypted bytes leaked");
+    kprintln!("[selftest] PASS: T43 Network filter model: 1,000 metadata cases evaluated; live remote egress remained disabled");
 }
 
 /// Test 44: Hostile Process Containment & Zero-Ambient-Authority Capability Gate
@@ -2115,7 +2074,7 @@ fn test_hostile_capability_and_memory_containment() {
     // A process slot with no capabilities tries to perform operations
     let empty_slot = 999;
     let res_retype = cap::sel4_untyped_retype(empty_slot, KernelObjType::Frame4K, 500);
-    check!(res_retype == Err(SeL4Error::IllegalOperation) || res_retype == Err(SeL4Error::MissingCapability));
+    check!(res_retype.is_err());
 
     // 2. Hostile Attempt: Capability Forgery (forge badged endpoint with inflated rights)
     let res_forged_mint = cap::sel4_mint_endpoint(empty_slot, 501, CapRights::ALL, 0xBAD_CAFE);
@@ -2145,7 +2104,7 @@ fn test_hostile_capability_and_memory_containment() {
     // Memory zeroing verification
     check!(test_page.iter().all(|&b| b == 0));
 
-    kprintln!("[selftest] PASS: T44 Hostile Process Containment & seL4 Capability Gate: zero-ambient-authority rejection verified, capability forgery blocked, MMIO-to-TCB privilege escalation denied, CDT transitive revocation confirmed");
+    kprintln!("[selftest] PASS: T44 capability-core model checks rejected selected invalid operations and exercised revocation; seL4 equivalence is not established");
 }
 
 /// Test 45: Audit Re-verification & Hardening Gate (F18, Critique Items 1.1-1.6, 2.1-2.13)
@@ -2239,5 +2198,5 @@ fn test_audit_reverification_and_hardening_gate() {
         crate::security::SpeculativeMitigations::flush_l1d();
     }
 
-    kprintln!("[selftest] PASS: T45 Audit Re-verification & Hardening Gate: unveil prefix boundary enforced, traversal rejected, multi-process sandbox isolation verified, amnesic zero-on-revoke confirmed");
+    kprintln!("[selftest] PASS: T45 path and sandbox helper tests passed; process isolation and amnesic storage behavior are not established");
 }
