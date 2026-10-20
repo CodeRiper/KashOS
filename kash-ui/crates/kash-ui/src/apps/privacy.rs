@@ -142,8 +142,8 @@ impl Privacy {
         cx.cv.fill_rrect(sr, 15.0, Paint::VGrad { y0: sr.y, y1: sr.bottom(), c0: Color::hex(0x5AC8FA), c1: Color::hex(0x0A6CFF) });
         draw_icon(cx.cv, Icon::Shield, sr.inset(13.0), Color::WHITE);
         let lc = cx.th.label(); let l2 = cx.th.label2();
-        cx.text(r.x + 90.0, r.y + 40.0, if lock { "Lockdown Mode is on" } else { "Your privacy is protected" }, 16.0, Weight::Bold, lc);
-        cx.text(r.x + 90.0, r.y + 60.0, &format!("{} apps · {} command-line tools · {} drivers", na, nc, nd), 12.0, Weight::Regular, l2);
+        cx.text(r.x + 90.0, r.y + 40.0, if lock { "Demo lockdown model is on" } else { "Demo privacy controls" }, 16.0, Weight::Bold, lc);
+        cx.text(r.x + 90.0, r.y + 60.0, &format!("{} built-in UI demos · {} CLI tools · {} driver records", na, nc, nd), 12.0, Weight::Regular, l2);
         let cols = [("Allowed", a, PS_COL[0]), ("Asking", k, PS_COL[1]), ("Denied", d, PS_COL[2])];
         for (i, (l, n, c)) in cols.iter().enumerate() {
             let x = r.x + 18.0 + i as f32 * (r.w - 36.0) / 3.0;
@@ -154,7 +154,7 @@ impl Privacy {
         }
         f.y += 124.0 + 18.0;
 
-        cx.heading(f, "Applications & Drivers");
+        cx.heading(f, "Built-in UI demos");
         let mut g = cx.group_begin(f, 3, 52.0);
         for c in AppClass::ALL {
             let n = cx.sys.reg.of_class(c).len();
@@ -162,7 +162,7 @@ impl Privacy {
             let v = format!("{} · {} asking · {} denied", if n == 1 { String::from("1 item") } else { format!("{} items", n) }, ask, deny);
             if nav_row(cx, &mut g, c.plural(), c.icon(), c.color(), c.plural(), &v) { self.push(Page::Class(c)); }
         }
-        cx.caption(f, "Graphical apps live in /Applications, command-line tools in /CLI Applications and kernel drivers in /Drivers — the same folders you see in Files.");
+        cx.caption(f, "This build has no package manager, signature verifier, CLI inventory, or live driver inventory. Permission values below are a UI demo model and are not enforced by the kernel or a process sandbox.");
 
         for (sec, lo, hi) in SECTIONS.iter() {
             cx.heading(f, sec);
@@ -252,19 +252,31 @@ impl Privacy {
         if let Some(s) = bulk_row(cx, &mut g, "cbulk", "Set every permission to") { cx.sys.reg.set_class_all(c, s, now); }
         cx.heading(f, c.plural());
         let list = cx.sys.reg.of_class(c);
+        if list.is_empty() {
+            cx.heading(f, "Inventory unavailable");
+            cx.caption(f, match c {
+                AppClass::Gui => "No built-in UI demos are registered.",
+                AppClass::Cli => "A live command-line package inventory is not implemented in this build.",
+                AppClass::Driver => "A live kernel driver inventory is not connected to Settings in this build.",
+            });
+            return;
+        }
         let mut g = cx.group_begin(f, list.len(), 56.0);
         for i in list {
             let r = cx.group_row(&mut g);
-            let (name, ok_sig, publ, ver) = { let a = &cx.sys.reg.apps[i]; (a.name.clone(), a.signed, a.publisher, a.version) };
+            let (name, ver) = { let a = &cx.sys.reg.apps[i]; (a.name.clone(), a.version) };
             let (aa, kk, dd) = cx.sys.reg.apps[i].counts();
             let h = cx.hit(id_of(&format!("cl{}", i)) ^ 0x4, r);
             let hv = cx.anim(id2(id_of(&format!("cl{}", i)), 0x5), if h.hovered { 1.0 } else { 0.0 });
             if hv > 0.01 { let hf = cx.th.hover_fill().fade(hv); cx.cv.fill_rrect(r.inset(1.0), 10.0, hf); }
             entry_icon(cx, i, Rect::new(r.x + 12.0, r.cy() - 16.0, 32.0, 32.0));
             cx.text(r.x + 54.0, r.cy() - 2.0, &name, 13.5, Weight::Regular, lc);
-            let sub = format!("{} · v{}", publ, ver);
+            let sub = format!("Built-in UI demo · {}", ver);
             cx.text(r.x + 54.0, r.cy() + 13.0, &sub, 11.5, Weight::Regular, l2);
-            if !ok_sig { let w = cx.measure("Unsigned", 11.0, Weight::Semibold) + 14.0; let br = Rect::new(r.x + r.w * 0.55 - w, r.cy() - 9.0, w, 18.0); cx.cv.fill_rrect(br, 9.0, Color::hex(0xFF9F0A).fade(0.2)); cx.text_in(br, "Unsigned", 11.0, Weight::Semibold, Color::hex(0xFF9F0A), Align::Center); }
+            let w = cx.measure("Unverified", 11.0, Weight::Semibold) + 14.0;
+            let br = Rect::new(r.x + r.w * 0.55 - w, r.cy() - 9.0, w, 18.0);
+            cx.cv.fill_rrect(br, 9.0, Color::hex(0xFF9F0A).fade(0.2));
+            cx.text_in(br, "Unverified", 11.0, Weight::Semibold, Color::hex(0xFF9F0A), Align::Center);
             let mut x = r.right() - 34.0;
             for (n, col) in [(dd, PS_COL[2]), (kk, PS_COL[1]), (aa, PS_COL[0])].iter() {
                 if *n == 0 { continue; }
@@ -294,17 +306,18 @@ impl Privacy {
         cx.text(hr.x + 108.0, hr.y + 40.0, &name, 19.0, Weight::Bold, lc);
         cx.text(hr.x + 108.0, hr.y + 60.0, &format!("{} · Version {} · {}", class.singular(), ver, publ), 12.0, Weight::Regular, l2);
         cx.text(hr.x + 108.0, hr.y + 78.0, &path, 11.5, Weight::Regular, l2);
-        let (lab, col) = if signed { (if system { "Signed · KashOS system" } else { "Signed developer" }, 0x30D158u32) } else { ("Unsigned", 0xFF9F0A) };
+        let _ = (signed, system);
+        let (lab, col) = ("Signature unavailable", 0xFF9F0A);
         let cw = cx.measure(lab, 11.0, Weight::Semibold) + 24.0;
         let chip = Rect::new(hr.x + 108.0, hr.y + 90.0, cw, 20.0);
         cx.cv.fill_rrect(chip, 10.0, Color::hex(col).fade(0.18));
-        draw_icon(cx.cv, if signed { Icon::Check } else { Icon::Info }, Rect::new(chip.x + 6.0, chip.cy() - 6.0, 12.0, 12.0), Color::hex(col));
+        draw_icon(cx.cv, Icon::Info, Rect::new(chip.x + 6.0, chip.cy() - 6.0, 12.0, 12.0), Color::hex(col));
         cx.text(chip.x + 21.0, chip.cy() + 4.0, lab, 11.0, Weight::Semibold, Color::hex(col));
         cx.text_in(Rect::new(hr.right() - 200.0, hr.y + 16.0, 184.0, 18.0), &format!("{} · {}", fmt_sz(size), date), 11.5, Weight::Regular, l2, Align::Right);
         f.y += 132.0 + 14.0;
         cx.caption(f, blurb);
         if blocked {
-            let msg = if class == AppClass::Driver { "Blocked: this driver is unsigned and your driver policy only loads signed drivers. All access is denied." } else { "Blocked: this item is unsigned and your policy only runs signed software. All access is denied." };
+            let msg = "This entry is blocked by the demo catalog policy only; process launch and runtime access are not enforced by this UI.";
             let lines = cx.fonts.wrap(msg, 12.0, Weight::Regular, f.w - 60.0);
             let h = 24.0 + lines.len() as f32 * 16.0;
             let br = Rect::new(f.x, f.y, f.w, h);
@@ -350,31 +363,25 @@ impl Privacy {
     fn security(&mut self, cx: &mut Ctx, f: &mut Form) {
         let now = cx.sys.unix_secs;
         let lc = cx.th.label(); let l2 = cx.th.label2();
-        cx.heading(f, "Allow applications from");
+        cx.heading(f, "Demo application policy");
         let mut g = cx.group_begin(f, 1, 56.0);
         let r = cx.group_row(&mut g);
         cx.text(r.x + 14.0, r.cy() + 4.7, "Applications & tools", 13.5, Weight::Regular, lc);
         let mut sel = cx.sys.reg.app_policy;
-        if cx.segmented("pol_app", Rect::new(r.right() - 14.0 - 290.0, r.cy() - 14.0, 290.0, 28.0), &["KashOS only", "Identified", "Anywhere"], &mut sel) { cx.sys.reg.app_policy = sel; cx.sys.reg.rev += 1; cx.cmds.push(Cmd::Toast(String::from("Application policy updated"))); }
-        cx.caption(f, match cx.sys.reg.app_policy { 0 => "Only software signed by KashOS can run.", 1 => "Software signed by an identified developer can run. Unsigned software is blocked.", _ => "Any software can run, including unsigned code. Not recommended." });
-        cx.heading(f, "Allow drivers from");
+        if cx.segmented("pol_app", Rect::new(r.right() - 14.0 - 290.0, r.cy() - 14.0, 290.0, 28.0), &["Demo A", "Demo B", "Demo C"], &mut sel) { cx.sys.reg.app_policy = sel; cx.sys.reg.rev += 1; cx.cmds.push(Cmd::Toast(String::from("Demo catalog policy updated; no execution policy is connected"))); }
+        cx.caption(f, "This control changes prototype UI state only. Package signatures are not verified and launches are not gated by this setting.");
+        cx.heading(f, "Demo driver policy");
         let mut g = cx.group_begin(f, 1, 56.0);
         let r = cx.group_row(&mut g);
         cx.text(r.x + 14.0, r.cy() + 4.7, "Kernel drivers", 13.5, Weight::Regular, lc);
         let mut sel = cx.sys.reg.driver_policy;
-        if cx.segmented("pol_drv", Rect::new(r.right() - 14.0 - 290.0, r.cy() - 14.0, 290.0, 28.0), &["KashOS only", "Identified", "Anywhere"], &mut sel) { cx.sys.reg.driver_policy = sel; cx.sys.reg.rev += 1; cx.cmds.push(Cmd::Toast(String::from("Driver policy updated"))); }
-        cx.caption(f, "Drivers run with kernel-adjacent privileges. Each one only holds the capabilities listed in Privacy & Security → Drivers.");
-        cx.heading(f, "Accessories");
-        let mut g = cx.group_begin(f, 1, 56.0);
-        let r = cx.group_row(&mut g);
-        cx.text(r.x + 14.0, r.cy() + 4.7, "Allow accessories to connect", 13.5, Weight::Regular, lc);
-        let mut sel = cx.sys.reg.accessories;
-        if cx.segmented("pol_acc", Rect::new(r.right() - 14.0 - 290.0, r.cy() - 14.0, 290.0, 28.0), &["Ask each time", "When unlocked", "Always"], &mut sel) { cx.sys.reg.accessories = sel; cx.sys.reg.rev += 1; }
-        cx.heading(f, "Lockdown Mode");
+        if cx.segmented("pol_drv", Rect::new(r.right() - 14.0 - 290.0, r.cy() - 14.0, 290.0, 28.0), &["Demo A", "Demo B", "Demo C"], &mut sel) { cx.sys.reg.driver_policy = sel; cx.sys.reg.rev += 1; cx.cmds.push(Cmd::Toast(String::from("Demo driver policy updated; no driver service is connected"))); }
+        cx.caption(f, "No live driver inventory or driver policy service is connected in this build.");
+        cx.heading(f, "Lockdown demo");
         let mut g = cx.group_begin(f, 1, 60.0);
         let mut on = cx.sys.reg.lockdown;
-        if cx.row_toggle(&mut g, "lockdown", "Lockdown Mode", "Deny every prompt automatically · block unsigned code", &mut on) { cx.sys.reg.lockdown = on; cx.sys.reg.rev += 1; cx.cmds.push(Cmd::Toast(String::from(if on { "Lockdown Mode on" } else { "Lockdown Mode off" }))); }
-        cx.caption(f, "This policy affects the UI app catalog only. It is not enforced by kernel capabilities or a process sandbox.");
+        if cx.row_toggle(&mut g, "lockdown", "Lockdown demo", "Change how Ask values appear in this catalog", &mut on) { cx.sys.reg.lockdown = on; cx.sys.reg.rev += 1; cx.cmds.push(Cmd::Toast(String::from(if on { "Demo lockdown on" } else { "Demo lockdown off" }))); }
+        cx.caption(f, "All values on this page are local prototype state. They do not control kernel capabilities, devices, app launches, or a process sandbox.");
 
         cx.heading(f, "Security mechanisms");
         let mut g = cx.group_begin(f, 4, 44.0);
@@ -422,4 +429,4 @@ impl Privacy {
     }
 }
 
-fn fmt_sz(b: u64) -> String { if b < 1_000_000 { format!("{} KB", b / 1000) } else { format!("{:.1} MB", b as f32 / 1e6) } }
+fn fmt_sz(b: u64) -> String { if b == 0 { String::from("Unavailable") } else if b < 1_000_000 { format!("{} KB", b / 1000) } else { format!("{:.1} MB", b as f32 / 1e6) } }

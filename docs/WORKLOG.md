@@ -62,6 +62,13 @@
   says that no network transport is connected. A dedicated UI honesty guard
   covers these claims. App package metadata and actual permission enforcement
   remain unaudited.
+- Follow-up A18 audit removed fictional installed CLI/driver records, fake
+  package versions/sizes/dates/signatures and seeded downloads from the
+  Settings registry; removed fabricated loaded-driver files; and labeled the
+  remaining compiled-in apps and permission settings as unverified UI demos.
+  The UI suite passed, as did 13 UI honesty checks, 24 network checks, and the
+  claims linter. This does not add package inventory, signature checks, or
+  kernel-enforced permission policy.
 
 ## Verification
 
@@ -102,6 +109,9 @@ Run [`39404242220`](https://github.com/CodeRiper/KashOS/actions/runs/39404242220
 for commit `8c688f78ce009058f7edfcc6510279949dc51c10` also completed
 successfully with all three jobs passing. It predates the current additional
 UI-claim fixes and their new CI guard.
+Run [`39404490122`](https://github.com/CodeRiper/KashOS/actions/runs/39404490122)
+for commit `6d9e09c4ec364461fa73960b58c8a8a1774db59b` completed successfully
+with all three jobs passing. It predates the current app-catalog follow-up.
 
 ## Next task
 

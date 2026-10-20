@@ -118,7 +118,7 @@ pub struct Download { pub name: String, pub kind: FileKind, pub size: u64, pub d
 #[derive(Clone, Debug)]
 pub struct Registry {
     pub apps: Vec<AppEntry>,
-    /// 0 = KashOS-signed only · 1 = identified developers · 2 = anywhere
+    /// Prototype-only policy values. They are not used to authorize execution.
     pub app_policy: usize,
     pub driver_policy: usize,
     pub accessories: usize,
@@ -140,43 +140,21 @@ fn e(name: &str, class: AppClass, kind: Option<AppKind>, version: &'static str, 
 impl Registry {
     pub fn new() -> Registry {
         use AppClass::*; use Perm::*; use PS::*;
-        let ks = "KashOS";
         let apps = alloc::vec![
-            e("Files", Gui, Some(AppKind::Files), "27.0", 18_400_000, ks, true, true, "Oct 9", "Browse and organise files", &[(Files, Allow), (FullDisk, Ask), (AppMgmt, Ask), (Usb, Allow)]),
-            e("System Settings", Gui, Some(AppKind::Settings), "27.0", 42_100_000, ks, true, true, "Oct 9", "Configure KashOS", &[(AppMgmt, Allow), (Accessibility, Allow), (Location, Allow), (Bluetooth, Allow), (Network, Allow), (Usb, Allow), (FullDisk, Allow)]),
-            e("Terminal", Gui, Some(AppKind::Terminal), "27.0", 9_800_000, ks, true, true, "Oct 9", "Command line for the KashOS kernel", &[(FullDisk, Ask), (Files, Allow), (Network, Allow), (Automation, Ask), (Accessibility, Ask), (AppMgmt, Deny), (Spawn, Allow)]),
-            e("Browser (demo)", Gui, Some(AppKind::Browser), "0.1.0", 180_000, "KashOS", true, true, "Oct 18", "Native Lightweight Web Browser (Demo)", &[(Camera, Deny), (Microphone, Deny), (Location, Deny), (Network, Deny), (LocalNet, Deny), (Notifications, Deny), (Files, Deny), (Screen, Deny), (Keys, Deny)]),
-            e("Notes", Gui, Some(AppKind::Notes), "27.0", 14_200_000, ks, true, true, "Oct 9", "Quick notes", &[(Files, Allow), (Photos, Ask), (Notifications, Allow)]),
-            e("Photos", Gui, Some(AppKind::Photos), "27.0", 61_000_000, ks, true, true, "Oct 9", "Your photo library", &[(Photos, Allow), (Camera, Ask), (Location, Ask), (Files, Allow), (Network, Allow)]),
-            e("Music", Gui, Some(AppKind::Music), "27.0", 54_000_000, ks, true, true, "Oct 9", "Play your music", &[(Microphone, Ask), (Network, Allow), (Bluetooth, Allow), (Notifications, Allow), (Files, Allow)]),
-            e("Messages", Gui, Some(AppKind::Messages), "27.0", 22_000_000, ks, true, true, "Oct 9", "Messaging demo; no network transport is connected", &[(Contacts, Allow), (Notifications, Allow), (Camera, Ask), (Microphone, Ask), (Network, Allow), (Photos, Ask), (Location, Ask)]),
-            e("Activity Monitor", Gui, Some(AppKind::ActivityMonitor), "27.0", 11_600_000, ks, true, true, "Oct 12", "Processes, memory and capabilities", &[(Accessibility, Allow), (AppMgmt, Allow), (FullDisk, Ask), (Network, Allow)]),
-            e("Calculator", Gui, Some(AppKind::Calculator), "27.0", 3_900_000, ks, true, true, "Oct 12", "Everyday maths", &[]),
-            // ── CLI tools ──
-            e("ssh", Cli, None, "9.8", 2_400_000, "KashOS", true, true, "Oct 3", "Secure shell client", &[(Network, Allow), (Files, Ask), (Keys, Ask), (Spawn, Allow)]),
-            e("curl", Cli, None, "8.9", 1_100_000, "KashOS", true, true, "Oct 3", "Transfer data over URLs", &[(Network, Allow), (Files, Allow)]),
-            e("nmap", Cli, None, "7.95", 6_300_000, "Nmap Project", true, false, "Sep 28", "Network discovery and security scanner", &[(Network, Allow), (RawSocket, Ask), (LocalNet, Ask), (Admin, Deny)]),
-            e("tcpdump", Cli, None, "4.99", 1_700_000, "The Tcpdump Group", true, false, "Sep 28", "Packet analyzer", &[(RawSocket, Ask), (Admin, Ask), (Files, Ask)]),
-            e("kvault", Cli, None, "0.2", 2_900_000, ks, true, true, "Oct 8", "Encrypted vault client", &[(FullDisk, Allow), (Files, Allow), (Keys, Allow), (Admin, Ask)]),
-            e("git", Cli, None, "2.46", 4_800_000, "Git Project", true, false, "Sep 20", "Distributed version control", &[(Network, Allow), (Files, Allow), (Spawn, Allow)]),
-            e("cargo", Cli, None, "1.90", 38_000_000, "Rust Foundation", true, false, "Sep 20", "Rust package manager and build tool", &[(Files, Allow), (Network, Ask), (Spawn, Allow)]),
-            e("kash-ctl", Cli, None, "0.2", 3_200_000, ks, true, true, "Oct 8", "Control the KashOS kernel services", &[(Admin, Allow), (Spawn, Allow), (KernelMem, Deny), (Network, Ask)]),
-            // ── drivers ──
-            e("kash-nic.kdrv", Driver, None, "0.2", 410_000, ks, true, true, "Oct 8", "Network interface controller", &[(Dma, Allow), (IoPorts, Allow), (Network, Allow)]),
-            e("kash-fb.kdrv", Driver, None, "0.2", 220_000, ks, true, true, "Oct 8", "Linear framebuffer", &[(Framebuffer, Allow), (Dma, Allow), (IoPorts, Allow)]),
-            e("kash-usb-hid.kdrv", Driver, None, "0.2", 190_000, ks, true, true, "Oct 8", "USB keyboard and mouse", &[(Usb, Allow), (InputDev, Allow), (IoPorts, Allow)]),
-            e("kash-nvme.kdrv", Driver, None, "0.2", 340_000, ks, true, true, "Oct 8", "NVMe storage controller", &[(Storage, Allow), (Dma, Allow), (IoPorts, Allow)]),
-            e("kash-ps2.kdrv", Driver, None, "0.2", 40_000, ks, true, true, "Oct 8", "PS/2 input", &[(InputDev, Allow), (IoPorts, Allow)]),
-            e("kash-bt.kdrv", Driver, None, "0.1", 260_000, ks, true, true, "Oct 8", "Bluetooth controller", &[(Bluetooth, Allow), (Usb, Allow), (IoPorts, Allow)]),
-            e("kash-hda.kdrv", Driver, None, "0.1", 180_000, ks, true, true, "Oct 8", "HD audio codec", &[(Microphone, Ask), (Dma, Allow), (IoPorts, Allow)]),
-            e("rtl8821-wifi.kdrv", Driver, None, "5.2", 1_200_000, "Community (unsigned)", false, false, "Oct 11", "Third-party Wi-Fi adapter", &[(Dma, Ask), (Network, Ask), (KernelMem, Ask), (IoPorts, Ask)]),
+            // These are compiled-in UI demonstrations, not installed packages.
+            // Package versions, sizes, installation dates and signatures are unknown.
+            e("Files", Gui, Some(AppKind::Files), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Demo app; filesystem access is not capability-enforced", &[(Files, Allow), (FullDisk, Ask), (AppMgmt, Ask), (Usb, Allow)]),
+            e("System Settings", Gui, Some(AppKind::Settings), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Settings prototype; controls are not generally connected to kernel services", &[(AppMgmt, Allow), (Accessibility, Allow), (Location, Allow), (Bluetooth, Allow), (Network, Allow), (Usb, Allow), (FullDisk, Allow)]),
+            e("Terminal", Gui, Some(AppKind::Terminal), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Terminal demo; commands are handled by the UI and are not a general shell", &[(FullDisk, Ask), (Files, Allow), (Network, Allow), (Automation, Ask), (Accessibility, Ask), (AppMgmt, Deny), (Spawn, Allow)]),
+            e("Browser (demo)", Gui, Some(AppKind::Browser), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Remote networking and process-isolated permissions are unavailable", &[(Camera, Deny), (Microphone, Deny), (Location, Deny), (Network, Deny), (LocalNet, Deny), (Notifications, Deny), (Files, Deny), (Screen, Deny), (Keys, Deny)]),
+            e("Notes", Gui, Some(AppKind::Notes), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Notes demo; persistent storage is unavailable", &[(Files, Allow), (Photos, Ask), (Notifications, Allow)]),
+            e("Photos", Gui, Some(AppKind::Photos), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Photos demo; media library integration is unavailable", &[(Photos, Allow), (Camera, Ask), (Location, Ask), (Files, Allow), (Network, Allow)]),
+            e("Music", Gui, Some(AppKind::Music), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Music demo; media library integration is unavailable", &[(Microphone, Ask), (Network, Allow), (Bluetooth, Allow), (Notifications, Allow), (Files, Allow)]),
+            e("Messages", Gui, Some(AppKind::Messages), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Messaging demo; no network transport is connected", &[(Contacts, Allow), (Notifications, Allow), (Camera, Ask), (Microphone, Ask), (Network, Allow), (Photos, Ask), (Location, Ask)]),
+            e("Activity Monitor", Gui, Some(AppKind::ActivityMonitor), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Activity Monitor demo; live process and memory telemetry is unavailable", &[(Accessibility, Allow), (AppMgmt, Allow), (FullDisk, Ask), (Network, Allow)]),
+            e("Calculator", Gui, Some(AppKind::Calculator), "demo", 0, "Built-in UI demo", false, true, "Unavailable", "Calculator demo", &[]),
         ];
-        let downloads = alloc::vec![
-            Download { name: String::from("kash-os.iso"), kind: FileKind::Iso, size: 11_300_000, date: String::from("Today") },
-            Download { name: String::from("tools.zip"), kind: FileKind::Archive, size: 220_000_000, date: String::from("Oct 9") },
-            Download { name: String::from("wordlists.zip"), kind: FileKind::Archive, size: 1_400_000_000, date: String::from("Sep 28") },
-            Download { name: String::from("kali-nethunter.iso"), kind: FileKind::Iso, size: 3_800_000_000, date: String::from("Sep 5") },
-        ];
+        let downloads = Vec::new();
         Registry { apps, app_policy: 1, driver_policy: 1, accessories: 1, lockdown: false, log: Vec::new(), pending: Vec::new(), downloads, dl_active: None, rev: 1 }
     }
 
@@ -196,11 +174,10 @@ impl Registry {
     }
     pub fn totals(&self) -> (usize, usize, usize) { let (mut a, mut k, mut d) = (0, 0, 0); for c in AppClass::ALL { let (x, y, z) = self.class_counts(c); a += x; k += y; d += z; } (a, k, d) }
 
-    /// Unsigned software is blocked when the matching policy only allows signed code.
+    /// This prototype has no package signature verifier or execution policy hook.
     pub fn blocked(&self, i: usize) -> bool {
-        let a = &self.apps[i];
-        if a.signed { return false; }
-        match a.class { AppClass::Driver => self.driver_policy < 2, _ => self.app_policy < 1 }
+        let _ = i;
+        false
     }
     /// Effective state after policy and Lockdown Mode.
     pub fn effective(&self, i: usize, p: Perm) -> PS {

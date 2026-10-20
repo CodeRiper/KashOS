@@ -23,7 +23,7 @@ fn f(name: &str, kind: FileKind, size: u64, date: &'static str) -> Node { Node {
 fn reg_folder(c: AppClass) -> Node {
     let r = Registry::new();
     let ch: Vec<Node> = r.apps.iter().filter(|a| a.class == c).map(|a| f(&a.name, c.file_kind(), a.size, a.date)).collect();
-    d(c.folder(), "Oct 9", ch)
+    d(c.folder(), "Unavailable", ch)
 }
 
 pub fn build_fs() -> Node {
@@ -43,16 +43,7 @@ pub fn build_fs() -> Node {
             f("epoch.state", FileKind::Text, 256, "Today"),
             f("audit.log", FileKind::Text, 4_096, "Today"),
         ]),
-        d("Drivers", "Today", alloc::vec![
-            f("nvme.drv", FileKind::Driver, 20_480, "Today"),
-            f("ahci.drv", FileKind::Driver, 16_384, "Today"),
-            f("virtio_gpu.drv", FileKind::Driver, 14_336, "Today"),
-            f("xhci.drv", FileKind::Driver, 18_432, "Today"),
-            f("e1000.drv", FileKind::Driver, 16_384, "Today"),
-            f("ps2.drv", FileKind::Driver, 8_192, "Today"),
-            f("vtd.drv", FileKind::Driver, 12_288, "Today"),
-            f("acpi.drv", FileKind::Driver, 12_288, "Today"),
-        ]),
+        d("Drivers", "Unavailable", Vec::new()),
         d("Etc", "Today", alloc::vec![
             f("version", FileKind::Text, 6, "Today"),
             f("hardware.tier", FileKind::Text, 32, "Today"),
