@@ -1,7 +1,8 @@
 # Public readiness and claims audit
 
-**Audit date:** 2026-10-20  
-**Code state reviewed:** `main` at `c4803a3013ada3597971e1a437ae7f6eacf32d0b`  
+**Audit date:** 2026-10-20
+
+**Code state reviewed:** `main` at `c4803a3013ada3597971e1a437ae7f6eacf32d0b`
 **Result:** KashOS is a development prototype and is not ready for daily or
 security-sensitive use.
 
