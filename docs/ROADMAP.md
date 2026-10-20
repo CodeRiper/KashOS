@@ -54,6 +54,17 @@ planned key hierarchy. Keep A3 marked Needs revalidation until credential
 enrollment, protected GUI input, persistent TPM provisioning, and legacy
 volume migration are designed and tested.
 
+### A4/A5 TPM audit finding
+
+- The existing TIS/CRB path was not validated: ACPI TPM2 contents were not
+  parsed into a transport address, CRB execution returned synthetic success,
+  hardware errors were ignored, and PCR/sealed-key state used RAM-only models.
+  Production discovery, measurement, sealing, and NV anti-rollback APIs now
+  fail unavailable. Hardware/swtpm conformance, event-log verification,
+  persistent sealed-object lifecycle, and rollback-counter tests remain future
+  work. See [`EVIDENCE/A4.md`](EVIDENCE/A4.md) and
+  [`EVIDENCE/A5.md`](EVIDENCE/A5.md).
+
 ## Next work, in order
 
 1. **Revalidate Part A evidence.** The legacy ledger marks A1-A21 complete, but

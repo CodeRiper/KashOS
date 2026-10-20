@@ -34,14 +34,22 @@
   The old installer test script is now a safe source guard. A4 evidence was
   downgraded because it incorrectly treated that script as a real installer
   integration test.
+- Disabled the unvalidated production TPM path. Audit found guessed TIS MMIO,
+  unparsed ACPI transport data, a CRB fake-success path, ignored command errors,
+  and RAM-only PCR/sealed-key models. Production PCR, sealing, measurement, and
+  NV anti-rollback APIs now fail unavailable; the self-test software model is
+  not treated as hardware protection. Updated A4/A5 evidence, the threat model,
+  claims matrix, public README, hardware report, and GUI POST screen; removed
+  the fake TPM driver entry and added a CI regression guard.
 
 ## Verification
 
 See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) for exact commands and limits. Current
 local results: workspace host tests pass, kernel target check/release build
-pass, installer/KMS/storage/network source guards and claims linter pass, and
-the QEMU T0 smoke test reaches the locked shell with its required markers. The
-QEMU vault image SHA-256 was unchanged (`31B809229EFA682DB6B6041AF61743D3E54D79DDFEB42C79E5BEDD853C5AE012`).
+pass, `kash-ui` tests pass, installer/KMS/storage/network/TPM source guards and
+claims linter pass, and the QEMU T0 smoke test reaches the locked shell with
+its required markers. The QEMU vault image SHA-256 was unchanged
+(`31B809229EFA682DB6B6041AF61743D3E54D79DDFEB42C79E5BEDD853C5AE012`).
 This does not establish TPM, IOMMU, TLS, Tor, browser isolation, Linux
 compatibility, or physical-device security.
 

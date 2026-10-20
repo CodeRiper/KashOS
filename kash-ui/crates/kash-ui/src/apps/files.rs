@@ -51,7 +51,6 @@ pub fn build_fs() -> Node {
             f("e1000.drv", FileKind::Driver, 16_384, "Today"),
             f("ps2.drv", FileKind::Driver, 8_192, "Today"),
             f("vtd.drv", FileKind::Driver, 12_288, "Today"),
-            f("tpm2.drv", FileKind::Driver, 14_336, "Today"),
             f("acpi.drv", FileKind::Driver, 12_288, "Today"),
         ]),
         d("Etc", "Today", alloc::vec![

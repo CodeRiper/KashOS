@@ -452,7 +452,6 @@ pub fn sse_selftest() {}
 pub fn print_pcr_report() {}
 pub fn print_tcg_event_log() {}
 pub fn print_anti_rollback_status() {}
-pub fn get_security_epoch() -> u64 { 2 }
 pub fn verify_and_ratify_epoch(_cand: u64) -> Result<(), kboot::RollbackError> { Ok(()) }
 pub fn get_xhci_status() -> (bool, bool) { (false, false) }
 
