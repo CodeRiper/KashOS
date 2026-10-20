@@ -62,7 +62,9 @@ pub static PROCESS_TABLE: TicketSpinLock<[ProcessControlBlock; MAX_PROCESSES]> =
 pub static PROCESS_CSPACES: TicketSpinLock<[CapSpace<64>; MAX_PROCESSES]> =
     TicketSpinLock::new([const { CapSpace::<64>::new() }; MAX_PROCESSES]);
 
-static NEXT_PID: AtomicU32 = AtomicU32::new(10);
+// Kernel thread IDs occupy 2..=MAX_TASKS + 1. Keep user PIDs in a disjoint range
+// so scheduler lookups cannot resolve two live task records with the same ID.
+static NEXT_PID: AtomicU32 = AtomicU32::new((MAX_TASKS as u32) + 2);
 static FAULT_COUNT: AtomicU32 = AtomicU32::new(0);
 
 /// Spawns an unprivileged Ring 3 user process from an ELF64 binary image.
@@ -95,7 +97,19 @@ pub fn spawn_user_process(
     let mut pcb_table = PROCESS_TABLE.lock();
 
     let slot = threads.iter().position(|t| !t.in_use).ok_or("Thread table full")?;
-    let pid = NEXT_PID.fetch_add(1, Ordering::Relaxed);
+    let pid = loop {
+        let next_pid = NEXT_PID.load(Ordering::Relaxed);
+        let following_pid = next_pid.checked_add(1)
+            .ok_or("Process identifier space exhausted")?;
+        if NEXT_PID.compare_exchange_weak(
+            next_pid,
+            following_pid,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ).is_ok() {
+            break next_pid;
+        }
+    };
 
     let stack_ref = &mut stacks[slot];
     let stack_top = (stack_ref.stack_memory.as_ptr() as u64) + (KERNEL_STACK_SIZE as u64);

@@ -250,6 +250,12 @@ impl QoSScheduler {
         self.tasks.get(idx)
     }
 
+    /// Resolve an active task identifier to its scheduler-table slot.
+    /// TIDs are identifiers and must never be treated as array indices.
+    pub fn task_index_for_tid(&self, tid: u32) -> Option<usize> {
+        self.tasks.iter().position(|task| task.in_use && task.tid == tid)
+    }
+
     pub fn current_task(&self) -> Option<&TaskControlBlock> {
         self.current.and_then(|i| self.tasks.get(i))
     }

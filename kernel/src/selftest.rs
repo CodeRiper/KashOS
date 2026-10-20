@@ -615,12 +615,46 @@ fn test_synchronous_ipc_rendezvous() {
     {
         let mut endpoints = crate::ipc::ENDPOINTS.lock();
         endpoints[ep_idx] = crate::ipc::Endpoint::new(ep_idx as u64);
+        endpoints[ep_idx].in_use = true;
     }
 
     let sender_pid = 210u32;
     let receiver_pid = 211u32;
-    let s_cspace_idx = (sender_pid as usize) % crate::process::MAX_PROCESSES;
-    let r_cspace_idx = (receiver_pid as usize) % crate::process::MAX_PROCESSES;
+    let (s_cspace_idx, r_cspace_idx) = {
+        let mut table = crate::process::PROCESS_TABLE.lock();
+        let sender_slot = table.iter().position(|pcb| !pcb.in_use).unwrap();
+        table[sender_slot] = crate::process::ProcessControlBlock {
+            pid: sender_pid,
+            name: "ipc-sender-test",
+            cr3: 0,
+            state: crate::process::ProcessState::Ready,
+            exit_code: None,
+            entry_point: 0,
+            user_stack_top: 0,
+            sid: crate::flask::SID_UNTRUSTED_KAPP,
+            in_use: true,
+        };
+        let receiver_slot = table.iter().position(|pcb| !pcb.in_use).unwrap();
+        table[receiver_slot] = crate::process::ProcessControlBlock {
+            pid: receiver_pid,
+            name: "ipc-receiver-test",
+            cr3: 0,
+            state: crate::process::ProcessState::Ready,
+            exit_code: None,
+            entry_point: 0,
+            user_stack_top: 0,
+            sid: crate::flask::SID_UNTRUSTED_KAPP,
+            in_use: true,
+        };
+        (sender_slot, receiver_slot)
+    };
+
+    let (sender_task_idx, receiver_task_idx) = {
+        let mut sched = crate::task::SCHEDULER.lock();
+        let sender_idx = sched.create_task(sender_pid, kscheduler::QoSClass::Background, s_cspace_idx as u64).unwrap();
+        let receiver_idx = sched.create_task(receiver_pid, kscheduler::QoSClass::Background, r_cspace_idx as u64).unwrap();
+        (sender_idx, receiver_idx)
+    };
 
     // Setup sender's CSpace with badged endpoint (slot 1) and frame to transfer (slot 2)
     {
@@ -632,12 +666,32 @@ fn test_synchronous_ipc_rendezvous() {
 
         let mut r_cs = CapSpace::<64>::new();
         let _ = r_cs.install_transferred(1, Cap::new_endpoint(ep_idx as u64, Rights::ALL, 0));
+        let _ = r_cs.install_transferred(3, Cap::new_endpoint((ep_idx + crate::ipc::MAX_ENDPOINTS) as u64, Rights::ALL, 0));
         // slot 2 is empty, will receive transferred capability
         cspaces[r_cspace_idx] = r_cs;
     }
 
     // Set current TID to receiver to test receiver-waiting rendezvous
     crate::task::set_current_tid(receiver_pid);
+
+    // A forged endpoint ID that differs by MAX_ENDPOINTS must not alias the live endpoint.
+    check!(matches!(crate::ipc::sys_ipc_recv(3, None), Err(crate::arch::x86_64::syscall::SyscallError::InvalidCapability)));
+    // An unknown PID with the same legacy modulo slot must not reuse sender authority.
+    crate::task::set_current_tid(sender_pid + crate::process::MAX_PROCESSES as u32);
+    check!(matches!(crate::ipc::sys_ipc_send(1, 0, &[], None), Err(crate::arch::x86_64::syscall::SyscallError::InvalidCapability)));
+    crate::task::set_current_tid(receiver_pid);
+
+    // Duplicate live endpoint identifiers are ambiguous and must fail closed.
+    {
+        let mut endpoints = crate::ipc::ENDPOINTS.lock();
+        endpoints[ep_idx + 1] = crate::ipc::Endpoint::new(ep_idx as u64);
+        endpoints[ep_idx + 1].in_use = true;
+    }
+    check!(matches!(crate::ipc::sys_ipc_recv(1, None), Err(crate::arch::x86_64::syscall::SyscallError::InvalidCapability)));
+    {
+        let mut endpoints = crate::ipc::ENDPOINTS.lock();
+        endpoints[ep_idx + 1] = crate::ipc::Endpoint::new((ep_idx + 1) as u64);
+    }
 
     // 1. Receiver calls sys_ipc_recv (blocks waiting on empty endpoint)
     let recv_res = crate::ipc::sys_ipc_recv(1, Some(2));
@@ -667,6 +721,11 @@ fn test_synchronous_ipc_rendezvous() {
         check!(msg.words[0] == 0x1111_2222);
         check!(msg.words[1] == 0x3333_4444);
     }
+    {
+        let sched = crate::task::SCHEDULER.lock();
+        check!(sched.task(receiver_task_idx).unwrap().state == kscheduler::ThreadState::Ready);
+        check!(sched.task(sender_task_idx).unwrap().state == kscheduler::ThreadState::Blocked);
+    }
 
     // 4. Verify capability was installed into receiver's CSpace at slot 2!
     {
@@ -680,6 +739,25 @@ fn test_synchronous_ipc_rendezvous() {
 
     // Reset TID to kernel thread
     crate::task::set_current_tid(1);
+    {
+        let mut sched = crate::task::SCHEDULER.lock();
+        if let Some(idx) = sched.task_index_for_tid(sender_pid) { let _ = sched.terminate_task(idx); }
+        if let Some(idx) = sched.task_index_for_tid(receiver_pid) { let _ = sched.terminate_task(idx); }
+    }
+    {
+        let mut table = crate::process::PROCESS_TABLE.lock();
+        table[s_cspace_idx].in_use = false;
+        table[r_cspace_idx].in_use = false;
+    }
+    {
+        let mut cspaces = crate::process::PROCESS_CSPACES.lock();
+        cspaces[s_cspace_idx] = CapSpace::new();
+        cspaces[r_cspace_idx] = CapSpace::new();
+    }
+    {
+        let mut endpoints = crate::ipc::ENDPOINTS.lock();
+        endpoints[ep_idx] = crate::ipc::Endpoint::new(ep_idx as u64);
+    }
 
     kprintln!("[selftest] PASS: T16 Synchronous IPC Rendezvous & Capability Transfer verified (unforgeable badge 0x{:X} + Frame transferred)", 0xBEEF_7777u64);
 }
@@ -735,38 +813,21 @@ fn test_kernel_object_quota_isolation() {
 #[cfg(target_arch = "x86_64")]
 fn test_driver_capability_isolation() {
     crate::driver::init();
-    let sup = crate::driver::DRIVER_SUPERVISOR.lock();
+    let mut sup = crate::driver::DRIVER_SUPERVISOR.lock();
     let storage_pid = 50u32;
     let input_pid = 52u32;
     let net_pid = 51u32;
 
-    // 1. Storage driver holds IOPort 0x1F0..=0x1F7 and 0x3F6
-    check!(sup.verify_io_port(storage_pid, 0x1F0, false).is_ok());
-    check!(sup.verify_io_port(storage_pid, 0x1F7, true).is_ok());
-    check!(sup.verify_io_port(storage_pid, 0x3F6, true).is_ok());
+    check!(sup.services.iter().all(Option::is_none));
+    check!(sup.verify_io_port(storage_pid, 0x1F0, false) == Err(KError::InvalidArgument));
+    check!(sup.verify_io_port(input_pid, 0x60, false) == Err(KError::InvalidArgument));
+    check!(sup.verify_mmio_frame(net_pid, 0xFEB0_0000, true) == Err(KError::InvalidArgument));
+    check!(matches!(sup.register_service("net_srv", crate::driver::DriverKind::Network), Err(_)));
+    check!(crate::driver::DriverSupervisor::provision_driver_cspace(
+        net_pid, crate::driver::DriverKind::Network
+    ).is_err());
 
-    // Negative Check 1: Storage driver CANNOT touch Keyboard port 0x60 or Display port 0x1CE
-    check!(matches!(sup.verify_io_port(storage_pid, 0x60, false), Err(KError::InsufficientRights)));
-    check!(matches!(sup.verify_io_port(storage_pid, 0x64, true), Err(KError::InsufficientRights)));
-    check!(matches!(sup.verify_io_port(storage_pid, 0x1CE, false), Err(KError::InsufficientRights)));
-
-    // 2. Input driver holds IOPort 0x60..=0x64
-    check!(sup.verify_io_port(input_pid, 0x60, false).is_ok());
-    check!(sup.verify_io_port(input_pid, 0x64, false).is_ok());
-
-    // Negative Check 2: Input driver CANNOT touch Storage port 0x1F0 or MMIO
-    check!(matches!(sup.verify_io_port(input_pid, 0x1F0, false), Err(KError::InsufficientRights)));
-    check!(matches!(sup.verify_mmio_frame(input_pid, 0xFEB0_0000, false), Err(KError::InsufficientRights)));
-
-    // 3. Network driver holds Frame 0xFEB0_0000 (e1000 MMIO)
-    check!(sup.verify_mmio_frame(net_pid, 0xFEB0_0000, true).is_ok());
-    check!(sup.verify_mmio_frame(net_pid, 0xFEB0_0080, false).is_ok()); // same 4KB page
-
-    // Negative Check 3: Network driver CANNOT touch Display MMIO 0xFD00_0000 or Kernel MMIO 0x0010_0000
-    check!(matches!(sup.verify_mmio_frame(net_pid, 0xFD00_0000, true), Err(KError::InsufficientRights)));
-    check!(matches!(sup.verify_mmio_frame(net_pid, 0x0010_0000, true), Err(KError::InsufficientRights)));
-
-    kprintln!("[selftest] PASS: T18 driver-access policy model checks passed; real driver processes and hardware I/O mediation are not established");
+    kprintln!("[selftest] PASS: T18 driver process registration and device capability checks fail closed while real driver processes/mappings are unavailable");
 }
 
 /// Test 19: VT-d fail-closed state and software translation model.
@@ -829,55 +890,11 @@ fn test_vtd_iommu_dma_containment() {
 fn test_driver_resilient_restart() {
     let mut sup = crate::driver::DRIVER_SUPERVISOR.lock();
     let net_pid = 51u32;
-
-    // Verify initial driver service state
-    let initial_restarts = sup.total_restarts;
-    let srv_initial = sup.services.iter().find_map(|s| {
-        if let Some(srv) = s {
-            if srv.pid == net_pid { Some(*srv) } else { None }
-        } else {
-            None
-        }
-    }).expect("net_srv not found");
-    check!(srv_initial.restart_count == 0);
-    check!(srv_initial.is_healthy);
-
-    // Verify driver holds Frame capability in CSpace
-    check!(sup.verify_mmio_frame(net_pid, 0xFEB0_0000, true).is_ok());
-
-    // 1. Simulate driver fatal crash (signal 11 = SIGSEGV / Page Fault)
-    let restart_res = sup.handle_driver_fault(net_pid, 11);
-    check!(restart_res.is_some());
-    let new_pid = restart_res.unwrap();
-    check!(new_pid == 151);
-
-    // 2. Verify supervisor metrics and state
-    check!(sup.total_restarts == initial_restarts + 1);
-    let srv_restarted = sup.services.iter().find_map(|s| {
-        if let Some(srv) = s {
-            if srv.pid == new_pid { Some(*srv) } else { None }
-        } else {
-            None
-        }
-    }).expect("restarted net_srv not found");
-    check!(srv_restarted.restart_count == 1);
-    check!(srv_restarted.is_healthy);
-
-    // 3. Verify old PID 51 CSpace was revoked and empty
-    {
-        let cspaces = crate::process::PROCESS_CSPACES.lock();
-        let old_idx = (net_pid as usize) % crate::process::MAX_PROCESSES;
-        check!(matches!(cspaces[old_idx].lookup(4, Rights::NONE), Err(KError::SlotEmpty)));
-    }
-
-    // 4. Verify new PID 151 has freshly provisioned capabilities
-    check!(sup.verify_mmio_frame(new_pid, 0xFEB0_0000, true).is_ok());
-    check!(sup.verify_mmio_frame(new_pid, 0xFEB0_0000, false).is_ok());
-
-    // 5. Verify sibling service (Storage PID 50) is intact and untouched
-    check!(sup.verify_io_port(50, 0x1F0, true).is_ok());
-
-    kprintln!("[selftest] PASS: T20 Driver supervisor state model recorded a simulated fault and restart; process isolation is not established");
+    check!(sup.services.iter().all(Option::is_none));
+    check!(sup.handle_driver_fault(net_pid, 11).is_none());
+    check!(sup.total_restarts == 0);
+    check!(sup.verify_mmio_frame(net_pid, 0xFEB0_0000, true) == Err(KError::InvalidArgument));
+    kprintln!("[selftest] PASS: T20 reports no driver restart because driver process launch is unavailable");
 }
 
 /// Test 21: Cryptographic Boot Signature & Manifest Validation

@@ -1,7 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `00672ba85cdd4d27bd15a6166f36129c57995deb` (PR #9)
+**Repository state checked:** `main` at `a51ffa91a054011dbe819592cb341c298440b2eb` (PR #10)
+**Active work branch:** `codex/a10-identifier-resolution`
 **Current gate:** A10 user-space revalidation; ordinary desktop and shell still run in Ring 0.
 
 This repository is an operating-system prototype and is not production ready.
@@ -24,16 +25,17 @@ compatibility.
   table, and rejects invalid rights masks. The regression test checks PID-slot
   resolution and an empty initial CSpace; this is not a complete user-session
   lifecycle or evidence that these services are isolated.
-- The current source audit found remaining modulo-based PID-to-CSpace lookups
-  in `kernel/src/driver.rs` and `kernel/src/ipc.rs`, modulo-based scheduler
-  indexing in IPC, and modulo-based endpoint ID lookup in IPC. These paths are
-  outside the PR #9 regression guard and need fail-closed ID resolution tests
-  before correction; process-authority hardening is not repository-wide yet.
+- The follow-up branch `codex/a10-identifier-resolution` replaces the remaining
+  modulo-based PID/endpoint lookups with active-table resolution, rejects
+  ambiguous endpoint IDs, and disables fabricated driver service
+  registration/provisioning and restart reporting. Its regression checks,
+  kernel build, host suite, and T0 QEMU boot passed locally; it is not part of
+  `main` until its pull request passes CI and is merged.
 - A10 remains incomplete. In particular, syscall entry still uses one global
   kernel stack, so concurrent SMP user-process syscall safety is not
   established. Close the identifier aliasing paths first, then audit and design
   per-thread syscall stack ownership and concurrency handling before enabling
-  SMP userland.
+  SMP userland. The normal desktop and shell also remain in Ring 0.
 - PR #7 remains fail-closed: hardware VT-d, ACS validation, and DMA containment
   are not implemented. NIC and DDE hardware DMA paths remain disabled.
 - Current ground-truth findings include F8 (hardware DMA/IOMMU path absent) and

@@ -13,7 +13,7 @@
 | A7 | NIC drivers: real, many, tested | Needs revalidation | main | docs/EVIDENCE/A7.md |
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
-| A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
+| A10 | Move out of Ring 0: real user-space services | Needs revalidation | codex/a10-identifier-resolution | docs/EVIDENCE/A10.md |
 | A11 | SMP and scheduler | Needs revalidation | main | docs/EVIDENCE/A11.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
@@ -51,8 +51,9 @@
 
 ## Current implementation handoff
 
-- Verified repository tip: `main` at `00672ba85cdd4d27bd15a6166f36129c57995deb` (PR #9).
+- Verified repository tip before the active follow-up: `main` at `a51ffa91a054011dbe819592cb341c298440b2eb` (PR #10).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
-- A10 is still incomplete: process-authority safeguards and a Ring 3 test process exist, but ordinary desktop/settings/shell boot in Ring 0. Driver and IPC modules still contain modulo-based PID-to-CSpace lookups; IPC also uses modulo endpoint IDs and scheduler indices. The global syscall kernel stack leaves concurrent SMP user-process calls unestablished; see `docs/EVIDENCE/A10.md`.
-- Next code audit: add regression coverage for invalid and colliding process/endpoint IDs, resolve them through live tables, and fail closed before changing the shared syscall-stack design.
+- The active branch `codex/a10-identifier-resolution` fixes the modulo-based process and endpoint lookup findings, disables fabricated driver provisioning/restarts, and adds regression coverage. Its local QEMU and host verification passed; PR review/CI remains outstanding.
+- A10 is still incomplete: ordinary desktop/settings/shell boot in Ring 0, and the global syscall kernel stack leaves concurrent SMP user-process calls unestablished; see `docs/EVIDENCE/A10.md`.
+- Next code audit after this branch: trace syscall entry/return, per-thread kernel stack ownership, interrupt nesting, and process lifecycle; add a focused check before changing the syscall stack design.
 

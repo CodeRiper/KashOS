@@ -6,13 +6,8 @@
 
 #![allow(unsafe_code)]
 
-extern crate alloc;
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
-use core::sync::atomic::{AtomicU32, Ordering};
-use kcore::{Cap, CapKind, CapSpace, KError, Rights};
-use crate::process::{PROCESS_CSPACES, MAX_PROCESSES};
+use kcore::{CapKind, KError, Rights};
+use crate::process::{process_slot_for_pid, PROCESS_CSPACES};
 use crate::sync::TicketSpinLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,91 +43,19 @@ impl DriverSupervisor {
 
     /// Registers a driver service and provisions its capability space with device capabilities.
     pub fn register_service(&mut self, name: &'static str, kind: DriverKind) -> Result<u32, &'static str> {
-        let slot = self.services.iter().position(|s| s.is_none()).ok_or("Driver table full")?;
-        let pid = match kind {
-            DriverKind::Storage => 50,
-            DriverKind::Network => 51,
-            DriverKind::Input   => 52,
-            DriverKind::Display => 53,
-        };
-
-        Self::provision_driver_cspace(pid, kind)?;
-
-        let srv = DriverService {
-            name,
-            kind,
-            pid,
-            endpoint_slot: 3,
-            restart_count: 0,
-            is_healthy: true,
-        };
-        self.services[slot] = Some(srv);
-
-        crate::kprintln!(
-            "[driver] Registered '{}' service (PID {}) with capability-isolated CSpace (Kind: {:?})",
-            name, pid, kind
-        );
-
-        Ok(pid)
+        let _ = (name, kind);
+        Err("Driver process launch is unavailable; service registration is disabled")
     }
 
     /// Provisions an isolated CSpace for the driver with dedicated device capabilities.
     pub fn provision_driver_cspace(pid: u32, kind: DriverKind) -> Result<(), &'static str> {
-        let cspace_idx = (pid as usize) % MAX_PROCESSES;
-        let mut cspaces = PROCESS_CSPACES.lock();
-        let mut cs = CapSpace::<64>::new();
-
-        // Slot 0: Untyped memory quota for the driver (64 KiB region)
-        let untyped_base = 0x3500_0000u64 + ((pid as u64) * 0x1_0000u64);
-        if let Ok(ut) = Cap::new_untyped(untyped_base, 16) {
-            let _ = cs.install_root(0, ut);
-        }
-
-        // Slot 1: TCB Capability
-        let _ = cs.install_transferred(1, Cap::new_tcb(pid as u64, Rights::ALL));
-        // Slot 2: VSpace (PML4) Capability
-        let _ = cs.install_transferred(2, Cap::new_frame(0x1000 + (pid as u64) * 0x1000, Rights::ALL));
-        // Slot 3: Synchronous IPC Endpoint Capability
-        let _ = cs.install_transferred(3, Cap::new_endpoint(pid as u64, Rights::ALL, pid as u64));
-
-        // Provision specific hardware access capabilities according to driver kind
-        match kind {
-            DriverKind::Storage => {
-                // Storage: Ports 0x1F0..=0x1F7 (Primary ATA PIO) and 0x3F6 (Device Control)
-                let _ = cs.install_transferred(4, Cap::new_ioport(0x1F0, 0x1F7, Rights::ALL));
-                let _ = cs.install_transferred(5, Cap::new_ioport(0x3F6, 0x3F6, Rights::ALL));
-                // IOSpace for DMA: PCI BDF 00:01.0 (IDE Controller), Domain 1
-                let _ = cs.install_transferred(6, Cap::new_iospace(0x0001, 1, Rights::ALL));
-            }
-            DriverKind::Network => {
-                // Network: Intel e1000 MMIO Frame (4 KiB page at 0xFEB0_0000)
-                let _ = cs.install_transferred(4, Cap::new_frame(0xFEB0_0000, Rights::ALL));
-                // IOSpace for DMA: PCI BDF 00:03.0 (e1000 Gigabit NIC), Domain 2
-                let _ = cs.install_transferred(5, Cap::new_iospace(0x0003, 2, Rights::ALL));
-                // Hardware IRQ 11 Notification capability
-                let _ = cs.install_transferred(6, Cap::new_notification(0x10, Rights::ALL, 11));
-            }
-            DriverKind::Input => {
-                // Input: PS/2 Keyboard & Mouse Ports 0x60..=0x64
-                let _ = cs.install_transferred(4, Cap::new_ioport(0x60, 0x64, Rights::ALL));
-                // Hardware IRQ 1 Notification capability (Keyboard)
-                let _ = cs.install_transferred(5, Cap::new_notification(0x01, Rights::ALL, 1));
-            }
-            DriverKind::Display => {
-                // Display: Bochs BGA Ports 0x1CE..=0x1CF
-                let _ = cs.install_transferred(4, Cap::new_ioport(0x1CE, 0x1CF, Rights::ALL));
-                // Linear Framebuffer MMIO Frame (PCI BAR0 at 0xFD00_0000)
-                let _ = cs.install_transferred(5, Cap::new_frame(0xFD00_0000, Rights::ALL));
-            }
-        }
-
-        cspaces[cspace_idx] = cs;
-        Ok(())
+        let _ = (pid, kind);
+        Err("Driver capability provisioning is unavailable until real driver processes and device mappings exist")
     }
 
     /// Verifies whether process `pid` holds a valid IOPort capability covering `port`.
     pub fn verify_io_port(&self, pid: u32, port: u16, is_write: bool) -> Result<(), KError> {
-        let cspace_idx = (pid as usize) % MAX_PROCESSES;
+        let cspace_idx = process_slot_for_pid(pid).ok_or(KError::InvalidArgument)?;
         let cspaces = PROCESS_CSPACES.lock();
         let cs = &cspaces[cspace_idx];
 
@@ -152,7 +75,7 @@ impl DriverSupervisor {
 
     /// Verifies whether process `pid` holds a valid Frame capability covering physical address `paddr`.
     pub fn verify_mmio_frame(&self, pid: u32, paddr: u64, is_write: bool) -> Result<(), KError> {
-        let cspace_idx = (pid as usize) % MAX_PROCESSES;
+        let cspace_idx = process_slot_for_pid(pid).ok_or(KError::InvalidArgument)?;
         let cspaces = PROCESS_CSPACES.lock();
         let cs = &cspaces[cspace_idx];
 
@@ -174,51 +97,8 @@ impl DriverSupervisor {
 
     /// Intercepts a driver crash, tears down its capability tree, recycles memory, and restarts the service.
     pub fn handle_driver_fault(&mut self, pid: u32, exit_code: i32) -> Option<u32> {
-        let srv_idx = self.services.iter().position(|s| {
-            if let Some(srv) = s {
-                srv.pid == pid
-            } else {
-                false
-            }
-        });
-
-        if let Some(idx) = srv_idx {
-            let (name, kind, new_pid, restart_count) = {
-                let srv = self.services[idx].as_mut().unwrap();
-                srv.is_healthy = false;
-                let new_pid = pid + 100;
-                srv.pid = new_pid;
-                srv.restart_count += 1;
-                srv.is_healthy = true;
-                (srv.name, srv.kind, new_pid, srv.restart_count)
-            };
-            self.total_restarts += 1;
-
-            crate::kprintln!(
-                "[supervisor] Fault detected in driver service '{}' (PID {}, signal {}). Commencing resilient restart...",
-                name, pid, exit_code
-            );
-
-            // 1. Revoke capability tree and clean old CSpace
-            let old_idx = (pid as usize) % MAX_PROCESSES;
-            {
-                let mut cspaces = PROCESS_CSPACES.lock();
-                let _ = cspaces[old_idx].revoke(0);
-                cspaces[old_idx] = CapSpace::new();
-            }
-
-            // 2. Re-provision CSpace and device capabilities for new PID
-            let _ = Self::provision_driver_cspace(new_pid, kind);
-
-            crate::kprintln!(
-                "[supervisor] Driver service '{}' safely restarted as PID {} (restart #{}) with clean CSpace and recycled Untyped quota.",
-                name, new_pid, restart_count
-            );
-
-            Some(new_pid)
-        } else {
-            None
-        }
+        let _ = (pid, exit_code);
+        None
     }
 
     /// Performs capability-checked port I/O on behalf of user driver.
@@ -280,13 +160,5 @@ pub static DRIVER_SUPERVISOR: TicketSpinLock<DriverSupervisor> = TicketSpinLock:
 
 /// Initializes core userspace driver services.
 pub fn init() {
-    let mut sup = DRIVER_SUPERVISOR.lock();
-    if sup.services[0].is_some() {
-        return;
-    }
-    let _ = sup.register_service("storage_srv", DriverKind::Storage);
-    let _ = sup.register_service("net_srv", DriverKind::Network);
-    let _ = sup.register_service("input_srv", DriverKind::Input);
-    let _ = sup.register_service("display_srv", DriverKind::Display);
-    crate::kprintln!("[driver] Core userspace driver services initialized in unprivileged sandboxes.");
+    crate::kprintln!("[driver] Driver service launch and capability provisioning are unavailable; no services registered.");
 }
