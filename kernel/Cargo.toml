@@ -18,6 +18,7 @@ test = false
 
 [dependencies]
 kcore   = { path = "../kcore"   }
+ksel4-core = { path = "../ksel4-core" }
 khal    = { path = "../khal"    }
 knet    = { path = "../knet"    }
 kheap   = { path = "../kheap"   }

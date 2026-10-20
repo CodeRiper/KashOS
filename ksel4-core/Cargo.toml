@@ -1,0 +1,8 @@
+[package]
+name = "ksel4-core"
+version = "0.1.0"
+edition = "2021"
+description = "no_std seL4-style capability core for KashOS"
+license = "MIT"
+
+[dependencies]

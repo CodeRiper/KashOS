@@ -394,6 +394,7 @@ dependencies = [
  "knet",
  "kpaging",
  "kscheduler",
+ "ksel4-core",
  "kvault",
  "sha2",
 ]
@@ -428,6 +429,10 @@ dependencies = [
 [[package]]
 name = "kscheduler"
 version = "0.2.0"
+
+[[package]]
+name = "ksel4-core"
+version = "0.1.0"
 
 [[package]]
 name = "kvault"
