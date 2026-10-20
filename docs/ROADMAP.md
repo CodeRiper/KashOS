@@ -1,7 +1,7 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `facb5c89a3a14fcd54e696e5d84bce9392492a64` (PR #13)
+**Repository state checked:** `main` at `ea7ba7557e59a98053bb94ccdc2cc9e2364f5a2b` (PR #15)
 **Active work branch:** `main`
 **Current gate:** A11 SMP revalidation; secondary CPUs remain parked until CPU-local interrupt and scheduler state are initialized.
 
@@ -45,8 +45,9 @@ compatibility.
   are not implemented. NIC and DDE hardware DMA paths remain disabled.
 - Current ground-truth findings include F8 (hardware DMA/IOMMU path absent) and
   F10 (normal boot session remains Ring 0). Do not report these as resolved.
-- The public README, threat model and claim inventory are being corrected to
-  remove stale feature-completion and threat-protection claims. See
+- PR #15 corrected stale public README, threat-model and claim-inventory status
+  statements. The OS remains a development/QEMU prototype and is not ready for
+  sensitive use. See
   [`EVIDENCE/READINESS.md`](EVIDENCE/READINESS.md). This documentation audit
   does not change the implementation or make the OS ready for sensitive use.
 
