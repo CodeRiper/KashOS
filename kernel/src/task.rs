@@ -4,7 +4,7 @@
 //! - Thread Control Blocks (TCBs) with isolated 16 KiB kernel stacks and unmapped guard pages.
 //! - Preemptive QoS scheduling integrated with `kscheduler`.
 //! - Per-thread FPU/SSE save/restore via `fxsave64`/`fxrstor64`.
-//! - Dynamic `current_pid` tracking across multicore / single-core environments.
+//! - Per-CPU current task identity for fail-closed syscall and fault attribution.
 #![allow(unsafe_code)]
 
 use crate::arch::x86_64::fpu::FpuState;
@@ -64,17 +64,28 @@ pub static THREADS: TicketSpinLock<[Thread; MAX_TASKS]> =
 pub static SCHEDULER: TicketSpinLock<QoSScheduler> =
     TicketSpinLock::new(QoSScheduler::new());
 
-static CURRENT_TID: AtomicU32 = AtomicU32::new(1);
+static CPU_CURRENT_TID: [AtomicU32; smp::MAX_CPUS] =
+    [const { AtomicU32::new(0) }; smp::MAX_CPUS];
 static PREEMPTION_COUNT: AtomicU64 = AtomicU64::new(0);
 
+fn current_cpu_index() -> Option<usize> {
+    smp::cpu_index_for_apic_id(crate::arch::x86_64::apic::current_id())
+}
+
 /// Return the TID of the currently executing thread.
+///
+/// TID 0 means the current processor did not resolve to an initialized CPU slot.
 pub fn current_tid() -> u32 {
-    CURRENT_TID.load(Ordering::Relaxed)
+    current_cpu_index()
+        .map(|cpu_index| CPU_CURRENT_TID[cpu_index].load(Ordering::Acquire))
+        .unwrap_or(0)
 }
 
 /// Set the TID of the currently executing thread (used during dispatch/context switch/tests).
 pub fn set_current_tid(tid: u32) {
-    CURRENT_TID.store(tid, Ordering::Relaxed);
+    if let Some(cpu_index) = current_cpu_index() {
+        CPU_CURRENT_TID[cpu_index].store(tid, Ordering::Release);
+    }
 }
 
 /// Total number of successful thread preemptions observed.
@@ -107,6 +118,8 @@ pub fn exit_current_thread() -> ! {
 
 /// Initialize the task management subsystem with the initial kernel task (TID 1).
 pub fn init(initial_rsp: u64) {
+    let cpu_index = current_cpu_index()
+        .unwrap_or_else(|| panic!("BSP APIC ID is absent from the discovered CPU table"));
     let mut sched = SCHEDULER.lock();
     let mut threads = THREADS.lock();
 
@@ -125,7 +138,7 @@ pub fn init(initial_rsp: u64) {
     let _ = sched.create_task(1, QoSClass::UserInteractive, slot as u64);
     let _ = sched.enqueue_ready(slot);
     let _ = sched.schedule();
-    CURRENT_TID.store(1, Ordering::SeqCst);
+    CPU_CURRENT_TID[cpu_index].store(1, Ordering::Release);
 }
 
 /// Spawn a new kernel thread with its own 16 KiB stack, preemption context, and QoS priority.
@@ -202,6 +215,10 @@ pub fn spawn_kernel_thread(
 /// Saves incoming thread registers, checks QoS schedule, performs context switch if planned,
 /// and returns the RSP to restore.
 pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
+    let Some(cpu_index) = current_cpu_index() else {
+        kprintln!("[sched] Timer arrived on an unknown CPU; halting.");
+        crate::arch::shutdown(true);
+    };
     let mut sched = SCHEDULER.lock();
     let mut threads = THREADS.lock();
 
@@ -225,14 +242,7 @@ pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
                 if next_thread.in_use {
                     next_thread.fpu.restore();
                     set_tss_rsp0(next_thread.stack_top);
-                    CURRENT_TID.store(next_thread.tid, Ordering::Relaxed);
-                    if let Some(cpu_index) = smp::cpu_index_for_apic_id(
-                        crate::arch::x86_64::apic::current_id(),
-                    ) {
-                        unsafe {
-                            smp::PER_CPU[cpu_index].current_pid = next_thread.tid;
-                        }
-                    }
+                    CPU_CURRENT_TID[cpu_index].store(next_thread.tid, Ordering::Release);
                     if p.next_cr3 != 0 {
                         unsafe {
                             core::arch::asm!("mov cr3, {0}", in(reg) p.next_cr3, options(nostack));

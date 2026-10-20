@@ -376,8 +376,11 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
         }
         _ => {
             let table = unsafe { &mut *PROCESS_SANDBOXES.0.get() };
-            // Real current process ID tracked dynamically from scheduler task context
-            let current_pid = crate::task::current_tid().max(1);
+            // Unknown CPU/task identity must not inherit the root task's sandbox.
+            let current_pid = crate::task::current_tid();
+            if current_pid == 0 {
+                return SyscallError::InvalidArgument as i64;
+            }
             let sandbox = table.get_or_create(current_pid as u64);
             crate::linux::handle_linux_syscall(sandbox, num, arg1, arg2, arg3, arg4, arg5)
         }

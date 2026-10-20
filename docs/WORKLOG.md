@@ -334,3 +334,25 @@ provisioning or production recovery.
   active check, claims lint, and findings audit passed. F8 and F10 remain open.
 - PR #21 passed all three GitHub CI jobs and merged to `main` at
   `42e80e1022eb0fa8acb6d4db559c33ce769589c0`; local `main` was fast-forwarded.
+
+## A11 CPU-local current-task identity follow-up (2026-10-20)
+
+- `task::current_tid()` previously read a global atomic while the scheduler
+  already carried a partially used per-CPU TID field. Generic Linux syscalls
+  also converted an unknown TID into root task 1. The active branch uses
+  APIC-indexed atomic slots, returns 0 for unknown identity, rejects it in the
+  generic syscall path, and removes the duplicate non-atomic field.
+- Research/design: `docs/design/a11-percpu-task-identity.md`; evidence and exact
+  checks: `docs/EVIDENCE/A11.md`.
+- The regression guard rejects the old source. Host tests, optimized kernel
+  check/build, T0 boot and shell assertions, T2 four-discovered/one-active gate,
+  syscall/process/AP/IDT/GDT/readiness guards, claims lint, and findings audit
+  passed locally.
+- No AP was started. Global scheduler selection, TCB/FPU ownership, and timer
+  context still block SMP. A11 remains in progress.
+
+## Next task
+
+Make scheduler selection and TCB/FPU/timer context correct for per-CPU
+execution while keeping AP startup disabled. Add a hardware-path QEMU test for
+task identity on multiple CPUs before enabling any AP.
