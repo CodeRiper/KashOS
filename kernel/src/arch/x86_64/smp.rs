@@ -21,7 +21,6 @@ pub struct PerCpuData {
     pub cpu_id: usize,
     pub apic_id: u8,
     pub online: bool,
-    pub current_pid: u32,
     pub kernel_stack_top: u64,
 }
 
@@ -31,7 +30,6 @@ impl PerCpuData {
             cpu_id: 0,
             apic_id: 0,
             online: false,
-            current_pid: 0,
             kernel_stack_top: 0,
         }
     }
@@ -97,7 +95,6 @@ pub fn init(bsp_apic_id: u8) -> usize {
                                 cpu_id: detected_cpus,
                                 apic_id,
                                 online: is_bsp,
-                                current_pid: if is_bsp { 1 } else { 0 },
                                 kernel_stack_top: 0,
                             };
                         }
@@ -117,7 +114,6 @@ pub fn init(bsp_apic_id: u8) -> usize {
                 cpu_id: 0,
                 apic_id: bsp_apic_id,
                 online: true,
-                current_pid: 1,
                 kernel_stack_top: 0,
             };
         }

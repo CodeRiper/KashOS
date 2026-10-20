@@ -98,6 +98,9 @@ jobs:
       - name: Verify IDT Fault and Timer State Is CPU-Local
         run: python3 tools/test_idt_per_cpu_state.py
 
+      - name: Verify Current Task Identity Is CPU-Local
+        run: python3 tools/test_task_identity_per_cpu.py
+
       - name: Verify T0 QEMU Smoke Test Has a Bounded Serial Reader
         run: python3 tools/test_qemu_boot_timeout.py
 
