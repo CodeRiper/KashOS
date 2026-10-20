@@ -496,11 +496,14 @@ impl RootVaultFs {
         }
     }
 
-    /// Anti-forensic lock: evicts folder keys and zeroizes transient decrypt cache.
+    /// Lock the persistent root by dropping its in-memory vault state.
+    ///
+    /// `Vault` stores the volume key and root key in zeroizing wrappers, and
+    /// folder keys are zeroized when the map is dropped. Leaving the `Vault`
+    /// mounted after a session lock would keep those keys usable by VFS calls.
     pub fn lock_all(&mut self) {
-        if let Some(v) = self.vault.as_mut() {
-            v.lock_all();
-        }
+        drop(self.vault.take());
+        self.is_mounted = false;
     }
 
     pub fn free_blocks(&self) -> u64 {
@@ -554,7 +557,7 @@ pub fn free_blocks() -> u64 {
     guard.free_blocks()
 }
 
-/// Locks all folders in the root vault.
+/// Drops the mounted root vault and its in-memory keys.
 pub fn lock_root_vault() {
     let mut guard = ROOT_FS.lock();
     guard.lock_all();

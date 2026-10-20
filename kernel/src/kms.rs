@@ -117,6 +117,11 @@ pub fn unlock_with_passphrase(passphrase: &[u8]) -> Result<(), KmsError> {
 pub fn on_screen_lock() {
     let mut guard = KMS.lock();
     guard.lock_session();
+    // The mounted Vault owns derived volume/root/folder keys of its own.
+    // Scrubbing only the KMS master key would leave those keys usable. Keep
+    // the KMS lock while taking the VFS lock, matching unlock_storage's order,
+    // so no VFS caller can use the mount between the two state transitions.
+    crate::vfs::lock_root_vault();
 }
 
 /// Audits a memory slice to verify that 100% of bytes are zeroized (0x00).

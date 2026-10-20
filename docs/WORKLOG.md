@@ -86,6 +86,14 @@
   all smoke markers; this run's Conroe CPU profile does not support SMEP,
   SMAP or UMIP.
 
+## A3 lock-path follow-up
+
+- KMS zeroization previously left the mounted vault's derived volume, root,
+  and folder keys usable. Session lock now drops the mounted vault and marks
+  storage unmounted; a KMS guard protects lock ordering and state invalidation.
+- The GUI lock screen still has no kernel callback, and returned plaintext
+  copies are not covered by this primitive. A3 remains incomplete.
+
 ## Verification
 
 See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) and [`EVIDENCE/A3.md`](EVIDENCE/A3.md)
