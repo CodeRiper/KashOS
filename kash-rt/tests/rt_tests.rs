@@ -6,8 +6,13 @@ use kash_rt::alloc::{self, CANARY_MAGIC, ChunkHeader};
 use kash_rt::string;
 use kash_rt::relibc::RelibcSys;
 
+// These integration tests share one process-wide mock syscall state and heap.
+// Keep resets and allocator assertions from racing across Rust's test threads.
+static MOCK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn test_sys_mock_primitives() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     sys::mock::reset();
 
     // Verify GETPID returns mock PID
@@ -25,6 +30,7 @@ fn test_sys_mock_primitives() {
 
 #[test]
 fn test_posix_io_wrappers() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     sys::mock::reset();
 
     // Test write
@@ -49,6 +55,7 @@ fn test_posix_io_wrappers() {
 
 #[test]
 fn test_posix_security_and_system() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     sys::mock::reset();
 
     // Test pledge and unveil
@@ -71,6 +78,7 @@ fn test_posix_security_and_system() {
 
 #[test]
 fn test_memory_allocator_basic_and_alignment() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     sys::mock::reset();
 
     // Allocate 32 bytes
@@ -99,6 +107,7 @@ fn test_memory_allocator_basic_and_alignment() {
 
 #[test]
 fn test_memory_allocator_realloc_and_calloc() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     sys::mock::reset();
 
     // Allocate 16 bytes
@@ -134,6 +143,7 @@ fn test_memory_allocator_realloc_and_calloc() {
 
 #[test]
 fn test_memory_allocator_large_mmap() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     sys::mock::reset();
 
     // 128 KiB allocation (exceeds MMAP_THRESHOLD = 64 KiB)
@@ -149,6 +159,7 @@ fn test_memory_allocator_large_mmap() {
 
 #[test]
 fn test_string_and_memory_routines() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let s1 = b"Hello, World!\0";
     let s2 = b"Hello, World!\0";
     let s3 = b"Hello, KashOS!\0";
@@ -191,6 +202,7 @@ fn test_string_and_memory_routines() {
 
 #[test]
 fn test_relibc_sys_bridge() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     sys::mock::reset();
 
     assert!(RelibcSys::open("/var/log/messages", posix::O_RDONLY, 0).is_ok());
@@ -211,6 +223,7 @@ fn test_relibc_sys_bridge() {
 
 #[test]
 fn test_crt0_stack_parser() {
+    let _guard = MOCK_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     // Construct mock stack frame:
     // [0]: argc = 2
     // [1]: argv[0] -> "test_bin"
