@@ -1,8 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-20  
-**Current task branch:** `codex/a6-network-revalidation`
-**Current task:** A6 network path revalidation and fail-closed transport
+**Repository tip checked:** `main` at `00672ba85cdd4d27bd15a6166f36129c57995deb`
+**Current task branch:** `codex/handoff-current-state` (documentation handoff update)
+**Current engineering task:** A10 syscall-stack and user-space lifecycle audit
 
 ## Completed in this task
 
@@ -198,13 +199,22 @@ PR #7 (A9 VT-d revalidation) is merged to `main` at
 [`06892cf`](https://github.com/CodeRiper/KashOS/commit/06892cf612d111fee3e1a07c5d700a32effbd13a).
 PR #8 (A10 Ring 0 session honesty) is merged to `main` at
 [`a41c98b`](https://github.com/CodeRiper/KashOS/commit/a41c98b537cc8df4a6c91af240e13467da9ae874).
-The process-authority A10 follow-up is in progress on
-`codex/a10-process-authority-hardening`; branch pushes trigger GitHub Actions.
+PR #9 (process-authority hardening) is merged to `main` at
+[`00672ba`](https://github.com/CodeRiper/KashOS/commit/00672ba85cdd4d27bd15a6166f36129c57995deb).
+Local `main` was verified clean and equal to `origin/main` at that SHA before
+this documentation-only handoff branch was created. The local checkout has
+historical task branches, but A10 is not complete: the normal desktop and shell
+remain in Ring 0, and the global syscall kernel stack does not establish safe
+concurrent SMP user-process syscalls.
 
 ## Next task
 
-Continue A10 by designing and testing a real Ring 3 init/session lifecycle and
-migrating the shell and compositor behind it. Keep the current prototype UI
+Continue A10 by fixing the remaining modulo-based PID/endpoint lookups in the
+driver and IPC paths with regression checks and fail-closed resolution. Then
+trace syscall entry/return, stack ownership, interrupt nesting, and process
+lifecycle, adding a focused regression check before changing the shared
+syscall stack. Design a real Ring 3 init/session lifecycle and
+migrate the shell and compositor behind it. Keep the current prototype UI
 clearly labeled Ring 0. Revisit A2/A3 if persistent-data behavior changes; the
 local audit does not establish TPM-backed key provisioning or production
 recovery.
