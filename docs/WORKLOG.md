@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-20  
 **Current task branch:** `codex/a1-remove-fake-network-claims`  
-**Current task:** A1/A2 hardening with A3 locked-boot credential work in progress
+**Current task:** A1/A2 hardening, A3 locked-boot credential work, and safe installer shutdown
 
 ## Completed in this task
 
@@ -29,14 +29,21 @@
   KMS locked, adds hidden console unlock and gates desktop startup on a mounted
   vault. TPM sealing remains explicitly unavailable; old volumes require the
   legacy phrase and still need a safe migration path.
+- Disabled the legacy disk-writing installer after audit found its raw-sector
+  writes were synthetic and its success/recovery-token output was fabricated.
+  The old installer test script is now a safe source guard. A4 evidence was
+  downgraded because it incorrectly treated that script as a real installer
+  integration test.
 
 ## Verification
 
 See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) for exact commands and limits. Current
-local results: workspace host tests pass, kernel target check/build pass,
-network regression guard and claims linter pass, and the QEMU T0 smoke test
-reaches the shell. This does not establish TPM, IOMMU, TLS, Tor, browser
-isolation, Linux compatibility, or physical-device security.
+local results: workspace host tests pass, kernel target check/release build
+pass, installer/KMS/storage/network source guards and claims linter pass, and
+the QEMU T0 smoke test reaches the locked shell with its required markers. The
+QEMU vault image SHA-256 was unchanged (`31B809229EFA682DB6B6041AF61743D3E54D79DDFEB42C79E5BEDD853C5AE012`).
+This does not establish TPM, IOMMU, TLS, Tor, browser isolation, Linux
+compatibility, or physical-device security.
 
 ## Current GitHub state
 

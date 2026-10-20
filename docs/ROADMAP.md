@@ -40,6 +40,9 @@ compatibility.
   the final QEMU boot.
 - A CI regression guard and kvault in-memory wrong-password non-mutation test
   cover these properties. See [`EVIDENCE/A2.md`](EVIDENCE/A2.md).
+- The legacy `install-os` path wrote a fabricated partition table and test
+  marker/noise to raw sectors, then reported a successful install. It is now
+  disabled and guarded in CI; a real installer remains unimplemented.
 
 ### A3 re-audit finding
 

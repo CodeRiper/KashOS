@@ -74,5 +74,8 @@ jobs:
       - name: Verify KMS Boots Locked
         run: python3 tools/test_kms_boot_locked.py
 
+      - name: Verify Legacy Installer Cannot Write Disks
+        run: python3 tools/test_installer_fail_closed.py
+
 
 
