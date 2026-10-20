@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-20  
 **Current task branch:** `codex/a1-remove-fake-network-claims`  
-**Current task:** A1/A2 hardening, A3 locked-boot credential work, and safe installer shutdown
+**Current task:** A1/A2 hardening, A3 locked boot, safe installer shutdown, and A4/A5 TPM fail-closed audit
 
 ## Completed in this task
 
@@ -68,11 +68,16 @@ Claims & Honesty Gate all passed.
 The latest run, [`39398533143`](https://github.com/CodeRiper/KashOS/actions/runs/39398533143)
 for commit `3d5b28c24f7a7e6ae711d4878cfb1138609b65dd`, also completed
 successfully with all three jobs passing.
+Run [`39400063060`](https://github.com/CodeRiper/KashOS/actions/runs/39400063060)
+for commit `55ab3aa095454b931bdd21d564d4d4ac236ee86d` completed successfully
+with Workspace Subsystem Tests, Build Microkernel (x86-64), and Build Guide v2
+Claims & Honesty Gate all passing.
 
 ## Next task
 
 Revalidate A2 and A3 against the current code before changing persistent-data
 behavior: inspect vault open/format paths, passphrase lifecycle, derivation,
-recovery, and interruption cases. Follow the engineering plan order and add
-evidence before marking either task complete. Continue the A4-A21 audit after
-those data/key-safety gates.
+recovery, and interruption cases. A4/A5 are audited but unavailable until a
+real TPM implementation passes hardware/swtpm tests. Then continue the ordered
+A6-A21 audit, replacing old model-test claims with runtime evidence and fixing
+unsafe or misleading behavior before marking tasks complete.
