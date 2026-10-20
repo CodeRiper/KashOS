@@ -304,6 +304,8 @@ provisioning or production recovery.
 - The handoff requests `rtk` prefixes, but `rtk` is unavailable in this shell;
   direct PowerShell commands were used. T2 needed an explicit path to the
   built kernel because the harness default path is absent in this checkout.
-- This code and evidence are on the local task branch pending publication and
-  CI review. Next, make IDT/exception state and scheduler/timer context CPU-local
-  and test those paths before any AP startup is re-enabled.
+- Commit `dbb114e` is pushed to `origin/codex/a11-percpu-arch-foundation`.
+  GitHub's push output supplied a PR creation URL, but `gh` is not installed
+  and browser use is disabled in this environment. Next, make IDT/exception
+  state and scheduler/timer context CPU-local and test those paths before AP
+  startup is re-enabled.
