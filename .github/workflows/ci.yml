@@ -68,6 +68,9 @@ jobs:
       - name: Verify Remote Network Fails Closed Until Implemented
         run: python3 tools/test_network_fail_closed.py
 
+      - name: Verify NIC DMA Fails Closed Until Isolated
+        run: python3 tools/test_nic_dma_fail_closed.py
+
       - name: Verify UI Privacy and Network Claims
         run: python3 tools/test_ui_honesty.py
 

@@ -108,6 +108,21 @@
   linter, release kernel check, ground-truth check (0/12 present), and QEMU T0
   boot smoke passed. QEMU boot does not exercise live network traffic.
 
+## A7 NIC revalidation
+
+- Found that all three NIC drivers convert kernel virtual pointers to presumed
+  DMA physical addresses; PCI probing enabled bus mastering and ignored init
+  errors before marking allocated driver objects `Real`. The RTL8139 setup also
+  enabled promiscuous receive. None of the existing package tests exercise NIC
+  hardware or DMA.
+- Disabled all NIC initialization and PCI probing from the NIC service. Device
+  init now returns an unavailable error before hardware access, inactive TX/RX
+  fail closed, and registry status reports driver stubs. Added a CI guard and
+  downgraded A7 evidence to Needs revalidation.
+- A7 remains incomplete until DMA-safe physical allocations, verified IOMMU
+  isolation, correct driver protocols, QEMU packet-capture validation, and
+  physical-device testing are available.
+
 ## Verification
 
 See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) and [`EVIDENCE/A3.md`](EVIDENCE/A3.md)
@@ -122,40 +137,16 @@ compatibility, or physical-device security.
 
 ## Current GitHub state
 
-The task branch is pushed to `origin`. GitHub Actions runs on branch pushes
-and pull requests targeting `main`. No pull request has been opened yet because
-the available browser session is signed out. Do not merge until the user
-reviews the proposed change and platform CI reports its results.
-
-GitHub Actions was enabled for all branch pushes in this task. Run
-[`39397626995`](https://github.com/CodeRiper/KashOS/actions/runs/39397626995)
-for commit `d49ebbc7a1b5da661f3e1b52faa66c86ea16d63c` completed successfully:
-Workspace Subsystem Tests, Build Microkernel (x86-64), and Build Guide v2
-Claims & Honesty Gate all passed.
-The latest run, [`39398533143`](https://github.com/CodeRiper/KashOS/actions/runs/39398533143)
-for commit `3d5b28c24f7a7e6ae711d4878cfb1138609b65dd`, also completed
-successfully with all three jobs passing.
-Run [`39400063060`](https://github.com/CodeRiper/KashOS/actions/runs/39400063060)
-for commit `55ab3aa095454b931bdd21d564d4d4ac236ee86d` completed successfully
-with Workspace Subsystem Tests, Build Microkernel (x86-64), and Build Guide v2
-Claims & Honesty Gate all passing.
-Run [`39403735414`](https://github.com/CodeRiper/KashOS/actions/runs/39403735414)
-for commit `764c483dc2f876313bc50610e8717b3c48939179` completed successfully
-with all three jobs passing. These results precede the current uncommitted
-A18 Settings-pane follow-up.
-Run [`39404242220`](https://github.com/CodeRiper/KashOS/actions/runs/39404242220)
-for commit `8c688f78ce009058f7edfcc6510279949dc51c10` also completed
-successfully with all three jobs passing. It predates the current additional
-UI-claim fixes and their new CI guard.
-Run [`39404490122`](https://github.com/CodeRiper/KashOS/actions/runs/39404490122)
-for commit `6d9e09c4ec364461fa73960b58c8a8a1774db59b` completed successfully
-with all three jobs passing. It predates the current app-catalog follow-up.
+PR #4 (vault lifecycle and UI honesty) and PR #5 (network fail-closed behavior)
+have been merged to `main`. PR #5 merged at
+[`a347b0f`](https://github.com/CodeRiper/KashOS/commit/a347b0f0f4caa9ee744ea27d66eb5adbdd7932b4).
+The A7 NIC DMA revalidation is in progress on `codex/a7-nic-driver-revalidation`;
+it must pass GitHub CI before it is merged. Branch pushes trigger GitHub Actions.
 
 ## Next task
 
-Revalidate A2 and A3 against the current code before changing persistent-data
-behavior: inspect vault open/format paths, passphrase lifecycle, derivation,
-recovery, and interruption cases. A4/A5 are audited but unavailable until a
-real TPM implementation passes hardware/swtpm tests. Then continue the ordered
-A6-A21 audit, replacing old model-test claims with runtime evidence and fixing
-unsafe or misleading behavior before marking tasks complete.
+Continue the ordered security revalidation from A7 into A9 and A10, keeping
+network and DMA disabled until A7/A9 have real allocations, hardware isolation,
+and packet-level evidence. Revisit A2/A3 if changes to persistent-data behavior
+are proposed; the previous local audit does not establish TPM-backed key
+provisioning or production recovery.
