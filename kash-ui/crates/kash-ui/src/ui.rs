@@ -128,14 +128,13 @@ pub struct SysState {
     pub passphrase: String,
     pub duress_pass: String,
     pub duress_active: bool,
-    /// 0 never, 1 = 1 min, 2 = 5 min, 3 = 10 min of inactivity.
+    /// 0 never, 1 = 1 min, 2 = 5 min, 3 = 10 min of UI inactivity.
     pub lock_idle: usize,
     pub lock_buttons: bool,
     pub lock_clock: bool,
     pub lock_user: bool,
     pub lock_gateway: bool,
     pub lock_hint: String,
-    pub bios_on_boot: bool,
     // ── notifications ──
     pub notif_preview: usize,
     pub notif_locked: bool,
@@ -161,7 +160,7 @@ impl SysState {
             notifications: true, night_shift: false,
             anon_gateway: false, packet_filter: false, kill_switch: false, telemetry: false, key_manager: false, duress: false,
             unix_secs: 1_791_786_840, screen: Rect::new(0.0, 0.0, 1440.0, 900.0), display_output: Rect::new(0.0, 0.0, 1440.0, 900.0), display_scale: 0, settings_pane_request: None,
-            passphrase: String::new(), duress_pass: String::new(), duress_active: false, lock_idle: 0, lock_buttons: true, lock_clock: true, lock_user: true, lock_gateway: true, lock_hint: String::new(), bios_on_boot: true,
+            passphrase: String::new(), duress_pass: String::new(), duress_active: false, lock_idle: 0, lock_buttons: true, lock_clock: true, lock_user: true, lock_gateway: true, lock_hint: String::new(),
             notif_preview: 1, notif_locked: true, notif_sleeping: false, notif_mirror: false, notif_group: 0, notif_apps: alloc::vec![AppNotif::new(); 32],
             reg: crate::registry::Registry::new(), privacy_request: None, dock_recents: true, dock_downloads: true, dock_indicators: true, dock_bounce: true, stack_view: 0,
         }

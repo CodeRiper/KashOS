@@ -41,13 +41,66 @@
   not treated as hardware protection. Updated A4/A5 evidence, the threat model,
   claims matrix, public README, hardware report, and GUI POST screen; removed
   the fake TPM driver entry and added a CI regression guard.
+- Bounded Argon2 work before vault unlock allocates memory. Generic opens cap
+  at 256 MiB; the kernel derives the budget from the largest free heap block
+  minus a 16 MiB reserve. Added a non-mutation regression test, CI guard, and
+  A3 evidence; an explicit-budget recovery API preserves access to higher-cost
+  volumes on systems with enough memory.
+- Follow-up A3 audit found that new volume formatting accepted 8 KiB KDF costs
+  and the runtime kernel self-test used a 64 KiB profile. New persistent
+  formats now require the 19 MiB Argon2id floor; low-cost old volumes remain
+  openable for recovery. The fast test fixture requires an explicit debug-only
+  feature, and the kernel self-test uses the production floor. The legacy
+  64 MiB profile's invalid 32-pass value was corrected to 16.
+- A18 re-audit found that Settings still claimed native e1000/virtio networking,
+  a running `smoltcp` path, and active hardware filtering even though remote
+  networking is disabled and the filter is not NIC-integrated. The network
+  pane now reports these unavailable states, with regression checks added to
+  the network honesty gate. This does not complete A18 or implement networking.
+- Additional A18 review removed a false “all permissions denied” browser-demo
+  banner and a fabricated three-hop gateway label; the Messages catalog now
+  says that no network transport is connected. A dedicated UI honesty guard
+  covers these claims. App package metadata and actual permission enforcement
+  remain unaudited.
+- Follow-up A18 audit removed fictional installed CLI/driver records, fake
+  package versions/sizes/dates/signatures and seeded downloads from the
+  Settings registry; removed fabricated loaded-driver files; and labeled the
+  remaining compiled-in apps and permission settings as unverified UI demos.
+  The UI suite passed, as did 13 UI honesty checks, 24 network checks, and the
+  claims linter. This does not add package inventory, signature checks, or
+  kernel-enforced permission policy.
+- Further A18 review removed the developer's hard-coded name/Kash ID and fake
+  hardware serial, processor inventory, disk name, refresh rate, and `7 / 7`
+  UI self-test claim. About views use the crate version and clearly mark boot
+  results as not reported to the UI; the startup panel is labeled as a
+  prototype sequence, not firmware POST. The UI tests, 18 UI honesty checks,
+  claims linter and 12-finding check passed; this does not implement a live
+  account, firmware, CPU inventory or self-test status service.
+- Settings follow-up changed unimplemented preference rows from `Standard` to
+  `Unavailable`, removed the inactive domain-profile claim, and marked missing
+  re-authentication, hardware-key, and vault-key services explicitly. The real
+  inactivity auto-lock control remains wired to the desktop idle timer. The
+  lock-screen text no longer ties notification privacy to its unconnected
+  Lockdown demo. UI tests, 24 UI honesty checks, and the claims linter pass; release kernel
+  target check and the 12-finding check pass. QEMU T0 reached the shell with
+  all smoke markers; this run's Conroe CPU profile does not support SMEP,
+  SMAP or UMIP.
+
+## A3 lock-path follow-up
+
+- KMS zeroization previously left the mounted vault's derived volume, root,
+  and folder keys usable. Session lock now drops the mounted vault and marks
+  storage unmounted; a KMS guard protects lock ordering and state invalidation.
+- The GUI lock screen still has no kernel callback, and returned plaintext
+  copies are not covered by this primitive. A3 remains incomplete.
 
 ## Verification
 
-See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) for exact commands and limits. Current
-local results: workspace host tests pass, kernel target check/release build
-pass, `kash-ui` tests pass, installer/KMS/storage/network/TPM source guards and
-claims linter pass, and the QEMU T0 smoke test reaches the locked shell with
+See [`EVIDENCE/A1.md`](EVIDENCE/A1.md) and [`EVIDENCE/A3.md`](EVIDENCE/A3.md)
+for exact commands and limits. Current local results: workspace host tests
+pass (the full vault corruption test took 324 seconds), kernel target check/release build
+pass, `kash-ui` tests pass, installer/KMS/storage/network/TPM/KDF source guards
+and claims linter pass, and the QEMU T0 smoke test reaches the locked shell with
 its required markers. The QEMU vault image SHA-256 was unchanged
 (`31B809229EFA682DB6B6041AF61743D3E54D79DDFEB42C79E5BEDD853C5AE012`).
 This does not establish TPM, IOMMU, TLS, Tor, browser isolation, Linux
@@ -72,6 +125,17 @@ Run [`39400063060`](https://github.com/CodeRiper/KashOS/actions/runs/39400063060
 for commit `55ab3aa095454b931bdd21d564d4d4ac236ee86d` completed successfully
 with Workspace Subsystem Tests, Build Microkernel (x86-64), and Build Guide v2
 Claims & Honesty Gate all passing.
+Run [`39403735414`](https://github.com/CodeRiper/KashOS/actions/runs/39403735414)
+for commit `764c483dc2f876313bc50610e8717b3c48939179` completed successfully
+with all three jobs passing. These results precede the current uncommitted
+A18 Settings-pane follow-up.
+Run [`39404242220`](https://github.com/CodeRiper/KashOS/actions/runs/39404242220)
+for commit `8c688f78ce009058f7edfcc6510279949dc51c10` also completed
+successfully with all three jobs passing. It predates the current additional
+UI-claim fixes and their new CI guard.
+Run [`39404490122`](https://github.com/CodeRiper/KashOS/actions/runs/39404490122)
+for commit `6d9e09c4ec364461fa73960b58c8a8a1774db59b` completed successfully
+with all three jobs passing. It predates the current app-catalog follow-up.
 
 ## Next task
 

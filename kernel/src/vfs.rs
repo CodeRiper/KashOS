@@ -332,8 +332,17 @@ impl RootVaultFs {
 
         let mut rng = Csprng::new();
 
-        // Attempt 1: Open existing formatted vault
-        let open_res = Vault::open(dev, &mut rng, master_key);
+        // Bound Argon2 from the untrusted volume header by real free heap
+        // memory, retaining 16 MiB for the kernel and vault metadata. Without
+        // this gate a forged header can request gigabytes and exhaust the OS.
+        const KDF_HEAP_RESERVE_KIB: usize = 16 * 1024;
+        let (_, _, largest_free_block) = crate::heap::dump_stats();
+        let heap_budget_kib = (largest_free_block / 1024)
+            .saturating_sub(KDF_HEAP_RESERVE_KIB)
+            .min(kvault::ABSOLUTE_MAX_KDF_MEMORY_KIB as usize) as u32;
+
+        // Attempt 1: Open existing formatted vault within available memory.
+        let open_res = Vault::open_with_memory_limit(dev, &mut rng, master_key, heap_budget_kib);
         let vault = match open_res {
             Ok(OpenOutcome::Unlocked(v)) => {
                 crate::kprintln!("[vfs] Existing kvault root volume unlocked successfully");
@@ -487,11 +496,14 @@ impl RootVaultFs {
         }
     }
 
-    /// Anti-forensic lock: evicts folder keys and zeroizes transient decrypt cache.
+    /// Lock the persistent root by dropping its in-memory vault state.
+    ///
+    /// `Vault` stores the volume key and root key in zeroizing wrappers, and
+    /// folder keys are zeroized when the map is dropped. Leaving the `Vault`
+    /// mounted after a session lock would keep those keys usable by VFS calls.
     pub fn lock_all(&mut self) {
-        if let Some(v) = self.vault.as_mut() {
-            v.lock_all();
-        }
+        drop(self.vault.take());
+        self.is_mounted = false;
     }
 
     pub fn free_blocks(&self) -> u64 {
@@ -545,7 +557,7 @@ pub fn free_blocks() -> u64 {
     guard.free_blocks()
 }
 
-/// Locks all folders in the root vault.
+/// Drops the mounted root vault and its in-memory keys.
 pub fn lock_root_vault() {
     let mut guard = ROOT_FS.lock();
     guard.lock_all();

@@ -45,7 +45,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run Workspace Tests
-        run: cargo test --workspace --exclude kernel
+        run: cargo test --workspace --exclude kernel --features kvault/test-fast-kdf
 
   honesty-gate:
     name: Build Guide v2 Claims & Honesty Gate
@@ -68,6 +68,12 @@ jobs:
       - name: Verify Remote Network Fails Closed Until Implemented
         run: python3 tools/test_network_fail_closed.py
 
+      - name: Verify UI Privacy and Network Claims
+        run: python3 tools/test_ui_honesty.py
+
+      - name: Verify UI Privacy and Network Claims
+        run: python3 tools/test_ui_honesty.py
+
       - name: Verify Boot Storage Tests Are Non-Destructive
         run: python3 tools/test_storage_non_destructive.py
 
@@ -79,6 +85,9 @@ jobs:
 
       - name: Verify TPM Production APIs Fail Closed
         run: python3 tools/test_tpm_fail_closed.py
+
+      - name: Verify Vault KDF Memory Budget
+        run: python3 tools/test_kdf_memory_budget.py
 
 
 
