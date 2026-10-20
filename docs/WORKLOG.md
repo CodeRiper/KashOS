@@ -289,3 +289,21 @@ init/session lifecycle and migrate the shell and compositor behind it. Keep
 the current prototype UI clearly labeled Ring 0. Revisit A2/A3 if persistent-
 data behavior changes; the local audit does not establish TPM-backed key
 provisioning or production recovery.
+
+## A11 CPU-local GDT/TSS groundwork (2026-10-20)
+
+- Work is isolated on `codex/a11-percpu-arch-foundation`; it replaces shared
+  GDT/TSS/IST globals with per-CPU state, resolves TSS stack updates through
+  the current APIC ID, and discovers the BSP slot before installing its GDT.
+- AP startup remains disabled. The IDT and expected-fault state remain shared,
+  and scheduler/timer paths remain single-CPU; this is not SMP support.
+- The new baseline-aware source guard, all repository guards, claims lint,
+  findings audit, full host workspace tests, release kernel check/build, T0
+  QEMU shell smoke test, and T2 four-CPU discovery/one-active-CPU check passed.
+  Details are in `docs/EVIDENCE/A11.md`.
+- The handoff requests `rtk` prefixes, but `rtk` is unavailable in this shell;
+  direct PowerShell commands were used. T2 needed an explicit path to the
+  built kernel because the harness default path is absent in this checkout.
+- This code and evidence are on the local task branch pending publication and
+  CI review. Next, make IDT/exception state and scheduler/timer context CPU-local
+  and test those paths before any AP startup is re-enabled.

@@ -226,8 +226,12 @@ pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
                     next_thread.fpu.restore();
                     set_tss_rsp0(next_thread.stack_top);
                     CURRENT_TID.store(next_thread.tid, Ordering::Relaxed);
-                    unsafe {
-                        smp::PER_CPU[0].current_pid = next_thread.tid;
+                    if let Some(cpu_index) = smp::cpu_index_for_apic_id(
+                        crate::arch::x86_64::apic::current_id(),
+                    ) {
+                        unsafe {
+                            smp::PER_CPU[cpu_index].current_pid = next_thread.tid;
+                        }
                     }
                     if p.next_cr3 != 0 {
                         unsafe {

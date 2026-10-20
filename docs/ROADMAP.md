@@ -1,9 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `ea7ba7557e59a98053bb94ccdc2cc9e2364f5a2b` (PR #15)
-**Active work branch:** `main`
-**Current gate:** A11 SMP revalidation; secondary CPUs remain parked until CPU-local interrupt and scheduler state are initialized.
+**Repository state checked:** `main` at `26f8781c1d32b7ad9281c046fdc37ca3f672bf5e` (PR #16); follow-up work is isolated on `codex/a11-percpu-arch-foundation`
+**Current gate:** A11 groundwork; GDT/TSS/IST storage is CPU-local, but secondary CPUs remain parked until CPU-local IDT, exception state, syscall entry, and scheduler/timer paths are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
@@ -38,6 +37,10 @@ compatibility.
   interrupts without loading AP-local IDT/TSS state or initializing a scheduler
   context. AP startup is disabled and AP entry stays parked;
   only initialized CPUs are reported online. SMP scheduling remains unavailable.
+- Current follow-up replaces singleton GDT/TSS/IST storage with CPU-indexed
+  state and resolves the TSS stack update using the current APIC ID. It does
+  not initialize AP-local IDTs, exception recovery state, or scheduler state;
+  APs remain parked. See [`EVIDENCE/A11.md`](EVIDENCE/A11.md).
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.
