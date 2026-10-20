@@ -57,6 +57,11 @@
   networking is disabled and the filter is not NIC-integrated. The network
   pane now reports these unavailable states, with regression checks added to
   the network honesty gate. This does not complete A18 or implement networking.
+- Additional A18 review removed a false “all permissions denied” browser-demo
+  banner and a fabricated three-hop gateway label; the Messages catalog now
+  says that no network transport is connected. A dedicated UI honesty guard
+  covers these claims. App package metadata and actual permission enforcement
+  remain unaudited.
 
 ## Verification
 
@@ -93,6 +98,10 @@ Run [`39403735414`](https://github.com/CodeRiper/KashOS/actions/runs/39403735414
 for commit `764c483dc2f876313bc50610e8717b3c48939179` completed successfully
 with all three jobs passing. These results precede the current uncommitted
 A18 Settings-pane follow-up.
+Run [`39404242220`](https://github.com/CodeRiper/KashOS/actions/runs/39404242220)
+for commit `8c688f78ce009058f7edfcc6510279949dc51c10` also completed
+successfully with all three jobs passing. It predates the current additional
+UI-claim fixes and their new CI guard.
 
 ## Next task
 

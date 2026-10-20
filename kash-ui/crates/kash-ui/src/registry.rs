@@ -149,7 +149,7 @@ impl Registry {
             e("Notes", Gui, Some(AppKind::Notes), "27.0", 14_200_000, ks, true, true, "Oct 9", "Quick notes", &[(Files, Allow), (Photos, Ask), (Notifications, Allow)]),
             e("Photos", Gui, Some(AppKind::Photos), "27.0", 61_000_000, ks, true, true, "Oct 9", "Your photo library", &[(Photos, Allow), (Camera, Ask), (Location, Ask), (Files, Allow), (Network, Allow)]),
             e("Music", Gui, Some(AppKind::Music), "27.0", 54_000_000, ks, true, true, "Oct 9", "Play your music", &[(Microphone, Ask), (Network, Allow), (Bluetooth, Allow), (Notifications, Allow), (Files, Allow)]),
-            e("Messages", Gui, Some(AppKind::Messages), "27.0", 22_000_000, ks, true, true, "Oct 9", "Chat over the Anonymity Gateway", &[(Contacts, Allow), (Notifications, Allow), (Camera, Ask), (Microphone, Ask), (Network, Allow), (Photos, Ask), (Location, Ask)]),
+            e("Messages", Gui, Some(AppKind::Messages), "27.0", 22_000_000, ks, true, true, "Oct 9", "Messaging demo; no network transport is connected", &[(Contacts, Allow), (Notifications, Allow), (Camera, Ask), (Microphone, Ask), (Network, Allow), (Photos, Ask), (Location, Ask)]),
             e("Activity Monitor", Gui, Some(AppKind::ActivityMonitor), "27.0", 11_600_000, ks, true, true, "Oct 12", "Processes, memory and capabilities", &[(Accessibility, Allow), (AppMgmt, Allow), (FullDisk, Ask), (Network, Allow)]),
             e("Calculator", Gui, Some(AppKind::Calculator), "27.0", 3_900_000, ks, true, true, "Oct 12", "Everyday maths", &[]),
             // ── CLI tools ──

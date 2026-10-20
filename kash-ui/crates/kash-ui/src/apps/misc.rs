@@ -101,7 +101,7 @@ impl App for Browser {
         let sec_card = Rect::new(area.cx() - 320.0, base_y + 105.0, 640.0, 36.0);
         cx.cv.fill_rrect(sec_card, 10.0, th.pick(Color::rgba(255, 69, 58, 24), Color::rgba(255, 69, 58, 36)));
         cx.cv.stroke_rrect(sec_card, 10.0, 1.0, Color::rgba(255, 69, 58, 90));
-        cx.text_in(sec_card, "🛡 All Permissions Denied by Default (Camera, Mic, Network, Files blocked until enabled in Settings)", 11.5, Weight::Regular, th.pick(Color::hex(0xC92A2A), Color::hex(0xFF6B6B)), Align::Center);
+        cx.text_in(sec_card, "Browser demo · Remote networking and process-isolated permissions are unavailable", 11.5, Weight::Regular, th.pick(Color::hex(0xC92A2A), Color::hex(0xFF6B6B)), Align::Center);
 
         let favs = [("DuckDuckGo", 0xDE5833), ("Mozilla", 0x000000), ("Wikipedia", 0x3366CC), ("EFF", 0xED1C24), ("Tor Project", 0x7D4698), ("Vault", 0x30D158)];
         let tw = 84.0; let gap = 20.0; let total = favs.len() as f32 * tw + (favs.len() as f32 - 1.0) * gap;

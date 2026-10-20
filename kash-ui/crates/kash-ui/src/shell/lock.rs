@@ -205,7 +205,7 @@ impl Lock {
 
         // ── gateway chip ──
         if cx.sys.lock_gateway {
-            let gw = if cx.sys.anon_gateway { "Anonymity Gateway · 3 hops" } else { "Anonymity Gateway off" };
+            let gw = "Anonymity Gateway unavailable";
             let tw = cx.measure(gw, 11.5, Weight::Medium) + 34.0;
             let r = Rect::new(cxm - tw * 0.5, h - 138.0, tw, 26.0);
             cx.cv.fill_rrect(r, 13.0, Color::rgba(255, 255, 255, 34));
