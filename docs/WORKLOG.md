@@ -332,3 +332,5 @@ provisioning or production recovery.
   vault image; it observed the NX/WP recovery, T13, T22, locked vault, and shell.
 - The release build, complete host workspace suite, T2 four-discovered/one-
   active check, claims lint, and findings audit passed. F8 and F10 remain open.
+- PR #21 passed all three GitHub CI jobs and merged to `main` at
+  `42e80e1022eb0fa8acb6d4db559c33ce769589c0`; local `main` was fast-forwarded.
