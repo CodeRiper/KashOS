@@ -30,9 +30,12 @@ isolation, Linux compatibility, or physical-device security.
 
 ## Current GitHub state
 
-The task branch is ready to push/open for review. Record the branch and PR URL
-here after GitHub accepts it. Do not merge until the user reviews the PR and
-the platform CI checks have reported their results.
+The task branch was pushed successfully to `origin` at commit
+`2b9d696a4b34769fccb16f569c8e6eda73a52b60`. The local tree is clean. No pull
+request has been opened yet: GitHub Actions is configured to run on `main`
+pushes and pull requests targeting `main`, and the available browser session
+is signed out. Do not merge until the user reviews the proposed change and
+platform CI reports its results.
 
 ## Next task
 
