@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,19 +37,20 @@ def main() -> None:
     check(source)
     print("PASS: QEMU serial output cannot block the T0 smoke-test timeout")
 
-    old_source = subprocess.run(
-        ["git", "show", f"HEAD:{TEST_PATH}"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    try:
-        check(old_source)
-    except AssertionError:
-        print("PASS: regression guard rejects the old blocking reader")
-    else:
-        raise AssertionError("regression guard accepted the blocking QEMU reader")
+    if "--verify-baseline" in sys.argv:
+        old_source = subprocess.run(
+            ["git", "show", f"HEAD^:{TEST_PATH}"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        try:
+            check(old_source)
+        except AssertionError:
+            print("PASS: regression guard rejects the pre-change blocking reader")
+        else:
+            raise AssertionError("regression guard accepted the blocking QEMU reader")
 
 
 if __name__ == "__main__":

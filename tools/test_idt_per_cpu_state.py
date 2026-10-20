@@ -65,14 +65,14 @@ def main() -> None:
 
     if "--verify-baseline" in sys.argv:
         old_idt = subprocess.run(
-            ["git", "show", f"HEAD:{IDT_PATH}"],
+            ["git", "show", f"HEAD^:{IDT_PATH}"],
             cwd=ROOT,
             check=True,
             capture_output=True,
             text=True,
         ).stdout
         old_arch = subprocess.run(
-            ["git", "show", f"HEAD:{ARCH_PATH}"],
+            ["git", "show", f"HEAD^:{ARCH_PATH}"],
             cwd=ROOT,
             check=True,
             capture_output=True,
@@ -81,7 +81,7 @@ def main() -> None:
         try:
             check(old_idt, old_arch)
         except AssertionError:
-            print("PASS: regression guard rejects the old shared interrupt state")
+            print("PASS: regression guard rejects the pre-change shared interrupt state")
         else:
             raise AssertionError("regression guard accepted the old shared interrupt state")
 
