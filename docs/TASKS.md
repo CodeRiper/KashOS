@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | codex/a10-percpu-syscall-entry | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | Needs revalidation | main | docs/EVIDENCE/A11.md |
+| A11 | SMP and scheduler | Needs revalidation (AP startup disabled) | codex/a11-park-unconfigured-aps | docs/EVIDENCE/A11.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
@@ -51,10 +51,11 @@
 
 ## Current implementation handoff
 
-- Verified repository tip before the active follow-up: `main` at `2931a8c5a57dbe6706d6f9377322fa2cfe70a8d3` (PR #11).
+- Verified repository tip before the active follow-up: `main` at `bfed3b1a2c7247be1a9b260f50fee1b49b9215f2` (PR #12).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
 - PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
-- The active branch `codex/a10-percpu-syscall-entry` replaces shared syscall entry state with per-CPU state and keeps the malformed-return IRET frame on the trusted stack. Local release build and T0 QEMU passed; CI/merge remain outstanding.
+- PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.
 - A10 is still incomplete: ordinary desktop/settings/shell boot in Ring 0. APs do not have the per-CPU architecture state or user-task setup required for SMP userland; see `docs/EVIDENCE/A10.md`.
-- Next code audit after this branch: validate AP GDT/IDT/TSS, syscall MSRs, per-core scheduler state, and syscall concurrency before enabling AP user processes.
+- A11 revalidation found the AP path enables local timer interrupts before loading an AP-local IDT, and does not initialize a TSS or scheduler context. The active branch parks secondary CPUs and reports only initialized CPUs as online. SMP remains unavailable pending full per-CPU setup and multi-core tests.
+- Next: implement and validate AP-local GDT/IDT/TSS, syscall MSRs, scheduler state, and exception/interrupt paths before enabling SMP execution.
 

@@ -192,20 +192,9 @@ pub fn init() {
     }
 }
 
-/// Initialize Local APIC on an Application Processor (AP) core.
+/// Keep AP-local interrupt delivery disabled until its IDT and task state exist.
 pub fn init_ap() {
-    unsafe {
-        // Enable APIC via SVR: set bit 8 and spurious vector (0xFF).
-        write32(APIC_SVR, APIC_ENABLE | 0xFF);
-
-        // Zero task priority — allow all interrupts.
-        write32(APIC_TPR, 0);
-
-        // Timer: divide by 16, periodic mode, vector 32.
-        write32(APIC_TIMER_DCR, 0x3);
-        write32(APIC_LVT_TIMER, TIMER_PERIODIC | TIMER_VECTOR);
-        write32(APIC_TIMER_ICR, initial_count());
-    }
+    kprintln!("[apic] AP interrupt setup is disabled until CPU-local IDT/TSS state is installed.");
 }
 
 /// Signal end-of-interrupt to the APIC or legacy PIC (call at end of every IRQ handler).
