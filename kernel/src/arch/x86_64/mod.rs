@@ -440,10 +440,9 @@ const APIC_MMIO_LEN: u64 = 0x1000;
 /// Also enables SMEP and SMAP (CR4 bits 20/21) when the CPU supports them
 /// (checked via CPUID — Core 2 Duo-class CPUs in this project's own
 /// old-hardware testing do not, and setting an unsupported CR4 bit faults).
-/// Both are no-ops in terms of what they currently restrict, since nothing
-/// user-mode-accessible exists in this kernel yet (there is no ring 3
-/// support) — they're enabled now so that gap doesn't have to be
-/// remembered and revisited later, the same reasoning as EFER.NXE above.
+/// The Ring 3 process mechanism is exercised by a boot self-test, but normal
+/// UI and service paths remain in Ring 0. These mitigations do not establish
+/// isolation for those kernel-resident paths.
 pub fn enable_wx_paging(
     pt_region: MemRegion,
     extra_rw_regions: &[(u64, u64)],

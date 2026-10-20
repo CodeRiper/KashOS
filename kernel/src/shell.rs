@@ -796,7 +796,7 @@ impl KashShell {
                 kprintln!("║ [2] Capability Inspector (Zero Ambient Authority):                   ║");
                 kprintln!("║     - Root CSpace Badge   : 0x01 (CoreSystem Master Token)           ║");
                 kprintln!("║     - Active Capsules     : {} registered .kapp bundles                ║", self.capsule_mgr.get_bundles().len());
-                kprintln!("║     - Privilege Boundary  : Ring 3 User Space Isolation Enforced     ║");
+                kprintln!("║     - Privilege Boundary  : UI and shell currently run in Ring 0    ║");
                 kprintln!("║     - seL4 Rights Model   : Read | Write | Grant | Revoke            ║");
                 kprintln!("╠──────────────────────────────────────────────────────────────────────╣");
                 kprintln!("║ [3] Network & Security Switch:                                       ║");
@@ -815,19 +815,13 @@ impl KashShell {
 
             "run-user" | "exec-ring3" => {
                 kprintln!("\n╔══════════════════════════════════════════════════════════════════════╗");
-                kprintln!("║              KASH-OS RING 3 USER-SPACE PRIVILEGE BOUNDARY            ║");
+                kprintln!("║                  KASH-OS USER PROCESS STATUS                          ║");
                 kprintln!("╠══════════════════════════════════════════════════════════════════════╣");
-                kprintln!("║ Executing transition from Ring 0 Supervisor Mode to Ring 3 Userland: ║");
-                kprintln!("║   1. GDT User Code Segment  : 0x23 (Index 4, RPL=3)                  ║");
-                kprintln!("║   2. GDT User Data Segment  : 0x1B (Index 3, RPL=3)                  ║");
-                kprintln!("║   3. Dedicated Kernel Stack : TSS.RSP0 calibrated for syscalls       ║");
-                kprintln!("║   4. Fast Syscall MSRs      : STAR=0x100008, LSTAR=handler, FMASK    ║");
-                kprintln!("║   5. User Virtual Space     : Isolated CR3 Page Directory (W^X)      ║");
-                kprintln!("║   6. Execution Boundary     : sysretq / iretq unprivileged transition║");
+                kprintln!("║ User-mode process launch is not connected to the normal boot session.║");
+                kprintln!("║ T13 exercises a hand-built test process; it is not the desktop shell.║");
+                kprintln!("║ Desktop, settings, and console currently execute in Ring 0.         ║");
                 kprintln!("╠──────────────────────────────────────────────────────────────────────╣");
-                crate::elf::DebianPackageSandbox::test_debian_package_launch();
-                kprintln!("║ Ring 3 Execution State: [VERIFIED NOMINAL]                          ║");
-                kprintln!("║ Any fault (SIGSEGV/null deref) safely contained without kernel panic.║");
+                kprintln!("║ Status: user-space service isolation is incomplete.                 ║");
                 kprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
             }
 

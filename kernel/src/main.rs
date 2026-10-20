@@ -316,13 +316,13 @@ pub fn kmain(hartid: usize, info: usize) -> ! {
 
     print_progress_bar(95, "Finalizing kernel services...");
 
-    // ── Step 9: User-Space Session & Services (Task A10 / Finding F10) ────────
-    print_progress_bar(100, "Kernel initialization complete. Launching user-space services.");
+    // ── Step 9: Prototype kernel-resident UI (A10 userland migration pending) ─
+    print_progress_bar(100, "Kernel initialization complete. Starting kernel-resident UI.");
 
     // Rule R1: Print the single source-of-truth status registry banner
     status::print_boot_banner();
 
-    session::launch_user_session(arch::framebuffer());
+    session::launch_kernel_resident_session(arch::framebuffer());
 }
 
 // ── Panic handler ─────────────────────────────────────────────────────────────

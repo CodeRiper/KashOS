@@ -139,9 +139,33 @@
   network checks, claims lint, release kernel build, diff check, and T0 QEMU
   smoke passed. The guest reached the locked shell with model-only network and
   VT-d markers.
-  Ground-truth audit now reports 1/12 present: F8 accurately flags the software
-  VT-d model, not a live hardware path. T0 QEMU reached the locked shell with
-  T19, T31 and T40/T44 markers; GitHub CI remains to run.
+  Ground-truth audit at that point reported 1/12 present: F8 accurately flags
+  the software VT-d model, not a live hardware path. T0 QEMU reached the locked
+  shell with T19, T31 and T40/T44 markers.
+
+## A9 GitHub completion
+
+- PR #7 (`security(vtd): disable unverified DMA isolation`) passed all required
+  checks and merged to `main` at `06892cf612d111fee3e1a07c5d700a32effbd13a`.
+- Local `main` was fast-forwarded to that exact `origin/main` commit.
+- A9 remains a fail-closed revalidation; hardware VT-d, ACS, and DMA containment
+  are not implemented.
+
+## A10 user-space revalidation
+
+- Reopened A10 after finding the normal boot session invokes GUI and shell code
+  in Ring 0 through `session.rs`; moving those calls out of `main.rs` did not
+  create a privilege boundary. The synthetic session CSpace setup did not spawn
+  a process and has been removed.
+- Corrected boot/session logs, the settings and `run-user` shell output, status
+  (`Partial`), README, claims, GUI architecture, A10 evidence, and the ground-
+  truth verifier. Added a CI regression guard. The prototype UI still boots in
+  Ring 0; A10 remains incomplete pending a real user-mode init and services.
+- Local A10 guard (9 assertions), claims linter, kernel release check, full
+  workspace host suite, and T0 QEMU smoke test passed. The QEMU test reached
+  the locked shell and printed the corrected T13 scope. Ground-truth findings
+  report F8 and F10 present (2/12); neither hardware DMA containment nor normal
+  boot user-service isolation is implemented.
 
 ## Verification
 
@@ -162,13 +186,15 @@ have been merged to `main`. PR #5 merged at
 [`a347b0f`](https://github.com/CodeRiper/KashOS/commit/a347b0f0f4caa9ee744ea27d66eb5adbdd7932b4).
 PR #6 (A7 NIC DMA revalidation) is merged to `main` at
 [`76d5451`](https://github.com/CodeRiper/KashOS/commit/76d545148791f2991316dc215052a81d56503db8).
-The A9 VT-d revalidation is in progress on `codex/a9-vtd-revalidation`; it must
-pass GitHub CI before merging. Branch pushes trigger GitHub Actions.
+PR #7 (A9 VT-d revalidation) is merged to `main` at
+[`06892cf`](https://github.com/CodeRiper/KashOS/commit/06892cf612d111fee3e1a07c5d700a32effbd13a).
+The A10 user-space revalidation correction is in progress on
+`codex/a10-revalidation`; branch pushes trigger GitHub Actions.
 
 ## Next task
 
-Continue the ordered security revalidation from A9 into A10, keeping network and
-DMA disabled until A7/A9 have real allocations, hardware isolation, and
-packet-level evidence. Revisit A2/A3 if changes to persistent-data behavior are
-proposed; the previous local audit does not establish TPM-backed key
-provisioning or production recovery.
+Continue A10 by designing and testing a real Ring 3 init/session lifecycle and
+migrating the shell and compositor behind it. Keep the current prototype UI
+clearly labeled Ring 0. Revisit A2/A3 if persistent-data behavior changes; the
+local audit does not establish TPM-backed key provisioning or production
+recovery.

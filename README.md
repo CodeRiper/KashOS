@@ -28,7 +28,7 @@ The codebase comprises ~29.7k lines of Rust and assembly. The kernel boots via B
 | :--- | :--- | :--- |
 | **Boot, GDT/IDT/APIC, Heap** | Working (ACPI MADT multi-core discovery, 4 CPUs in QEMU, APIC ICR/IPI, ticket locks) | UEFI PE32+ loader is a stub; AP full bring-up via SIPI scheduled for Phase 4 |
 | **Paging & Memory** | Real $W\oplus X$ page tables, CR0.WP supervisor write protection, domain frame quotas, per-process PML4 address spaces | Tested and verified in Phase 1 & 2 |
-| **Ring 3 / Syscalls** | Real unprivileged Ring 3 execution (`iretq`), hardened syscall dispatcher, SMAP safety, fault containment | Tested and verified in Phase 2; user null-dereference trapped & isolated |
+| **Ring 3 / Syscalls** | Ring 3 process and syscall mechanisms are exercised by a hand-built boot self-test | Partial: the normal desktop, settings, and console still run in Ring 0; isolated user services are not wired into boot |
 | **Scheduler & IPC** | Preemptive 3-band QoS scheduler (`kscheduler`) active, FPU/SSE save/restore, 1M cycle test passed, synchronous rendezvous IPC with badged endpoints & capability transfer | Tested and verified in Phase 1, 2 & 3 |
 | **Capability Engine** | `kcore` per-process capability spaces (`PROCESS_CSPACES`), unforgeable compartment badges, rights monotonicity, recursive revocation with memory zeroing (< 1 ms benchmark), untyped quota isolation | Tested and verified in Phase 3 |
 | **kash_kernel.rs** | Model untyped memory allocator & ARINC scheduler structures | Integrated and verified in Phase 3 capability & IPC tests |

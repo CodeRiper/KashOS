@@ -1,5 +1,11 @@
 # Design Note: Phase 2 — Real User Mode & Syscalls
 
+> Historical scope note (2026-10-20): This document describes the Ring 3
+> process self-test and intended design; earlier “fully verified” wording
+> overstated normal boot integration. The desktop, settings, and console still
+> run in Ring 0. See [`../EVIDENCE/A10.md`](../EVIDENCE/A10.md) for current
+> status. Output shown below is historical and is not the current boot log.
+
 **Date:** Oct 17, 2026  
 **Author:** Akash <akash.official.j@gmail.com>  
 **Status:** Approved & Implementing (Phase 2)
@@ -119,4 +125,3 @@ Executed on real x86-64 CPU hardware in QEMU:
 - [x] **10,000 Random Syscall Fuzz**: 0 kernel panics (7,362 calls rejected safely).
 - [x] **Hardware Fault Containment**: Null pointer dereference trapped by hardware `#PF`, faulting process PID 11 terminated, microkernel continued running uninterrupted.
 - [x] **StatusRegistry**: Both `elf_loader` and `user_mode_ring3` set to `ComponentStatus::Real` (`[OK]`).
-
