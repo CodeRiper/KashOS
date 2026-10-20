@@ -1,8 +1,8 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-20  
-**Repository tip checked:** `main` at `00672ba85cdd4d27bd15a6166f36129c57995deb`
-**Current task branch:** `codex/handoff-current-state` (documentation handoff update)
+**Repository tip checked:** `main` at `a51ffa91a054011dbe819592cb341c298440b2eb`
+**Current task branch:** `codex/a10-identifier-resolution`
 **Current engineering task:** A10 syscall-stack and user-space lifecycle audit
 
 ## Completed in this task
@@ -201,19 +201,34 @@ PR #8 (A10 Ring 0 session honesty) is merged to `main` at
 [`a41c98b`](https://github.com/CodeRiper/KashOS/commit/a41c98b537cc8df4a6c91af240e13467da9ae874).
 PR #9 (process-authority hardening) is merged to `main` at
 [`00672ba`](https://github.com/CodeRiper/KashOS/commit/00672ba85cdd4d27bd15a6166f36129c57995deb).
+PR #10 (current A10 roadmap/evidence handoff) is merged to `main` at
+[`a51ffa9`](https://github.com/CodeRiper/KashOS/commit/a51ffa91a054011dbe819592cb341c298440b2eb).
 Local `main` was verified clean and equal to `origin/main` at that SHA before
-this documentation-only handoff branch was created. The local checkout has
-historical task branches, but A10 is not complete: the normal desktop and shell
-remain in Ring 0, and the global syscall kernel stack does not establish safe
-concurrent SMP user-process syscalls.
+the A10 identifier-resolution branch was created.
+
+## A10 identifier resolution follow-up (local branch; awaiting PR)
+
+- Replaced modulo-derived PID-to-CSpace references in driver and IPC paths with
+  process-table lookup; IPC scheduler wakeups now use the scheduler's active
+  TID lookup, and endpoint IDs require one exact live endpoint match.
+- Disabled synthetic driver service registration, fabricated device
+  capabilities, and simulated restart success until real driver processes and
+  device mappings exist.
+- Moved user PIDs above the bounded kernel-thread TID range and added QEMU
+  checks for unknown PID aliases, unknown endpoint aliases, duplicate endpoint
+  IDs, and correct scheduler wakeup.
+- Local regression guard (13 assertions), kscheduler tests (12), full host
+  workspace tests, release kernel check/build, claims lint, findings verifier,
+  diff check, and T0 QEMU boot passed. See `docs/EVIDENCE/A10.md` for details.
+- This does not finish A10: the normal UI remains in Ring 0 and syscall entry
+  still uses one global kernel stack; F8 and F10 remain present.
 
 ## Next task
 
-Continue A10 by fixing the remaining modulo-based PID/endpoint lookups in the
-driver and IPC paths with regression checks and fail-closed resolution. Then
-trace syscall entry/return, stack ownership, interrupt nesting, and process
-lifecycle, adding a focused regression check before changing the shared
-syscall stack. Design a real Ring 3 init/session lifecycle and
+After the A10 identifier-resolution follow-up is merged, trace syscall
+entry/return, stack ownership, interrupt nesting, and process lifecycle,
+adding a focused regression check before changing the shared syscall stack.
+Design a real Ring 3 init/session lifecycle and
 migrate the shell and compositor behind it. Keep the current prototype UI
 clearly labeled Ring 0. Revisit A2/A3 if persistent-data behavior changes; the
 local audit does not establish TPM-backed key provisioning or production

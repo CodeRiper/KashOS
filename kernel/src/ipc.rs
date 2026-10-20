@@ -13,9 +13,9 @@
 #![allow(unsafe_code)]
 
 use crate::arch::x86_64::syscall::SyscallError;
-use crate::process::{PROCESS_CSPACES, PROCESS_TABLE, ProcessState, MAX_PROCESSES};
+use crate::process::{PROCESS_CSPACES, PROCESS_TABLE, ProcessState};
 use crate::sync::TicketSpinLock;
-use crate::task::{current_tid, SCHEDULER, THREADS};
+use crate::task::{current_tid, SCHEDULER};
 use kcore::{Cap, CapKind, Rights};
 pub use kipc::{ChannelError, RingChannel};
 
@@ -93,6 +93,13 @@ pub static ENDPOINTS: TicketSpinLock<[Endpoint; MAX_ENDPOINTS]> =
         Endpoint::new(60), Endpoint::new(61), Endpoint::new(62), Endpoint::new(63),
     ]);
 
+fn endpoint_slot_for_id(endpoints: &[Endpoint; MAX_ENDPOINTS], id: u64) -> Option<usize> {
+    let mut matches = endpoints.iter().enumerate()
+        .filter(|(_, endpoint)| endpoint.in_use && endpoint.id == id);
+    let slot = matches.next()?.0;
+    if matches.next().is_some() { None } else { Some(slot) }
+}
+
 /// Synchronous IPC Send: delivers message to a waiting receiver or blocks.
 pub fn sys_ipc_send(
     endpoint_cptr: usize,
@@ -101,10 +108,11 @@ pub fn sys_ipc_send(
     cap_to_transfer_slot: Option<usize>,
 ) -> Result<(), SyscallError> {
     let sender_pid = current_tid();
+    let sender_slot = crate::process::process_slot_for_pid(sender_pid)
+        .ok_or(SyscallError::InvalidCapability)?;
     let (ep_id, badge, cap_to_send) = {
         let mut cspaces = PROCESS_CSPACES.lock();
-        let cspace_idx = (sender_pid as usize) % MAX_PROCESSES;
-        let cspace = &mut cspaces[cspace_idx];
+        let cspace = &mut cspaces[sender_slot];
 
         // 1. Validate endpoint capability with WRITE rights
         let cap = cspace.lookup(endpoint_cptr, Rights::WRITE)
@@ -139,8 +147,9 @@ pub fn sys_ipc_send(
         transferred_cap: cap_to_send,
     };
 
-    let ep_idx = (ep_id as usize) % MAX_ENDPOINTS;
     let mut endpoints = ENDPOINTS.lock();
+    let ep_idx = endpoint_slot_for_id(&endpoints, ep_id)
+        .ok_or(SyscallError::InvalidCapability)?;
     let ep = &mut endpoints[ep_idx];
 
     // FLASK Mandatory Access Control (MAC) on IPC Channel (Phase 8)
@@ -183,17 +192,23 @@ pub fn sys_ipc_send(
     match ep.state {
         EndpointState::WaitRecv => {
             // Rendezvous: receiver is already waiting! Deliver directly.
-            let receiver_pid = ep.waiting_pid.take().ok_or(SyscallError::InvalidCapability)?;
-            let dest_slot = ep.dest_cap_slot.take();
+            let receiver_pid = ep.waiting_pid.ok_or(SyscallError::InvalidCapability)?;
+            let rx_task_idx = SCHEDULER.lock().task_index_for_tid(receiver_pid)
+                .ok_or(SyscallError::InvalidCapability)?;
+            let dest_slot = ep.dest_cap_slot;
 
             // If capability transfer was requested, install into receiver's CSpace
             if let (Some(cap), Some(dst)) = (msg.transferred_cap, dest_slot) {
+                let rx_cspace_idx = crate::process::process_slot_for_pid(receiver_pid)
+                    .ok_or(SyscallError::InvalidCapability)?;
                 let mut cspaces = PROCESS_CSPACES.lock();
-                let rx_cspace_idx = (receiver_pid as usize) % MAX_PROCESSES;
-                let _ = cspaces[rx_cspace_idx].install_transferred(dst, cap);
+                cspaces[rx_cspace_idx].install_transferred(dst, cap)
+                    .map_err(|_| SyscallError::InvalidCapability)?;
             }
 
             // Store message into pending_msg for receiver to read
+            ep.waiting_pid = None;
+            ep.dest_cap_slot = None;
             ep.pending_msg = Some(msg);
             ep.state = EndpointState::Idle;
 
@@ -206,8 +221,8 @@ pub fn sys_ipc_send(
             }
             {
                 let mut sched = SCHEDULER.lock();
-                let rx_task_idx = (receiver_pid as usize) % MAX_PROCESSES;
-                let _ = sched.enqueue_ready(rx_task_idx);
+                sched.enqueue_ready(rx_task_idx)
+                    .map_err(|_| SyscallError::InvalidCapability)?;
             }
 
             Ok(())
@@ -236,10 +251,11 @@ pub fn sys_ipc_recv(
     dest_cap_slot: Option<usize>,
 ) -> Result<IpcMessage, SyscallError> {
     let receiver_pid = current_tid();
+    let receiver_slot = crate::process::process_slot_for_pid(receiver_pid)
+        .ok_or(SyscallError::InvalidCapability)?;
     let ep_id = {
         let cspaces = PROCESS_CSPACES.lock();
-        let cspace_idx = (receiver_pid as usize) % MAX_PROCESSES;
-        let cspace = &cspaces[cspace_idx];
+        let cspace = &cspaces[receiver_slot];
 
         let cap = cspace.lookup(endpoint_cptr, Rights::READ)
             .map_err(|_| SyscallError::InvalidCapability)?;
@@ -250,14 +266,17 @@ pub fn sys_ipc_recv(
         }
     };
 
-    let ep_idx = (ep_id as usize) % MAX_ENDPOINTS;
     let mut endpoints = ENDPOINTS.lock();
+    let ep_idx = endpoint_slot_for_id(&endpoints, ep_id)
+        .ok_or(SyscallError::InvalidCapability)?;
     let ep = &mut endpoints[ep_idx];
 
     match ep.state {
         EndpointState::WaitSend => {
             // Rendezvous: sender is already waiting! Check FLASK MAC receive permission
             let sender_pid = ep.waiting_pid.ok_or(SyscallError::InvalidCapability)?;
+            let tx_task_idx = SCHEDULER.lock().task_index_for_tid(sender_pid)
+                .ok_or(SyscallError::InvalidCapability)?;
             let sender_sid = crate::process::get_process_sid(sender_pid);
             let receiver_sid = crate::process::get_process_sid(receiver_pid);
             if let Err(e) = crate::flask::check_ipc(sender_sid, receiver_sid, crate::flask::perms::IPC_RECV) {
@@ -270,9 +289,11 @@ pub fn sys_ipc_recv(
 
             // If capability transfer was attached, install into receiver's CSpace
             if let (Some(cap), Some(dst)) = (msg.transferred_cap, dest_cap_slot) {
+                let rx_cspace_idx = crate::process::process_slot_for_pid(receiver_pid)
+                    .ok_or(SyscallError::InvalidCapability)?;
                 let mut cspaces = PROCESS_CSPACES.lock();
-                let rx_cspace_idx = (receiver_pid as usize) % MAX_PROCESSES;
-                let _ = cspaces[rx_cspace_idx].install_transferred(dst, cap);
+                cspaces[rx_cspace_idx].install_transferred(dst, cap)
+                    .map_err(|_| SyscallError::InvalidCapability)?;
             }
 
             ep.state = EndpointState::Idle;
@@ -286,8 +307,8 @@ pub fn sys_ipc_recv(
             }
             {
                 let mut sched = SCHEDULER.lock();
-                let tx_task_idx = (sender_pid as usize) % MAX_PROCESSES;
-                let _ = sched.enqueue_ready(tx_task_idx);
+                sched.enqueue_ready(tx_task_idx)
+                    .map_err(|_| SyscallError::InvalidCapability)?;
             }
 
             Ok(msg)

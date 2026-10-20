@@ -110,6 +110,17 @@ fn enqueue_on_unknown_task_index_is_rejected_not_panicking() {
 }
 
 #[test]
+fn task_identifier_resolves_to_live_slot_without_modulo_aliasing() {
+    let mut s = QoSScheduler::new();
+    let slot = s.create_task(211, QoSClass::Background, 0).unwrap();
+    assert_ne!(slot, 211 % kscheduler::MAX_TASKS);
+    assert_eq!(s.task_index_for_tid(211), Some(slot));
+    assert_eq!(s.task_index_for_tid(211 + kscheduler::MAX_TASKS as u32), None);
+    s.terminate_task(slot).unwrap();
+    assert_eq!(s.task_index_for_tid(211), None);
+}
+
+#[test]
 fn task_table_full_is_reported_not_panicking() {
     let mut s = QoSScheduler::new();
     for i in 0..kscheduler::MAX_TASKS as u32 {
