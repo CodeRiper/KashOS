@@ -67,3 +67,6 @@ git diff --check                               PASS
 
 This is a documentation accuracy correction. It does not add security
 functionality, make hardware safer, or change the readiness conclusion.
+
+PR #15 passed GitHub CI and merged to `main` at
+`ea7ba7557e59a98053bb94ccdc2cc9e2364f5a2b`.

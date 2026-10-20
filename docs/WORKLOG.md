@@ -264,7 +264,7 @@ the A10 per-CPU syscall-entry branch was created.
   `facb5c89a3a14fcd54e696e5d84bce9392492a64`. Local `main` was fast-forwarded
   to the same commit; the repository was clean at handoff.
 
-## Public readiness documentation audit (active branch)
+## Public readiness documentation audit (PR #15 merged)
 
 - Reviewed `README.md`, `docs/CLAIMS.md`, and `docs/THREAT_MODEL.md` against
   current source and task evidence. The old documents described networking,
@@ -277,6 +277,9 @@ the A10 per-CPU syscall-entry branch was created.
 - This is a public accuracy fix only. KashOS remains a QEMU/development
   prototype, not an OS for daily or sensitive use. See
   `docs/EVIDENCE/READINESS.md`.
+- PR #15 passed GitHub CI and merged to `main` at
+  `ea7ba7557e59a98053bb94ccdc2cc9e2364f5a2b`. Local `main` was fast-forwarded
+  to that commit.
 
 ## Next task
 
