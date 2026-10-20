@@ -1,6 +1,6 @@
 # KashOS Master Task Ledger
 
-> Audit note (2026-10-20): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#9 are merged to `main`; they correct the claims and fail closed where hardware support is absent, but do not complete A9 or A10.
+> Audit note (2026-10-20): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#11 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9 or A10.
 
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
@@ -13,7 +13,7 @@
 | A7 | NIC drivers: real, many, tested | Needs revalidation | main | docs/EVIDENCE/A7.md |
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
-| A10 | Move out of Ring 0: real user-space services | Needs revalidation | codex/a10-identifier-resolution | docs/EVIDENCE/A10.md |
+| A10 | Move out of Ring 0: real user-space services | Needs revalidation | codex/a10-percpu-syscall-entry | docs/EVIDENCE/A10.md |
 | A11 | SMP and scheduler | Needs revalidation | main | docs/EVIDENCE/A11.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
@@ -51,9 +51,10 @@
 
 ## Current implementation handoff
 
-- Verified repository tip before the active follow-up: `main` at `a51ffa91a054011dbe819592cb341c298440b2eb` (PR #10).
+- Verified repository tip before the active follow-up: `main` at `2931a8c5a57dbe6706d6f9377322fa2cfe70a8d3` (PR #11).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
-- The active branch `codex/a10-identifier-resolution` fixes the modulo-based process and endpoint lookup findings, disables fabricated driver provisioning/restarts, and adds regression coverage. Its local QEMU and host verification passed; PR review/CI remains outstanding.
-- A10 is still incomplete: ordinary desktop/settings/shell boot in Ring 0, and the global syscall kernel stack leaves concurrent SMP user-process calls unestablished; see `docs/EVIDENCE/A10.md`.
-- Next code audit after this branch: trace syscall entry/return, per-thread kernel stack ownership, interrupt nesting, and process lifecycle; add a focused check before changing the syscall stack design.
+- PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
+- The active branch `codex/a10-percpu-syscall-entry` replaces shared syscall entry state with per-CPU state and keeps the malformed-return IRET frame on the trusted stack. Local release build and T0 QEMU passed; CI/merge remain outstanding.
+- A10 is still incomplete: ordinary desktop/settings/shell boot in Ring 0. APs do not have the per-CPU architecture state or user-task setup required for SMP userland; see `docs/EVIDENCE/A10.md`.
+- Next code audit after this branch: validate AP GDT/IDT/TSS, syscall MSRs, per-core scheduler state, and syscall concurrency before enabling AP user processes.
 

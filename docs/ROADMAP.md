@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `a51ffa91a054011dbe819592cb341c298440b2eb` (PR #10)
-**Active work branch:** `codex/a10-identifier-resolution`
+**Repository state checked:** `main` at `2931a8c5a57dbe6706d6f9377322fa2cfe70a8d3` (PR #11)
+**Active work branch:** `codex/a10-percpu-syscall-entry`
 **Current gate:** A10 user-space revalidation; ordinary desktop and shell still run in Ring 0.
 
 This repository is an operating-system prototype and is not production ready.
@@ -25,17 +25,19 @@ compatibility.
   table, and rejects invalid rights masks. The regression test checks PID-slot
   resolution and an empty initial CSpace; this is not a complete user-session
   lifecycle or evidence that these services are isolated.
-- The follow-up branch `codex/a10-identifier-resolution` replaces the remaining
+- PR #11 (`codex/a10-identifier-resolution`) replaced the remaining
   modulo-based PID/endpoint lookups with active-table resolution, rejects
   ambiguous endpoint IDs, and disables fabricated driver service
-  registration/provisioning and restart reporting. Its regression checks,
-  kernel build, host suite, and T0 QEMU boot passed locally; it is not part of
-  `main` until its pull request passes CI and is merged.
-- A10 remains incomplete. In particular, syscall entry still uses one global
-  kernel stack, so concurrent SMP user-process syscall safety is not
-  established. Close the identifier aliasing paths first, then audit and design
-  per-thread syscall stack ownership and concurrency handling before enabling
-  SMP userland. The normal desktop and shell also remain in Ring 0.
+  registration/provisioning and restart reporting. It is merged to `main` at
+  `2931a8c`.
+- Branch `codex/a10-percpu-syscall-entry` now uses per-CPU syscall stack/RSP
+  state selected by the BSP APIC ID and builds malformed-return IRET frames on
+  the trusted kernel stack. Release check/build and T0 QEMU passed locally.
+  APs still do not install a per-CPU GDT/IDT/TSS or run user tasks, so this
+  does not establish SMP userland safety.
+- A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
+  syscall concurrency and a complete user init/session lifecycle are not
+  established.
 - PR #7 remains fail-closed: hardware VT-d, ACS validation, and DMA containment
   are not implemented. NIC and DDE hardware DMA paths remain disabled.
 - Current ground-truth findings include F8 (hardware DMA/IOMMU path absent) and

@@ -61,6 +61,12 @@ pub fn cpu_count() -> usize {
     CPU_COUNT.load(Ordering::Acquire)
 }
 
+/// Resolve a firmware-discovered CPU slot by its local APIC ID.
+pub fn cpu_index_for_apic_id(apic_id: u8) -> Option<usize> {
+    (0..cpu_count().min(MAX_CPUS))
+        .find(|&index| unsafe { PER_CPU[index].apic_id == apic_id })
+}
+
 /// Helper to delay by approximately `us` microseconds using RDTSC.
 fn delay_us(us: u64) {
     let tsc_hz = crate::arch::tsc_frequency_hz().max(1_000_000);
