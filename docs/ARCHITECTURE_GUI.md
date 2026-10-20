@@ -2,9 +2,9 @@
 
 ## 1. Overview & Security Model
 
-KashOS integrates the **Kash UI** software-rendered desktop compositor into its microkernel architecture. Following the principle of least privilege (POLA) and strict capability-based isolation, the desktop shell executes in Ring 0 during bootstrap, and transitions to a privileged Ring 3 Compositor Task during general system operation.
+KashOS currently runs the **Kash UI** software-rendered desktop compositor and shell in Ring 0. A Ring 3 compositor and capability-mediated framebuffer path are target architecture only; no transition from the normal boot session is implemented. The diagram below describes that target, not the current runtime.
 
-Third-party userland applications execute in isolated Ring 3 address spaces. They never directly access hardware memory, PCI BARs, or the physical display framebuffer.
+The Ring 3 applications shown below are a design target. Current GUI applications execute within the Ring 0 desktop and do not have the isolation described by this target diagram.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

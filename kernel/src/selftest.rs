@@ -494,8 +494,8 @@ pub fn test_user_mode_execution_and_fault_containment() {
     check!(crate::process::user_fault_count() > initial_faults);
     kprintln!("[selftest] PASS: Sub-test B passed: user null-dereference #PF trapped, PID {} killed, microkernel survived!", pid2);
 
-    kprintln!("[selftest] PASS: T13 User Mode Ring 3 & Fault Containment fully verified");
-    crate::status::update(|s| s.user_mode_ring3 = crate::status::ComponentStatus::Real);
+    kprintln!("[selftest] PASS: T13 Ring 3 process mechanism test passed; boot desktop and shell remain kernel-resident");
+    crate::status::update(|s| s.user_mode_ring3 = crate::status::ComponentStatus::Partial);
 }
 
 // Static buffer for 1,000-node capability revocation benchmark in BSS (taking 0 stack bytes)

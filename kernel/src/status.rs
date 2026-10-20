@@ -153,7 +153,7 @@ pub fn print_boot_banner() {
         ("Preemptive QoS Scheduler", reg.kscheduler_preempt, "3-band timer preemption"),
         ("SMP Multicore Processor Cores", reg.smp_multicore, "ACPI MADT multi-core discovery"),
         ("Physical Frame Domain Quotas", reg.quota_frames, "per-domain frame quotas"),
-        ("Ring 3 User Mode & Syscalls", reg.user_mode_ring3, "Ring 3 isolation & fault containment"),
+        ("Ring 3 User Mode & Syscalls", reg.user_mode_ring3, "T13 test only; UI remains in Ring 0"),
         ("ELF64 Loader & W^X Enforcement", reg.elf_loader, "validates ELF64 and enforces W^X"),
         ("Capability Engine", reg.kcore_caps, "handles, CSpace, revocation & IPC"),
         ("Synchronous Rendezvous IPC", reg.sync_ipc, "badged endpoints & cap transfer"),
