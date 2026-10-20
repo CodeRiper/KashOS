@@ -1,8 +1,8 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-20  
-**Current task branch:** `codex/a1-remove-fake-network-claims`  
-**Current task:** A1/A2 hardening, A3 locked boot, safe installer shutdown, and A4/A5 TPM fail-closed audit
+**Current task branch:** `codex/a6-network-revalidation`
+**Current task:** A6 network path revalidation and fail-closed transport
 
 ## Completed in this task
 
@@ -93,6 +93,20 @@
   storage unmounted; a KMS guard protects lock ordering and state invalidation.
 - The GUI lock screen still has no kernel callback, and returned plaintext
   copies are not covered by this primitive. A3 remains incomplete.
+
+## A6 network revalidation
+
+- Re-audit found that the smoltcp package test ring was not connected to the
+  kernel NIC, kernel polling had no runtime caller, the older socket table used
+  fixed addresses and simulated handshake transitions, and raw NIC ingress
+  could bypass network policy.
+- Kernel TCP/DHCP/ingress and polling are disabled pending integration. Kernel
+  egress now always fails closed; the socket table labels model entries and
+  uses unconfigured addresses. A6 evidence is downgraded from “Completed /
+  Verified” to “Needs revalidation.”
+- Network honesty guard (34 checks), `cargo test -p knet` (11 tests), claims
+  linter, release kernel check, ground-truth check (0/12 present), and QEMU T0
+  boot smoke passed. QEMU boot does not exercise live network traffic.
 
 ## Verification
 

@@ -1,7 +1,7 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Current branch:** `codex/a1-remove-fake-network-claims`
+**Current branch:** `codex/a6-network-revalidation`
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
@@ -13,7 +13,7 @@ See [`RESEARCH_SECURITY_MODELS.md`](RESEARCH_SECURITY_MODELS.md) for the
 official-source comparison of the requested reference systems and Linux app
 compatibility.
 
-## Current gate: A1 network honesty
+## Current gate: A6 network revalidation (A1 honesty safeguards retained)
 
 - Remote HTTP and HTTPS requests return `NotAvailable`.
 - DNS resolution only parses IPv4 literals; DNS protocol lookup is not present.
@@ -23,6 +23,9 @@ compatibility.
 - The kernel's hand-built TLS record helpers are not a TLS implementation and
   must not be used to send application data as HTTPS.
 - CI now has a source regression guard for fabricated network/browser success.
+- A6 review found that smoltcp's in-memory test adapter was not connected to
+  kernel NIC RX/TX. TCP/DHCP/ingress and polling remain disabled; all kernel
+  egress is blocked until the full path and policy checks are integrated.
 - Boot initialization now prepares the heap before the acceptance suite uses
   allocations, and large packet rings are allocated off the early kernel stack.
 - The QEMU T0 boot smoke test was run against the newly built release kernel;
