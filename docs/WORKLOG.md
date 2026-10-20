@@ -356,3 +356,5 @@ provisioning or production recovery.
 Make scheduler selection and TCB/FPU/timer context correct for per-CPU
 execution while keeping AP startup disabled. Add a hardware-path QEMU test for
 task identity on multiple CPUs before enabling any AP.
+- PR #22 passed all three required CI jobs and merged to `main` at
+  `3ee53f4bd9e3bc868df6a8154042298e673b44a5`; local `main` was fast-forwarded.

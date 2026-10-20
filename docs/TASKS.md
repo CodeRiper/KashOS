@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | In progress (CPU-local architecture state; AP startup disabled) | codex/a11-percpu-task-identity | docs/EVIDENCE/A11.md |
+| A11 | SMP and scheduler | In progress (CPU-local architecture state; AP startup disabled) | main | docs/EVIDENCE/A11.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
@@ -51,14 +51,14 @@
 
 ## Current implementation handoff
 
-- Verified repository tip: `main` at `0e48fddc8387e3b312227c1635fb65a855ac6f46` (PR #21 plus handoff update).
+- Verified repository tip: `main` at `3ee53f4bd9e3bc868df6a8154042298e673b44a5` (PR #22).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
 - PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
 - PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.
 - A10 is still incomplete: ordinary desktop/settings/shell boot in Ring 0. APs do not have the per-CPU architecture state or user-task setup required for SMP userland; see `docs/EVIDENCE/A10.md`.
 - PR #13 merged the A11 revalidation: the AP path previously enabled local timer interrupts before loading an AP-local IDT and had no TSS or scheduler context. Secondary CPUs now remain parked and only initialized CPUs report online. SMP remains unavailable pending full per-CPU setup and multi-core execution tests.
 - PR #18 merged CPU-indexed GDT/TSS/IST state and APIC-indexed TSS stack updates. PR #21 added CPU-local IDT, fault-recovery, and timer state, exact-RIP deliberate #PF recovery, and a bounded/current-marker T0 QEMU smoke test. Global scheduler/task state still prevents AP execution. Verification is recorded in `docs/EVIDENCE/A11.md`.
-- Active follow-up `codex/a11-percpu-task-identity` replaces the global current TID with an APIC-indexed atomic slot, uses TID 0 for unresolved CPU identity, and rejects that identity in generic syscalls instead of falling back to root. This is identity groundwork only; APs remain parked.
+- PR #22 replaces the global current TID with an APIC-indexed atomic slot, uses TID 0 for unresolved CPU identity, and rejects that identity in generic syscalls instead of falling back to root. This is identity groundwork only; APs remain parked.
 - PR #15 corrected README, threat model and claims inventory to describe the prototype status and unavailable networking, TPM, DMA isolation, user services and SMP; see `docs/EVIDENCE/READINESS.md`.
 - Next: make scheduler selection, TCB ownership, FPU state, and timer context safe for concurrent per-CPU execution. Then initialize AP syscall entry and test multi-CPU scheduling before enabling AP startup.
 

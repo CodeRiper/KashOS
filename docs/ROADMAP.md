@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `0e48fddc8387e3b312227c1635fb65a855ac6f46` (PR #21 plus handoff update)
-**Active work branch:** `codex/a11-percpu-task-identity`
+**Repository state checked:** `main` at `3ee53f4bd9e3bc868df6a8154042298e673b44a5` (PR #22)
+**Active work branch:** `main`
 **Current gate:** A11 groundwork; GDT/TSS/IST, IDT, expected-fault recovery, timer counters, and current-task identity are CPU-local. APs remain parked until AP-local syscall setup and genuinely concurrent scheduler/context-switch state are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
@@ -45,10 +45,10 @@ compatibility.
   only accepts an armed protection-test fault at its exact #PF instruction
   address. It also repaired the bounded T0 QEMU smoke test. AP startup remains
   disabled pending scheduler and AP context work; see [`EVIDENCE/A11.md`](EVIDENCE/A11.md).
-- The active A11 follow-up replaces the global current TID with a CPU-indexed
-  atomic slot and rejects unresolved identity rather than mapping it to root
-  task 1. This does not make scheduler/TCB/FPU/context switching SMP-safe; APs
-  remain parked. See [`EVIDENCE/A11.md`](EVIDENCE/A11.md).
+- PR #22 replaces the global current TID with a CPU-indexed atomic slot and
+  rejects unresolved identity rather than mapping it to root task 1. This does
+  not make scheduler/TCB/FPU/context switching SMP-safe; APs remain parked.
+  See [`EVIDENCE/A11.md`](EVIDENCE/A11.md).
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.
