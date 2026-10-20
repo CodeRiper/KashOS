@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `bfed3b1a2c7247be1a9b260f50fee1b49b9215f2` (PR #12)
-**Active work branch:** `codex/a11-park-unconfigured-aps`
+**Repository state checked:** `main` at `facb5c89a3a14fcd54e696e5d84bce9392492a64` (PR #13)
+**Active work branch:** `main`
 **Current gate:** A11 SMP revalidation; secondary CPUs remain parked until CPU-local interrupt and scheduler state are initialized.
 
 This repository is an operating-system prototype and is not production ready.
@@ -33,9 +33,10 @@ compatibility.
 - PR #12 merged per-CPU syscall stack/RSP state for the initialized BSP and
   builds malformed-return IRET frames on the trusted kernel stack. T13 syscall
   entry evidence remains single-CPU only.
-- A11 source revalidation found AP startup enabled a local periodic timer and
+- PR #13 merged the A11 fail-closed correction to `main` at `facb5c8`. Source
+  revalidation found AP startup enabled a local periodic timer and
   interrupts without loading AP-local IDT/TSS state or initializing a scheduler
-  context. The active follow-up disables AP startup and keeps AP entry parked;
+  context. AP startup is disabled and AP entry stays parked;
   only initialized CPUs are reported online. SMP scheduling remains unavailable.
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
