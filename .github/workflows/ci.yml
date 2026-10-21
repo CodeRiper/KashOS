@@ -95,6 +95,9 @@ jobs:
       - name: Verify IPC User Buffers Before Endpoint Mutation
         run: python3 tools/test_syscall_ipc_user_buffers.py
 
+      - name: Verify User Page Permissions Before Syscall Copies
+        run: python3 tools/test_syscall_user_page_permissions.py
+
       - name: Verify SYS_YIELD Uses a Kernel Reschedule Gate
         run: python3 tools/test_syscall_voluntary_yield.py
 

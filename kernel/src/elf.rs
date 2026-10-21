@@ -14,8 +14,9 @@ use kpaging::{Arch, FrameAllocator, PageError, Perm, VirtualSpace, X86_64, PAGE_
 pub const USER_SPACE_FLOOR: u64   = 0x0000_0000_4000_0000; // 1 GiB floor (0..1 GiB supervisor window)
 pub const USER_SPACE_CEILING: u64 = 0x0000_7FFF_FFFF_FFFF;
 pub const USER_STACK_TOP: u64     = 0x0000_7FFF_FFFF_EFE0;
-pub const USER_STACK_BASE: u64    = 0x0000_7FFF_FFFF_0000;
 pub const USER_STACK_PAGES: u64   = 4; // 16 KiB
+pub const USER_STACK_BASE: u64 =
+    (USER_STACK_TOP & !(PAGE_SIZE as u64 - 1)) - (USER_STACK_PAGES - 1) * PAGE_SIZE as u64;
 
 pub const PT_LOAD: u32 = 1;
 pub const PF_X: u32 = 1;

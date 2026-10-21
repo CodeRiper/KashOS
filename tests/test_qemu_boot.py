@@ -96,6 +96,7 @@ def test_t0_boot():
         "syscall_thread_stack": False,
         "syscall_yield_resumed": False,
         "ipc_user_buffer_preflight": False,
+        "user_page_permissions": False,
         "kms_locked": False,
         "unlock_help": False,
         "shell_ready": False,
@@ -160,6 +161,8 @@ def test_t0_boot():
                 required_markers["syscall_yield_resumed"] = True
             if "T42 syscall pointer and IPC receive preflight checks passed" in line:
                 required_markers["ipc_user_buffer_preflight"] = True
+            if "user page permissions and mapped stack checked" in line:
+                required_markers["user_page_permissions"] = True
             if "[kms] Locked:" in line:
                 required_markers["kms_locked"] = True
             if "[storage] Vault is locked. Use 'unlock'; passphrase input is hidden." in line:

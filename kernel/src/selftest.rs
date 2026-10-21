@@ -446,6 +446,42 @@ pub fn test_elf_loader_and_wx_rejection() {
     check!(loaded.user_stack_top == crate::elf::USER_STACK_TOP);
     check!(loaded.cr3 != 0);
 
+    // Check user permissions against the real PML4 and page tables built by
+    // load_elf: text is user-readable but read-only, stack is user-writable,
+    // and an absent adjacent page or page-spanning range fails closed.
+    let text_byte = loaded.entry_point as *const u8;
+    let text_page_end = (loaded.entry_point & !(kpaging::PAGE_SIZE as u64 - 1))
+        + kpaging::PAGE_SIZE as u64;
+    let stack_byte = (loaded.user_stack_top - 1) as *const u8;
+    // SAFETY: loaded.cr3 and its tables were built by load_elf using the
+    // identity-addressable static test-frame pool in this kernel's .bss.
+    unsafe {
+        check!(crate::arch::x86_64::syscall::validate_user_page_range(
+            loaded.cr3, text_byte, 1, false,
+        ).is_ok());
+        check!(crate::arch::x86_64::syscall::validate_user_page_range(
+            loaded.cr3, text_byte, 1, true,
+        ) == Err(crate::arch::x86_64::syscall::SyscallError::InvalidMemoryAccess));
+        check!(crate::arch::x86_64::syscall::validate_user_page_range(
+            loaded.cr3, crate::elf::USER_STACK_BASE as *const u8,
+            (crate::elf::USER_STACK_PAGES as usize) * kpaging::PAGE_SIZE, true,
+        ).is_ok());
+        check!(crate::arch::x86_64::syscall::validate_user_page_range(
+            loaded.cr3, stack_byte, 1, true,
+        ).is_ok());
+        check!(crate::arch::x86_64::syscall::validate_user_page_range(
+            loaded.cr3, (text_page_end - 1) as *const u8, 2, false,
+        ) == Err(crate::arch::x86_64::syscall::SyscallError::InvalidMemoryAccess));
+        check!(crate::arch::x86_64::syscall::validate_user_page_range(
+            loaded.cr3, (crate::elf::USER_STACK_BASE - kpaging::PAGE_SIZE as u64) as *const u8,
+            1, true,
+        ) == Err(crate::arch::x86_64::syscall::SyscallError::InvalidMemoryAccess));
+    }
+    check!(crate::elf::USER_STACK_BASE < loaded.user_stack_top);
+    check!(loaded.user_stack_top
+        < crate::elf::USER_STACK_BASE
+            + crate::elf::USER_STACK_PAGES * kpaging::PAGE_SIZE as u64);
+
     // 2. Reject W^X violation (PF_W | PF_X in segment flags)
     let mut bad_wx_elf = elf_buf;
     unsafe {
@@ -464,7 +500,7 @@ pub fn test_elf_loader_and_wx_rejection() {
     let oob_res = crate::elf::load_elf(&oob_elf, &mut alloc, kernel_cr3);
     check!(oob_res == Err(crate::elf::ElfError::AddressOutOfBounds));
 
-    kprintln!("[selftest] PASS: T11 ELF64 loader verified: W^X enforced (W|X rejected), bounds protected, PML4 isolated");
+    kprintln!("[selftest] PASS: T11 ELF64 loader verified: W^X enforced (W|X rejected), bounds protected, PML4 isolated; user page permissions and mapped stack checked");
     crate::status::update(|s| s.elf_loader = crate::status::ComponentStatus::Real);
 }
 
