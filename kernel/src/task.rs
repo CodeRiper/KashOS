@@ -454,3 +454,68 @@ pub fn on_timer_tick(
         }
     }
 }
+
+/// Schedule the next runnable task from the supervisor software-reschedule
+/// interrupt used by SYS_YIELD. The interrupt frame lives on this thread's
+/// kernel stack and becomes its saved context if another task is selected.
+pub fn on_voluntary_yield(
+    incoming_rsp: u64,
+    incoming_fpu: &FpuState,
+    next_fpu_out: &mut *const FpuState,
+) -> u64 {
+    *next_fpu_out = incoming_fpu;
+    let Some(cpu_index) = current_cpu_index() else {
+        kprintln!("[sched] Yield arrived on an unknown CPU; halting.");
+        crate::arch::shutdown(true);
+    };
+    let mut sched = SCHEDULER.lock();
+    let mut threads = THREADS.lock();
+    let plan = match sched.plan_voluntary_yield_on_cpu(cpu_index) {
+        Ok(plan) => plan,
+        Err(error) => {
+            kprintln!("[sched] CPU {} voluntary yield planning failed: {:?}; halting.", cpu_index, error);
+            crate::arch::shutdown(true);
+        }
+    };
+
+    let Some(plan) = plan else {
+        return incoming_rsp;
+    };
+    if let Some(prev_idx) = plan.prev_task_idx {
+        if let Some(prev_thread) = threads.get_mut(prev_idx) {
+            if prev_thread.in_use {
+                prev_thread.saved_rsp = incoming_rsp;
+                prev_thread.fpu = *incoming_fpu;
+            }
+        }
+    }
+
+    match plan.target {
+        ContextSwitchTarget::Task { task_idx, cr3, .. } => {
+            if let Some(next_thread) = threads.get_mut(task_idx) {
+                if next_thread.in_use {
+                    *next_fpu_out = &next_thread.fpu;
+                    set_tss_rsp0(next_thread.stack_top);
+                    if !crate::arch::x86_64::syscall::set_current_kernel_stack_top(next_thread.stack_top) {
+                        kprintln!("[sched] CPU {} has no valid syscall stack for yielded TID {}; halting.", cpu_index, next_thread.tid);
+                        crate::arch::shutdown(true);
+                    }
+                    CPU_CURRENT_TID[cpu_index].store(next_thread.tid, Ordering::Release);
+                    if cr3 != 0 {
+                        unsafe {
+                            core::arch::asm!("mov cr3, {0}", in(reg) cr3, options(nostack));
+                        }
+                    }
+                    PREEMPTION_COUNT.fetch_add(1, Ordering::Relaxed);
+                    return next_thread.saved_rsp;
+                }
+            }
+            kprintln!("[sched] Voluntary yield selected task {} without a live thread; halting.", task_idx);
+            crate::arch::shutdown(true)
+        }
+        ContextSwitchTarget::Idle => {
+            PREEMPTION_COUNT.fetch_add(1, Ordering::Relaxed);
+            switch_to_idle(cpu_index)
+        }
+    }
+}

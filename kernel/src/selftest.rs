@@ -520,21 +520,27 @@ pub fn test_user_mode_execution_and_fault_containment() {
     kprintln!("[selftest] T13: testing unprivileged Ring 3 execution & fault containment...");
     let mut alloc = StaticFrameAllocator::new(unsafe { &mut *core::ptr::addr_of_mut!(USER_PROCESS_FRAME_POOL) });
 
-    // ── Sub-test A: User program executing SYS_PRINT and SYS_EXIT(0) ──
+    // ── Sub-test A: User program executes SYS_PRINT, yields, prints again, exits ──
     // Machine code for user hello:
-    // 0:  48 8d 3d 1d 00 00 00   lea rdi, [rip + 29] (points to msg at offset 36)
-    // 7:  48 c7 c6 23 00 00 00   mov rsi, 35 (msg len)
+    // 0:  48 8d 3d 3d 00 00 00   lea rdi, [rip + 61] (message at offset 68)
+    // 7:  48 c7 c6 22 00 00 00   mov rsi, 34 (message length)
     // 14: 48 c7 c0 0a 00 00 00   mov rax, 10 (SYS_PRINT)
     // 21: 0f 05                  syscall
-    // 23: 48 31 ff               xor rdi, rdi (exit code 0)
-    // 26: 48 c7 c0 07 00 00 00   mov rax, 7 (SYS_EXIT)
-    // 33: 0f 05                  syscall
-    // 35: f4                     hlt
-    // 36: b"[user] Hello from Ring 3 syscall!\n" (34 bytes)
-    let mut code_payload = [0u8; 70];
+    // 23: mov rax, 6 (SYS_YIELD); syscall
+    // 32: lea rdi, [rip + 63] (second message at offset 102)
+    // 39: mov rsi, 32; mov rax, 10 (SYS_PRINT); syscall
+    // 55: xor rdi, rdi; mov rax, 7 (SYS_EXIT); syscall; hlt
+    // 68: first message; 102: yielded/resumed marker
+    let mut code_payload = [0u8; 134];
     let code_prefix = [
-        0x48, 0x8d, 0x3d, 0x1d, 0x00, 0x00, 0x00,
+        0x48, 0x8d, 0x3d, 0x3d, 0x00, 0x00, 0x00,
         0x48, 0xc7, 0xc6, 0x22, 0x00, 0x00, 0x00,
+        0x48, 0xc7, 0xc0, 0x0a, 0x00, 0x00, 0x00,
+        0x0f, 0x05,
+        0x48, 0xc7, 0xc0, 0x06, 0x00, 0x00, 0x00,
+        0x0f, 0x05,
+        0x48, 0x8d, 0x3d, 0x3f, 0x00, 0x00, 0x00,
+        0x48, 0xc7, 0xc6, 0x20, 0x00, 0x00, 0x00,
         0x48, 0xc7, 0xc0, 0x0a, 0x00, 0x00, 0x00,
         0x0f, 0x05,
         0x48, 0x31, 0xff,
@@ -542,9 +548,11 @@ pub fn test_user_mode_execution_and_fault_containment() {
         0x0f, 0x05,
         0xf4,
     ];
-    code_payload[..36].copy_from_slice(&code_prefix);
+    code_payload[..68].copy_from_slice(&code_prefix);
     let msg = b"[user] Hello from Ring 3 syscall!\n";
-    code_payload[36..70].copy_from_slice(msg);
+    let yield_msg = b"[user] SYS_YIELD resumed Ring 3\n";
+    code_payload[68..102].copy_from_slice(msg);
+    code_payload[102..134].copy_from_slice(yield_msg);
 
     let hello_elf = crate::elf::create_test_elf(&code_payload);
     let pid1 = match crate::process::spawn_user_elf("user-hello", &hello_elf, &mut alloc, kscheduler::QoSClass::UserInteractive) {
@@ -577,7 +585,7 @@ pub fn test_user_mode_execution_and_fault_containment() {
         spins += 1;
     }
     check!(exited_cleanly);
-    kprintln!("[selftest] PASS: Sub-test A passed: user program executed SYS_PRINT and exited voluntarily with code 0");
+    kprintln!("[selftest] PASS: Sub-test A passed: Ring 3 SYS_YIELD switched away and resumed before SYS_EXIT(0)");
 
     // ── Sub-test B: User program fault containment (null pointer dereference) ──
     // Machine code for null dereference:

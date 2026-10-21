@@ -362,6 +362,22 @@ pub extern "C" fn x86_timer_handler(
 }
 
 #[no_mangle]
+pub extern "C" fn x86_yield_handler(
+    incoming_rsp: u64,
+    incoming_fpu: *const FpuState,
+    next_fpu_out: *mut *const FpuState,
+) -> u64 {
+    // SAFETY: `_isr240` passes a 16-byte-aligned 512-byte FXSAVE image and a
+    // writable pointer slot in its live interrupt stack frame.
+    let incoming_fpu = unsafe { &*incoming_fpu };
+    // SAFETY: `_isr240` passes the address of the pointer slot just beyond the
+    // 512-byte FXSAVE image, which remains live until this handler returns.
+    let next_fpu_out = unsafe { &mut *next_fpu_out };
+    *next_fpu_out = incoming_fpu;
+    crate::task::on_voluntary_yield(incoming_rsp, incoming_fpu, next_fpu_out)
+}
+
+#[no_mangle]
 pub extern "C" fn x86_tlb_shootdown_handler() {
     super::smp::handle_tlb_shootdown();
 }
@@ -441,6 +457,31 @@ _isr32:
     pop rax
     iretq
 
+/* Supervisor-only software reschedule (vector 240). */
+.global _isr240
+_isr240:
+    push rax ; push rbx ; push rcx ; push rdx
+    push rsi ; push rdi ; push rbp
+    push r8  ; push r9  ; push r10 ; push r11
+    push r12 ; push r13 ; push r14 ; push r15
+    cld
+    mov rdi, rsp
+    and rsp, -16
+    sub rsp, 528
+    fxsave64 [rsp]
+    mov rsi, rsp
+    mov [rsp + 512], rsi
+    lea rdx, [rsp + 512]
+    call x86_yield_handler
+    mov rsi, [rsp + 512]
+    fxrstor64 [rsi]
+    mov rsp, rax
+    pop r15 ; pop r14 ; pop r13 ; pop r12
+    pop r11 ; pop r10 ; pop r9  ; pop r8
+    pop rbp ; pop rdi ; pop rsi ; pop rdx
+    pop rcx ; pop rbx ; pop rax
+    iretq
+
 /* TLB Shootdown (vector 251) */
 .global _isr251
 _isr251:
@@ -503,6 +544,7 @@ extern "C" {
     fn _isr30();
     fn _isr31();
     fn _isr32();
+    fn _isr240();
     fn _isr251();
 }
 
@@ -538,6 +580,8 @@ pub fn init(cpu_index: usize) -> bool {
 
         // Install Vector 251 for SMP TLB shootdown
         (*idt).0[251] = IdtGate::interrupt_gate(_isr251 as *const () as usize as u64, 0);
+        // Supervisor-only software reschedule for SYS_YIELD.
+        (*idt).0[240] = IdtGate::interrupt_gate(_isr240 as *const () as usize as u64, 0);
 
         let ptr = IdtPointer {
             limit: (core::mem::size_of::<Idt>() - 1) as u16,
@@ -547,6 +591,6 @@ pub fn init(cpu_index: usize) -> bool {
         core::arch::asm!("lidt [{0}]", in(reg) &ptr, options(nostack, preserves_flags));
         CPU_IDT_READY[cpu_index].store(true, Ordering::Release);
     }
-    kprintln!("[idt] CPU {}: 34 gates installed (IST1: #DF, IST2: #NMI, IST3: #MC, Vector 251: TLB Shootdown)", cpu_index);
+    kprintln!("[idt] CPU {}: 35 gates installed (IST1: #DF, IST2: #NMI, IST3: #MC, Vector 240: supervisor reschedule, Vector 251: TLB Shootdown)", cpu_index);
     true
 }

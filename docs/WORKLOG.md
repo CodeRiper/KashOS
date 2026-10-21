@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `4c33be35373ae23e5d9df62822840ab76c65acbd` (PR #36)
-**Current task branch:** `main`
-**Current engineering task:** Design saved syscall continuation and atomic IPC endpoint/task transitions; keep AP startup disabled
+**Repository tip checked:** `main` at `07c32d88ea9c3c968677d4b694346bae1501037a` (PR #36 docs sync)
+**Current task branch:** `codex/syscall-voluntary-yield`
+**Current engineering task:** Implement a supervisor reschedule path for SYS_YIELD; keep AP startup disabled
 
 ## Completed in this task
 
@@ -690,3 +690,19 @@ is complete. Keep AP startup disabled until those tests pass.
 - PR #36 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
   Build Guide v2 Claims & Honesty Gate, then merged to `main` at `4c33be35373ae23e5d9df62822840ab76c65acbd` on
   2026-10-21. Local `main` was fast-forwarded to that exact origin commit.
+
+## A11 voluntary syscall yield (2026-10-21)
+
+- Source review found `SYS_YIELD` was a no-op. Added scheduler rotation with no
+  fabricated timer accounting, a DPL-0 software reschedule gate at vector 0xF0,
+  and a saved interrupt frame on the yielding task's own kernel stack.
+- The Ring 3 test program calls SYS_YIELD, then prints a resume marker and exits.
+  Host scheduler tests verify same-band rotation, no fake elapsed time, and
+  single-task self-selection. T0 QEMU observed the post-yield marker and reached
+  the locked shell.
+- Failure-first scheduler tests failed before the API existed. Workspace tests,
+  release kernel check/build, and all Python source guards passed. Details and
+  official sources are in `docs/EVIDENCE/A11-syscall-voluntary-yield.md`.
+- This is voluntary yield only. IPC remains direct-only and unmatched operations
+  return `WouldBlock`; result continuation and atomic IPC endpoint/PCB/TCB/task
+  transitions remain unimplemented. AP startup remains disabled.

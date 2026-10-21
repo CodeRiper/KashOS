@@ -380,7 +380,14 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
                 Err(_) => SyscallError::InvalidCapability as i64,
             }
         }
-        nr::SYS_YIELD => 0,
+        nr::SYS_YIELD => {
+            // The DPL-0 software interrupt preserves this syscall's kernel
+            // stack frame while the scheduler saves it and restores another.
+            unsafe {
+                core::arch::asm!("int 0xf0", options(preserves_flags));
+            }
+            0
+        }
         nr::SYS_EXIT => {
             let code = arg1 as i32;
             crate::process::exit_process(code);
