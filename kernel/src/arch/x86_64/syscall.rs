@@ -156,6 +156,29 @@ struct SyncCell<T>(core::cell::UnsafeCell<T>);
 unsafe impl<T> Sync for SyncCell<T> {}
 static PROCESS_SANDBOXES: SyncCell<ProcessSandboxTable> = SyncCell(core::cell::UnsafeCell::new(ProcessSandboxTable::new()));
 
+/// Validate the user-visible IPC receive capacity before the endpoint is
+/// inspected or a waiting sender can be woken. The requested capacity is
+/// bounded by the kernel's maximum message size.
+pub(crate) fn validate_ipc_user_buffer(
+    user_buf: *mut u64,
+    user_words: usize,
+) -> Result<usize, SyscallError> {
+    if user_words == 0 {
+        return Ok(0);
+    }
+    if user_buf.is_null() {
+        return Err(SyscallError::InvalidMemoryAccess);
+    }
+
+    let bounded_words = user_words.min(crate::ipc::MAX_IPC_WORDS);
+    let byte_len = bounded_words
+        .checked_mul(core::mem::size_of::<u64>())
+        .ok_or(SyscallError::InvalidMemoryAccess)?;
+    validate_user_memory_region(user_buf.cast::<u8>(), byte_len)
+        .map_err(|_| SyscallError::InvalidMemoryAccess)?;
+    Ok(bounded_words)
+}
+
 /// Rust-side system call dispatcher called from assembly after user registers are saved.
 #[no_mangle]
 pub extern "sysv64" fn kash_rust_syscall_dispatcher(
@@ -270,11 +293,14 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
                     // Fast single-word in register argument
                     words_buf[0] = arg3 as u64;
                 } else if validate_user_memory_region(words_ptr as *const u8, count * 8).is_ok() {
-                    unsafe {
-                        let _ = copy_from_user(
+                    let copy_result = unsafe {
+                        copy_from_user(
                             core::slice::from_raw_parts_mut(words_buf.as_mut_ptr() as *mut u8, count * 8),
                             words_ptr as *const u8,
-                        );
+                        )
+                    };
+                    if let Err(error) = copy_result {
+                        return error as i64;
                     }
                 } else {
                     return SyscallError::InvalidMemoryAccess as i64;
@@ -291,18 +317,23 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
             let dest_cap_slot = if arg2 != 0 { Some(arg2) } else { None };
             let user_buf = arg3 as *mut u64;
             let user_buf_len = arg4;
+            let receive_capacity = match validate_ipc_user_buffer(user_buf, user_buf_len) {
+                Ok(capacity) => capacity,
+                Err(error) => return error as i64,
+            };
 
             match crate::ipc::sys_ipc_recv(endpoint_cptr, dest_cap_slot) {
                 Ok(msg) => {
-                    if user_buf_len > 0 && !user_buf.is_null() {
-                        let count = user_buf_len.min(msg.words_len);
-                        if validate_user_memory_region(user_buf as *const u8, count * 8).is_ok() {
-                            unsafe {
-                                let _ = copy_to_user(
-                                    user_buf as *mut u8,
-                                    core::slice::from_raw_parts(msg.words.as_ptr() as *const u8, count * 8),
-                                );
-                            }
+                    let count = receive_capacity.min(msg.words_len);
+                    if count > 0 {
+                        let copy_result = unsafe {
+                            copy_to_user(
+                                user_buf.cast::<u8>(),
+                                core::slice::from_raw_parts(msg.words.as_ptr() as *const u8, count * 8),
+                            )
+                        };
+                        if let Err(error) = copy_result {
+                            return error as i64;
                         }
                     }
                     msg.sender_badge as i64

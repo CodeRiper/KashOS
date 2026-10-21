@@ -2,8 +2,8 @@
 
 **Audit date:** 2026-10-21
 **Repository state checked:** `main` at `6091ee6e405916903f1477fa85e1dfa49243280e` (PR #35)
-**Active work branch:** `main`
-**Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test exercises blocked-task to idle to synthetic wake and resumed task. Fast Ring 3 syscall entry uses the current task's guarded kernel stack and QEMU checks its ownership. This does not complete resumable IPC. IPC wake-by-TID resolves the live task and applies the scheduler wake transition under one lock, including wake-before-switch. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
+**Active work branch:** `codex/ipc-user-buffer-guard`
+**Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test exercises blocked-task to idle to synthetic wake and resumed task. Fast Ring 3 syscall entry uses the current task's guarded kernel stack and QEMU checks its ownership. IPC receive output pointers are bounded and canonical-range checked before endpoint lookup; mapped-page writability and transactional delivery remain unverified. This does not complete resumable IPC. IPC wake-by-TID resolves the live task and applies the scheduler wake transition under one lock, including wake-before-switch. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 **B4 note:** IPC calls with no waiting peer now return `WouldBlock` without
 pretending the caller was suspended. Scheduler block/wake and x86 idle handoff
