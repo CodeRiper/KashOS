@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked before current task:** `main` at `5ce6861ee41b18064984cb80e6c4c116d3c9e53e` (PR #32)
-**Current task branch:** `codex/b4-idle-handoff`
-**Current engineering task:** Add an explicit idle context for the last blocked task; keep AP startup disabled
+**Repository tip checked:** `main` at `f4be523d8ef67fa135ad92fb6d16ac21e4406bf1` (PR #33)
+**Current task branch:** `main`
+**Current engineering task:** Implement saved IPC syscall continuation and atomic endpoint/task state; keep AP startup disabled
 
 ## Completed in this task
 
@@ -606,3 +606,10 @@ is complete. Keep AP startup disabled until those tests pass.
   no saved syscall continuation or atomic endpoint/PCB/TCB transaction was
   added. Next: implement resumable syscall state and atomic IPC task/endpoint
   ownership, with wake-versus-exit and slot-reuse regressions.
+- PR #33 merged after all three required GitHub Actions jobs passed, at
+  `f4be523d8ef67fa135ad92fb6d16ac21e4406bf1` on 2026-10-21. Local `main` was
+  fast-forwarded to that exact `origin/main` commit.
+- Final main verification: workspace host suite, release x86-64 kernel
+  check/build, all Python source guards, claims lint, findings audit, QEMU T0
+  through the locked shell, and `git diff --check` passed. Findings F8 and F10
+  remain present; the T0 run is single-CPU and the OS is not production ready.
