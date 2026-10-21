@@ -1,7 +1,7 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `f4be523d8ef67fa135ad92fb6d16ac21e4406bf1` (PR #33)
+**Repository state checked:** `main` at `7908a9a3ea44653ce4371d5f3b42d5f5bbd7a47b` (PR #34)
 **Active work branch:** `main`
 **Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test exercises blocked-task to idle to synthetic wake and resumed task. This does not complete resumable IPC. IPC wake-by-TID resolves the live task and applies the scheduler wake transition under one lock, including wake-before-switch. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 

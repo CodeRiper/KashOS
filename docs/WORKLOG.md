@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `f4be523d8ef67fa135ad92fb6d16ac21e4406bf1` (PR #33)
-**Current task branch:** `codex/b4-ipc-wakeup-state`
-**Current engineering task:** Ensure IPC wake uses the scheduler's current-task-aware wake transition; keep AP startup disabled
+**Repository tip checked:** `main` at `7908a9a3ea44653ce4371d5f3b42d5f5bbd7a47b` (PR #34)
+**Current task branch:** `main`
+**Current engineering task:** Design per-thread syscall continuation ownership and transactional IPC state; keep AP startup disabled
 
 ## Completed in this task
 
@@ -637,3 +637,7 @@ is complete. Keep AP startup disabled until those tests pass.
   APs remain parked and shared scheduler/context state is not SMP-safe.
 - Next: design per-thread syscall continuation ownership and a transactional
   IPC state transition before enabling unmatched calls to block.
+- PR #34 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, then merged to `main` at
+  `7908a9a3ea44653ce4371d5f3b42d5f5bbd7a47b` on 2026-10-21. Local `main` was
+  fast-forwarded to that exact `origin/main` commit.
