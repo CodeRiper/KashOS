@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | In progress (BSP FPU and unmapped stack-guard checks; timer path measures 935-byte increment; shared queues/context; AP startup disabled) | main | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md; docs/EVIDENCE/A11-switched-fpu-state.md; docs/EVIDENCE/A11-thread-stack-guards.md; docs/EVIDENCE/A11-timer-stack-budget.md |
+| A11 | SMP and scheduler | In progress (BSP FPU and unmapped stack-guard checks; timer path measures 935-byte increment; IPC wake-by-TID is atomic under scheduler lock; shared queues/context; AP startup disabled) | codex/a11-scheduler-tcb-ownership | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md; docs/EVIDENCE/A11-switched-fpu-state.md; docs/EVIDENCE/A11-thread-stack-guards.md; docs/EVIDENCE/A11-timer-stack-budget.md; docs/EVIDENCE/A11-scheduler-tcb-ownership.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
@@ -61,5 +61,5 @@
 - PR #22 replaces the global current TID with an APIC-indexed atomic slot, uses TID 0 for unresolved CPU identity, and rejects that identity in generic syscalls instead of falling back to root. This is identity groundwork only; APs remain parked.
 - PR #28 removes all x86-64 thread stack guard pages from the writable image mapping, matches expected page-fault error codes exactly, and verifies one guard write under T0 QEMU. All three required CI jobs passed; see `docs/EVIDENCE/A11-thread-stack-guards.md`.
 - PR #15 corrected README, threat model and claims inventory to describe the prototype status and unavailable networking, TPM, DMA isolation, user services and SMP; see `docs/EVIDENCE/READINESS.md`.
-- Timer stack analysis records a 935-byte normal-path increment but does not establish total stack safety; see `docs/EVIDENCE/A11-timer-stack-budget.md`. Next: specify/test scheduler and TCB ownership plus lock ordering before AP execution; AP startup remains disabled.
+- Timer stack analysis records a 935-byte normal-path increment but does not establish total stack safety; see `docs/EVIDENCE/A11-timer-stack-budget.md`. IPC wake-by-TID now resolves and enqueues under one scheduler lock; broader shared-state ownership remains open. See `docs/EVIDENCE/A11-scheduler-tcb-ownership.md`; AP startup remains disabled.
 

@@ -2,8 +2,8 @@
 
 **Audit date:** 2026-10-21
 **Repository state checked:** `main` at `d3b8d62e1f4f1fdb5540bcffa9c4d186ca9d0b8b` (PR #29)
-**Active work branch:** `main`
-**Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
+**Active work branch:** `codex/a11-scheduler-tcb-ownership` (from `main` at `98c51ad0ff351fc0c003ed54e22b8101ea7e7a97`)
+**Current gate:** A11 groundwork; IPC wake-by-TID now resolves and enqueues under one scheduler lock. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
@@ -92,6 +92,10 @@ compatibility.
   Ring 0 stack depth or exceptional paths, so worst-case stack safety remains
   unestablished. See [`EVIDENCE/A11-timer-stack-budget.md`](EVIDENCE/A11-timer-stack-budget.md).
   PR #29 passed the three required CI jobs and merged to `main` at `d3b8d62`.
+- IPC wakeup no longer retains a scheduler slot across separate locks: each
+  wake resolves the TID and enqueues while holding `SCHEDULER`. This narrow
+  correction does not establish SMP safety; see
+  [`EVIDENCE/A11-scheduler-tcb-ownership.md`](EVIDENCE/A11-scheduler-tcb-ownership.md).
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.

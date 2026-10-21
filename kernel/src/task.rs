@@ -96,6 +96,16 @@ pub fn set_current_tid(tid: u32) {
     }
 }
 
+/// Resolve a live task identifier and enqueue it without exposing its reusable slot.
+///
+/// Callers must not split TID lookup from enqueue: another CPU could terminate the
+/// task and reuse its scheduler slot between those operations.
+pub fn enqueue_ready_by_tid(tid: u32) -> Result<(), SchedError> {
+    let mut sched = SCHEDULER.lock();
+    let task_idx = sched.task_index_for_tid(tid).ok_or(SchedError::NoSuchTask)?;
+    sched.enqueue_ready(task_idx)
+}
+
 /// Total number of successful thread preemptions observed.
 pub fn preemption_count() -> u64 {
     PREEMPTION_COUNT.load(Ordering::Relaxed)

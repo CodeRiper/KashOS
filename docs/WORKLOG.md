@@ -508,3 +508,22 @@ is complete. Keep AP startup disabled until those tests pass.
 - PR #29 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
   Build Guide v2 Claims & Honesty Gate, then merged to `main` at
   `d3b8d62e1f4f1fdb5540bcffa9c4d186ca9d0b8b` on 2026-10-21.
+
+## A11 scheduler/TCB ownership (2026-10-21)
+
+- Source review found both IPC rendezvous wake paths resolved a TID to a
+  scheduler slot, released the scheduler lock, then later enqueued the saved
+  slot. With simultaneous CPUs, termination and slot reuse between those
+  operations could enqueue a different task.
+- Added `task::enqueue_ready_by_tid`, which resolves the live TID and enqueues
+  it while continuously holding `SCHEDULER`; IPC send and receive use it.
+  `tools/test_ipc_task_wakeup_atomic.py` failed before the fix and passes after;
+  it is now a CI honesty-gate check.
+- This only closes that specific wakeup slot-reuse race. Shared scheduler
+  queues/TCB/FPU/context state and broader PROCESS_TABLE/PROCESS_CSPACES/IPC
+  transaction ownership have not been established as SMP-safe. APs remain parked. See
+  `docs/EVIDENCE/A11-scheduler-tcb-ownership.md` and
+  `docs/design/a11-scheduler-tcb-ownership.md`.
+- Next: establish one coherent ownership/lock-order policy for scheduler,
+  TCB, process and endpoint state, then add a real multi-CPU stress test before
+  any AP execution is considered.
