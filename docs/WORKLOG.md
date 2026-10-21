@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `db6c97cbcbc9698746140b92b6a3295712215fcf` (PR #28)
-**Current task branch:** `main`
-**Current engineering task:** Unmap per-thread kernel-stack guard pages; next analyze timer interrupt stack use, then address shared scheduler/TCB ownership before AP execution
+**Repository tip checked:** `main` at `4b70c9fa95e1548523dd3bff21c55e8ad75f876c` (PR #28 handoff sync)
+**Current task branch:** `codex/a11-timer-stack-budget`
+**Current engineering task:** Record compiled timer ISR stack usage; next specify and test shared scheduler/TCB ownership before AP execution
 
 ## Completed in this task
 
@@ -465,9 +465,8 @@ is complete. Keep AP startup disabled until those tests pass.
   check.
 - Workspace host tests, release kernel check/build, all Python source guards,
   claims/finding audits, and QEMU T0 passed. F8 and F10 remain present.
-- Next: analyze the 528-byte interrupt scratch against worst-case kernel stack
-  usage, then isolate scheduler queues and TCB/FPU storage. This remains BSP
-  behavior only; APs remain parked.
+- This earlier handoff item was completed in the A11 timer stack budget
+  analysis below. Whole-program stack high-water evidence remains outstanding.
 - PR #27 passed all three required GitHub Actions jobs in both triggered runs
   and merged to `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa`.
 
@@ -486,8 +485,23 @@ is complete. Keep AP startup disabled until those tests pass.
   remain present. This checks one guard at runtime on the BSP; APs remain
   parked, A11 remains incomplete, and worst-case interrupt/stack usage remains
   unanalyzed. Evidence: `docs/EVIDENCE/A11-thread-stack-guards.md`.
-- Next: analyze the 528-byte interrupt scratch and total worst-case kernel
-  stack depth, then address shared scheduler and TCB/FPU ownership.
+- Next: specify and test shared scheduler/TCB ownership and lock ordering
+  before any AP execution is enabled. Keep the BSP-only gate in place.
 - PR #28 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
   Build Guide v2 Claims & Honesty Gate on the final branch commit and merged
   to `main` at `db6c97cbcbc9698746140b92b6a3295712215fcf` on 2026-10-21.
+
+## A11 timer interrupt stack analysis (2026-10-21)
+
+- Compiler stack-size metadata and disassembly of the release-optimized
+  x86-64 kernel/scheduler measured a 935-byte increment along the known normal
+  timer scheduling path, conservatively including the 40-byte user-to-kernel
+  hardware frame. The 528-byte FXSAVE scratch is part of this amount.
+- This is only the interrupt-path increment; it cannot bound the preexisting
+  stack depth at arbitrary Ring 0 preemption points or panic/fault paths.
+  Therefore it does not establish worst-case stack safety for a 16 KiB thread
+  stack. Details and commands: `docs/EVIDENCE/A11-timer-stack-budget.md`.
+- A whole-workspace compiler metadata attempt hit host `STATUS_ILLEGAL_INSTRUCTION`
+  in third-party `poly1305` and `curve25519-dalek`; targeted metadata builds
+  for the kernel crate and scheduler crate passed. No regular kernel build
+  regression was observed.
