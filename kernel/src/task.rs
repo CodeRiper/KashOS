@@ -48,7 +48,7 @@ impl Thread {
             name: "",
             saved_rsp: 0,
             stack_top: 0,
-            fpu: FpuState::empty(),
+            fpu: FpuState::initial(),
             cr3: 0,
             in_use: false,
         }
@@ -130,7 +130,7 @@ pub fn init(initial_rsp: u64) {
         name: "kernel-init",
         saved_rsp: initial_rsp,
         stack_top: initial_rsp,
-        fpu: FpuState::empty(),
+        fpu: FpuState::initial(),
         cr3: 0,
         in_use: true,
     };
@@ -200,7 +200,7 @@ pub fn spawn_kernel_thread(
         name,
         saved_rsp,
         stack_top,
-        fpu: FpuState::empty(),
+        fpu: FpuState::initial(),
         cr3: 0,
         in_use: true,
     };

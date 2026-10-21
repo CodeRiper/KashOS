@@ -47,8 +47,20 @@ pub struct FpuState {
 }
 
 impl FpuState {
-    pub const fn empty() -> Self {
-        FpuState { buffer: [0u8; 512] }
+    /// Build the x87/SSE reset image used before a thread has saved its own state.
+    ///
+    /// FXSAVE stores FCW at bytes 0..2 and MXCSR at bytes 24..28.  A zeroed
+    /// image changes the normal exception masks and rounding mode, so it is not
+    /// a safe initial state for a thread that will be restored with FXRSTOR.
+    pub const fn initial() -> Self {
+        let mut buffer = [0u8; 512];
+        // FNINIT default x87 control word: all exceptions masked, round-to-nearest.
+        buffer[0] = 0x7f;
+        buffer[1] = 0x03;
+        // Architectural default MXCSR: exceptions masked, round-to-nearest.
+        buffer[24] = 0x80;
+        buffer[25] = 0x1f;
+        FpuState { buffer }
     }
 
     #[inline]

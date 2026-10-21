@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-10-21
 **Repository tip checked:** `main` at `5a5a2326d8554b2b8eece38fa0d991ad6dea058e`
-**Current task branch:** `main`
-**Current engineering task:** Continue A11 with TCB/FPU ownership and concurrent timer/context safety; APs remain parked
+**Current task branch:** `codex/a11-valid-fpu-initial-state`
+**Current engineering task:** Correct the initial x87/SSE state restored for new threads; investigate interrupt-entry FPU preservation next; APs remain parked
 
 ## Completed in this task
 
@@ -406,3 +406,25 @@ Continue A11 with ownership and synchronization of per-CPU run queues, TCB/FPU
 state, and timer/context migration. Add QEMU tests that execute concurrently
 on multiple CPUs only after AP-local GDT/IDT/TSS, syscall, and interrupt setup
 is complete. Keep AP startup disabled until those tests pass.
+
+## A11 FPU initial-state follow-up (2026-10-21)
+
+- Added `FpuState::initial()` with x87 control word `0x037f` and MXCSR
+  `0x1f80`; fresh kernel threads, processes, and empty TCB slots now use it.
+- Added a failure-first source regression check at
+  `tools/test_fpu_initial_state.py`. It initially failed because the valid
+  constructor was absent, and now passes.
+- Intel's current SDM was consulted; links and exact values are recorded in
+  `docs/EVIDENCE/A11-fpu-initial-state.md`.
+- Workspace host suite, release kernel check/build, all Python source guards,
+  claims linter, findings audit, `git diff --check`, and QEMU T0 shell smoke
+  passed. Findings F8 (VT-d remains a stub) and F10 (normal UI remains in Ring
+  0) remain present.
+- Rust formatting checks still report pre-existing formatting differences
+  across unrelated files; no broad formatting rewrite was applied. The
+  environment does not have the required `rtk` command, so verification used
+  direct commands.
+- The interrupt handler still reaches Rust before the outgoing FPU state is
+  saved. This change does not establish FPU context-switch correctness, SMP, or
+  OS readiness. Next: design a safe interrupt-entry save path, then test it
+  before modifying scheduler ownership or allowing AP execution.
