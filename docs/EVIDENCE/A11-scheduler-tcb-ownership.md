@@ -28,6 +28,24 @@ metadata changes are not a single transaction, and shared scheduler queues,
 TCB/FPU/context state, and broader process/endpoint lifecycle races have not
 been established as safe for AP execution. This work does not enable AP startup.
 
-## Verification
+## Verification (2026-10-21)
 
-Pending full verification on branch `codex/a11-scheduler-tcb-ownership`.
+```text
+python tools/test_ipc_task_wakeup_atomic.py PASS
+python tools/test_process_authority_fail_closed.py PASS
+all 24 tools/test_*.py source guards PASS
+cargo test --workspace --exclude kernel --features kvault/test-fast-kdf PASS
+cargo check --release --manifest-path kernel/Cargo.toml --target x86_64-unknown-none PASS
+cargo build --release --manifest-path kernel/Cargo.toml --target x86_64-unknown-none PASS
+python tools/claims_lint.py PASS
+python tools/verify_findings.py PASS (F8 and F10 remain present)
+python -u tests/test_qemu_boot.py PASS (single-CPU T0 reached locked shell and required markers)
+git diff --check PASS
+```
+
+The QEMU run uses one CPU and does not exercise concurrent IPC wakeups. APs
+remain parked. `cargo fmt --all -- --check` was also attempted; it reports
+formatting differences across untouched workspace files, so no repository-wide
+formatting rewrite was applied. The required CI workflow passed all three jobs
+in both branch runs. PR #30 merged to `main` at
+`5763c9cced6e6b9d7a1a8ccf5a176d9025d8f5fa` on 2026-10-21.

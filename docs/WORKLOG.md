@@ -527,3 +527,11 @@ is complete. Keep AP startup disabled until those tests pass.
 - Next: establish one coherent ownership/lock-order policy for scheduler,
   TCB, process and endpoint state, then add a real multi-CPU stress test before
   any AP execution is considered.
+- PR #30 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate in both branch runs, then merged to
+  `main` at `5763c9cced6e6b9d7a1a8ccf5a176d9025d8f5fa` on 2026-10-21.
+- Local verification: workspace tests, release kernel check/build, all 24
+  Python source guards, claims lint, findings audit, QEMU T0 shell smoke, and
+  `git diff --check` passed. The T0 run was single-CPU and does not exercise
+  concurrent IPC wakeups. `cargo fmt --all -- --check` reports existing
+  formatting drift in untouched workspace files.

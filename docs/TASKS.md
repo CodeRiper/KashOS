@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | In progress (BSP FPU and unmapped stack-guard checks; timer path measures 935-byte increment; IPC wake-by-TID is atomic under scheduler lock; shared queues/context; AP startup disabled) | codex/a11-scheduler-tcb-ownership | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md; docs/EVIDENCE/A11-switched-fpu-state.md; docs/EVIDENCE/A11-thread-stack-guards.md; docs/EVIDENCE/A11-timer-stack-budget.md; docs/EVIDENCE/A11-scheduler-tcb-ownership.md |
+| A11 | SMP and scheduler | In progress (BSP FPU and unmapped stack-guard checks; timer path measures 935-byte increment; IPC wake-by-TID is atomic under scheduler lock; shared queues/context; AP startup disabled) | main | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md; docs/EVIDENCE/A11-switched-fpu-state.md; docs/EVIDENCE/A11-thread-stack-guards.md; docs/EVIDENCE/A11-timer-stack-budget.md; docs/EVIDENCE/A11-scheduler-tcb-ownership.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |

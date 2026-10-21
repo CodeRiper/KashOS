@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `d3b8d62e1f4f1fdb5540bcffa9c4d186ca9d0b8b` (PR #29)
-**Active work branch:** `codex/a11-scheduler-tcb-ownership` (from `main` at `98c51ad0ff351fc0c003ed54e22b8101ea7e7a97`)
+**Repository state checked:** `main` at `5763c9cced6e6b9d7a1a8ccf5a176d9025d8f5fa` (PR #30)
+**Active work branch:** `main`
 **Current gate:** A11 groundwork; IPC wake-by-TID now resolves and enqueues under one scheduler lock. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
