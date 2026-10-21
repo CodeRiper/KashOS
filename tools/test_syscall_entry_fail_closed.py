@@ -25,7 +25,7 @@ require(not re.search(r"\bSYSCALL_KERNEL_STACK\b", syscall)
         and not re.search(r"\bUSER_RSP_SCRATCH\b", syscall),
         "syscall entry has no single global stack or user-RSP scratch")
 require("SYSCALL_KERNEL_STACKS" in syscall and "SYSCALL_CPU_STATE" in syscall,
-        "kernel syscall stack and scratch state are allocated per CPU")
+        "per-CPU bootstrap stack and GS entry state remain provisioned")
 require("gs:[0]" in entry and "gs:[8]" in entry,
         "entry switches using the CPU-local GS state before stack memory access")
 require(entry.index("swapgs") < entry.index("mov gs:[0], rsp")

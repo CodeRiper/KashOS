@@ -123,6 +123,26 @@ pub fn wake_task_by_tid(tid: u32) -> Result<(), SchedError> {
     sched.wake_task(task_idx)
 }
 
+/// Return whether `rsp` falls inside the guarded kernel stack assigned to the
+/// current thread. Fast syscall entry checks this before dispatching user input.
+pub fn current_thread_stack_contains(rsp: u64) -> bool {
+    let tid = current_tid();
+    let threads = THREADS.lock();
+    let Some(slot) = threads
+        .iter()
+        .position(|thread| thread.in_use && thread.tid == tid)
+    else {
+        return false;
+    };
+    let stacks = THREAD_STACKS.lock();
+    let Some(stack) = stacks.get(slot) else {
+        return false;
+    };
+    let bottom = stack.stack_memory.as_ptr() as u64;
+    let top = bottom + KERNEL_STACK_SIZE as u64;
+    rsp >= bottom && rsp < top
+}
+
 /// Total number of successful thread preemptions observed.
 pub fn preemption_count() -> u64 {
     PREEMPTION_COUNT.load(Ordering::Relaxed)
@@ -229,6 +249,10 @@ fn switch_to_idle(cpu_index: usize) -> u64 {
         crate::arch::shutdown(true);
     }
     set_tss_rsp0(idle_stack_top);
+    if !crate::arch::x86_64::syscall::set_current_kernel_stack_top(idle_stack_top) {
+        kprintln!("[sched] CPU {} has no valid idle syscall stack; halting.", cpu_index);
+        crate::arch::shutdown(true);
+    }
     CPU_CURRENT_TID[cpu_index].store(0, Ordering::Release);
     idle_rsp
 }
@@ -275,6 +299,9 @@ pub fn init(initial_rsp: u64) {
     let _ = sched.enqueue_ready(slot);
     let _ = sched.schedule_on_cpu(cpu_index);
     CPU_CURRENT_TID[cpu_index].store(1, Ordering::Release);
+    if !crate::arch::x86_64::syscall::set_current_kernel_stack_top(initial_rsp) {
+        panic!("task: failed to install the BSP syscall stack");
+    }
 }
 
 /// Spawn a new kernel thread with its own 16 KiB stack, preemption context, and QoS priority.
@@ -385,6 +412,10 @@ pub fn on_timer_tick(
                         if next_thread.in_use {
                             *next_fpu_out = &next_thread.fpu;
                             set_tss_rsp0(next_thread.stack_top);
+                            if !crate::arch::x86_64::syscall::set_current_kernel_stack_top(next_thread.stack_top) {
+                                kprintln!("[sched] CPU {} has no valid syscall stack for TID {}; halting.", cpu_index, next_thread.tid);
+                                crate::arch::shutdown(true);
+                            }
                             CPU_CURRENT_TID[cpu_index].store(next_thread.tid, Ordering::Release);
                             if cr3 != 0 {
                                 unsafe {
