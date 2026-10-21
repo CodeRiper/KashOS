@@ -15,10 +15,10 @@ message/result to the original caller. Receive returned an empty message on
 that path. These transitions did not implement a blocking IPC contract.
 
 Implementing true blocking needs a kernel-owned saved syscall continuation,
-atomic scheduler/PCB/endpoint state transitions, an architecture path for
-switching to another task or idle context, and tests for wake-versus-exit and
-task-slot reuse. Some scheduler policy groundwork is recorded below. The full
-work is still required before B4 can be described as complete.
+atomic scheduler/PCB/endpoint state transitions, and tests for wake-versus-exit
+and task-slot reuse. The x86 timer path now has an idle context for a CPU with
+no runnable task. The full syscall and IPC transaction work is still required
+before B4 can be described as complete.
 
 ## Scheduler policy groundwork
 
@@ -30,9 +30,13 @@ waking a task already switched off its CPU enqueues it once.
 
 These APIs change scheduler policy state only. They do not save a resumable IPC
 syscall continuation, atomically update PCB and endpoint state, or provide an
-architecture idle context when a blocked task leaves no runnable work. Kernel
-IPC therefore continues to return `WouldBlock` for unmatched calls. See
-[`../EVIDENCE/B4-scheduler-block-wake.md`](../EVIDENCE/B4-scheduler-block-wake.md).
+user-visible IPC result when woken. Kernel IPC therefore continues to return
+`WouldBlock` for unmatched calls. The x86 timer now switches the last blocked
+current task to a guarded per-CPU idle stack and can select a woken task from
+idle on a later timer tick. A BSP QEMU self-test exercises this scheduler
+handoff with a synthetic wake probe; it does not exercise an IPC syscall
+continuation. See
+[`../EVIDENCE/B4-idle-handoff.md`](../EVIDENCE/B4-idle-handoff.md).
 
 ## Error value
 

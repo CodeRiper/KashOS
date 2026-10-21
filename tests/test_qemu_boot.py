@@ -92,12 +92,15 @@ def test_t0_boot():
         "timer_fpu_preserved": False,
         "switched_fpu_preserved": False,
         "stack_guard_unmapped": False,
+        "blocked_idle_handoff": False,
         "kms_locked": False,
         "unlock_help": False,
         "shell_ready": False,
     }
 
     collected_lines = []
+    panic_detected = False
+    panic_context_lines = 0
     timeout_sec = 60
 
     try:
@@ -116,8 +119,19 @@ def test_t0_boot():
             collected_lines.append(line)
 
             # Echo relevant boot lines
-            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest]", "[fpu]", "[sched]", "[stack]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01"]):
+            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest]", "[fpu]", "[sched]", "[stack]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01", "RIP="]):
                 print(f"  {line}")
+            elif panic_detected:
+                print(f"  {line}")
+
+            if "[KERNEL-PANIC]" in line:
+                if not panic_detected:
+                    panic_detected = True
+                    panic_context_lines = 0
+            elif panic_detected:
+                panic_context_lines += 1
+                if panic_context_lines >= 12:
+                    break
 
             if "W^X" in line:
                 required_markers["mmu_wx"] = True
@@ -133,8 +147,10 @@ def test_t0_boot():
                 required_markers["timer_fpu_preserved"] = True
             if "[sched] PASS: XMM15 state survived timer-driven switch away and back" in line:
                 required_markers["switched_fpu_preserved"] = True
-            if "[stack] PASS: per-thread stack guard is non-present" in line:
+            if "[stack] PASS: thread and CPU idle stack guards are non-present" in line:
                 required_markers["stack_guard_unmapped"] = True
+            if "[sched] PASS: blocked task switched to idle and resumed after wake" in line:
+                required_markers["blocked_idle_handoff"] = True
             if "[kms] Locked:" in line:
                 required_markers["kms_locked"] = True
             if "[storage] Vault is locked. Use 'unlock'; passphrase input is hidden." in line:
@@ -167,6 +183,9 @@ def test_t0_boot():
     print("  QEMU BOOT ASSERTION RESULTS")
     print("=" * 70)
     all_passed = True
+    if panic_detected:
+        print("[-] FAILED: QEMU reported a kernel panic; stopped after the fault context.")
+        all_passed = False
     for marker, found in required_markers.items():
         status = "[PASS]" if found else "[FAIL]"
         print(f"  * Marker {marker:<15}: {status}")

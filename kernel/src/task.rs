@@ -11,7 +11,7 @@ use crate::arch::x86_64::fpu::FpuState;
 use crate::arch::x86_64::gdt::{set_tss_rsp0, KERNEL_CODE_SELECTOR, KERNEL_DATA_SELECTOR};
 use crate::arch::x86_64::smp;
 use crate::sync::TicketSpinLock;
-use kscheduler::{QoSClass, QoSScheduler, SchedError, MAX_TASKS};
+use kscheduler::{ContextSwitchTarget, QoSClass, QoSScheduler, SchedError, MAX_TASKS};
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 pub const KERNEL_STACK_SIZE: usize = 16384;
@@ -58,12 +58,27 @@ impl Thread {
 pub static THREAD_STACKS: TicketSpinLock<[ThreadStack; MAX_TASKS]> =
     TicketSpinLock::new([const { ThreadStack::new() }; MAX_TASKS]);
 
+static IDLE_STACKS: TicketSpinLock<[ThreadStack; smp::MAX_CPUS]> =
+    TicketSpinLock::new([const { ThreadStack::new() }; smp::MAX_CPUS]);
+static CPU_IDLE_RSP: [AtomicU64; smp::MAX_CPUS] =
+    [const { AtomicU64::new(0) }; smp::MAX_CPUS];
+static CPU_IDLE_STACK_TOP: [AtomicU64; smp::MAX_CPUS] =
+    [const { AtomicU64::new(0) }; smp::MAX_CPUS];
+static IDLE_WAKE_PROBE_TID: AtomicU32 = AtomicU32::new(0);
+
 /// Return the virtual address of each statically reserved thread-stack guard.
 /// The kernel currently uses an identity map, so these are also the addresses
 /// to remove from the x86 page table before it is installed.
-pub fn stack_guard_page_addresses() -> [u64; MAX_TASKS] {
-    let stacks = THREAD_STACKS.lock();
-    core::array::from_fn(|index| stacks[index].guard_page.as_ptr() as u64)
+pub fn stack_guard_page_addresses() -> [u64; MAX_TASKS + smp::MAX_CPUS] {
+    let thread_stacks = THREAD_STACKS.lock();
+    let idle_stacks = IDLE_STACKS.lock();
+    core::array::from_fn(|index| {
+        if index < MAX_TASKS {
+            thread_stacks[index].guard_page.as_ptr() as u64
+        } else {
+            idle_stacks[index - MAX_TASKS].guard_page.as_ptr() as u64
+        }
+    })
 }
 
 pub static THREADS: TicketSpinLock<[Thread; MAX_TASKS]> =
@@ -116,6 +131,106 @@ extern "C" fn thread_entry_stub(entry: extern "C" fn(u64), arg: u64) {
     exit_current_thread();
 }
 
+extern "C" fn idle_entry(_arg: u64) {
+    loop {
+        let wake_tid = IDLE_WAKE_PROBE_TID.swap(0, Ordering::AcqRel);
+        if wake_tid != 0 && enqueue_ready_by_tid(wake_tid).is_err() {
+            kprintln!("[sched] Idle handoff probe could not wake TID {}; halting.", wake_tid);
+            crate::arch::shutdown(true);
+        }
+        unsafe {
+            core::arch::asm!("sti; hlt", options(nomem, nostack));
+        }
+    }
+}
+
+/// Exercise a real blocked-task to idle to woken-task timer handoff during the
+/// boot self-test. The one-shot wake token is ignored during normal operation.
+pub fn test_blocked_task_idle_handoff() {
+    let tid = current_tid();
+    if tid == 0
+        || IDLE_WAKE_PROBE_TID
+            .compare_exchange(0, tid, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+    {
+        panic!("selftest: could not arm blocked-task idle handoff");
+    }
+
+    let block_result = {
+        let mut sched = SCHEDULER.lock();
+        sched
+            .task_index_for_tid(tid)
+            .ok_or(SchedError::NoSuchTask)
+            .and_then(|idx| sched.block_task(idx))
+    };
+    if let Err(error) = block_result {
+        IDLE_WAKE_PROBE_TID.store(0, Ordering::Release);
+        panic!("selftest: failed to block idle-handoff task: {:?}", error);
+    }
+
+    while IDLE_WAKE_PROBE_TID.load(Ordering::Acquire) != 0 {
+        unsafe {
+            core::arch::asm!("pause", options(nomem, nostack));
+        }
+    }
+    if current_tid() != tid {
+        panic!("selftest: idle wake returned to the wrong task");
+    }
+    if IDLE_WAKE_PROBE_TID.load(Ordering::Acquire) != 0 {
+        panic!("selftest: idle handoff probe token was not consumed");
+    }
+    let resumed_running = {
+        let sched = SCHEDULER.lock();
+        sched
+            .task_index_for_tid(tid)
+            .and_then(|idx| sched.task(idx))
+            .map(|task| task.state == kscheduler::ThreadState::Running)
+            .unwrap_or(false)
+    };
+    if !resumed_running {
+        panic!("selftest: blocked task did not resume in Running state");
+    }
+    kprintln!("[sched] PASS: blocked task switched to idle and resumed after wake");
+}
+
+fn initialize_idle_context(cpu_index: usize) {
+    if cpu_index >= smp::MAX_CPUS {
+        crate::arch::shutdown(true);
+    }
+    let mut stacks = IDLE_STACKS.lock();
+    let stack = &mut stacks[cpu_index];
+    let stack_top = stack.stack_memory.as_ptr() as u64 + KERNEL_STACK_SIZE as u64;
+    let saved_rsp = stack_top - 20 * core::mem::size_of::<u64>() as u64;
+    let frame = saved_rsp as *mut u64;
+
+    // SAFETY: this CPU's idle stack is statically reserved, exclusively
+    // initialized here, and its guard page is unmapped before interrupts run.
+    unsafe {
+        core::ptr::write_bytes(frame, 0, 20);
+        core::ptr::write_volatile(frame.add(9), idle_entry as *const () as usize as u64);
+        core::ptr::write_volatile(frame.add(10), 0);
+        core::ptr::write_volatile(frame.add(15), thread_entry_stub as *const () as usize as u64);
+        core::ptr::write_volatile(frame.add(16), KERNEL_CODE_SELECTOR as u64);
+        core::ptr::write_volatile(frame.add(17), 0x202);
+        core::ptr::write_volatile(frame.add(18), stack_top);
+        core::ptr::write_volatile(frame.add(19), KERNEL_DATA_SELECTOR as u64);
+    }
+    CPU_IDLE_RSP[cpu_index].store(saved_rsp, Ordering::Release);
+    CPU_IDLE_STACK_TOP[cpu_index].store(stack_top, Ordering::Release);
+}
+
+fn switch_to_idle(cpu_index: usize) -> u64 {
+    let idle_rsp = CPU_IDLE_RSP[cpu_index].load(Ordering::Acquire);
+    let idle_stack_top = CPU_IDLE_STACK_TOP[cpu_index].load(Ordering::Acquire);
+    if idle_rsp == 0 || idle_stack_top == 0 {
+        kprintln!("[sched] CPU {} has no initialized idle context; halting.", cpu_index);
+        crate::arch::shutdown(true);
+    }
+    set_tss_rsp0(idle_stack_top);
+    CPU_CURRENT_TID[cpu_index].store(0, Ordering::Release);
+    idle_rsp
+}
+
 /// Terminate the calling thread and yield.
 pub fn exit_current_thread() -> ! {
     let tid = current_tid();
@@ -138,6 +253,7 @@ pub fn exit_current_thread() -> ! {
 pub fn init(initial_rsp: u64) {
     let cpu_index = current_cpu_index()
         .unwrap_or_else(|| panic!("BSP APIC ID is absent from the discovered CPU table"));
+    initialize_idle_context(cpu_index);
     let mut sched = SCHEDULER.lock();
     let mut threads = THREADS.lock();
 
@@ -252,7 +368,6 @@ pub fn on_timer_tick(
 
     match plan {
         Some(p) => {
-            // Save state of previous task
             if let Some(prev_idx) = p.prev_task_idx {
                 if let Some(prev_thread) = threads.get_mut(prev_idx) {
                     if prev_thread.in_use {
@@ -262,35 +377,47 @@ pub fn on_timer_tick(
                 }
             }
 
-            // Restore state of next task
-            let next_idx = p.next_task_idx;
-            if let Some(next_thread) = threads.get_mut(next_idx) {
-                if next_thread.in_use {
-                    *next_fpu_out = &next_thread.fpu;
-                    set_tss_rsp0(next_thread.stack_top);
-                    CPU_CURRENT_TID[cpu_index].store(next_thread.tid, Ordering::Release);
-                    if p.next_cr3 != 0 {
-                        unsafe {
-                            core::arch::asm!("mov cr3, {0}", in(reg) p.next_cr3, options(nostack));
+            match p.target {
+                ContextSwitchTarget::Task { task_idx, cr3, .. } => {
+                    if let Some(next_thread) = threads.get_mut(task_idx) {
+                        if next_thread.in_use {
+                            *next_fpu_out = &next_thread.fpu;
+                            set_tss_rsp0(next_thread.stack_top);
+                            CPU_CURRENT_TID[cpu_index].store(next_thread.tid, Ordering::Release);
+                            if cr3 != 0 {
+                                unsafe {
+                                    core::arch::asm!("mov cr3, {0}", in(reg) cr3, options(nostack));
+                                }
+                            }
+                            PREEMPTION_COUNT.fetch_add(1, Ordering::Relaxed);
+                            return next_thread.saved_rsp;
                         }
                     }
+                    kprintln!("[sched] Selected task {} has no live kernel thread; halting.", task_idx);
+                    crate::arch::shutdown(true)
+                }
+                ContextSwitchTarget::Idle => {
                     PREEMPTION_COUNT.fetch_add(1, Ordering::Relaxed);
-                    return next_thread.saved_rsp;
+                    switch_to_idle(cpu_index)
                 }
             }
-
-            incoming_rsp
         }
         None => {
-            // No task switch: save current incoming rsp for current task
             if let Some(curr_tcb) = sched.current_task_on_cpu(cpu_index) {
                 let slot = curr_tcb.context_handle as usize;
                 if let Some(thread) = threads.get_mut(slot) {
                     thread.saved_rsp = incoming_rsp;
                     thread.fpu = *incoming_fpu;
                 }
+                incoming_rsp
+            } else if CPU_CURRENT_TID[cpu_index].load(Ordering::Acquire) != 0 {
+                // A terminated task may already have cleared the scheduler's
+                // current slot. Do not resume it just because no task is ready.
+                switch_to_idle(cpu_index)
+            } else {
+                // The processor was already executing on its idle context.
+                incoming_rsp
             }
-            incoming_rsp
         }
     }
 }
