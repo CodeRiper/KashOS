@@ -137,7 +137,7 @@ pub fn init(initial_rsp: u64) {
 
     let _ = sched.create_task(1, QoSClass::UserInteractive, slot as u64);
     let _ = sched.enqueue_ready(slot);
-    let _ = sched.schedule();
+    let _ = sched.schedule_on_cpu(cpu_index);
     CPU_CURRENT_TID[cpu_index].store(1, Ordering::Release);
 }
 
@@ -222,7 +222,7 @@ pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
     let mut sched = SCHEDULER.lock();
     let mut threads = THREADS.lock();
 
-    let plan = sched.plan_context_switch(elapsed_us);
+    let plan = sched.plan_context_switch_on_cpu(cpu_index, elapsed_us);
 
     match plan {
         Some(p) => {
@@ -257,7 +257,7 @@ pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
         }
         None => {
             // No task switch: save current incoming rsp for current task
-            if let Some(curr_tcb) = sched.current_task() {
+            if let Some(curr_tcb) = sched.current_task_on_cpu(cpu_index) {
                 let slot = curr_tcb.context_handle as usize;
                 if let Some(thread) = threads.get_mut(slot) {
                     thread.saved_rsp = incoming_rsp;

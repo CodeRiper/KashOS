@@ -10,7 +10,7 @@ use crate::arch::x86_64::apic;
 use crate::kprintln;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-pub const MAX_CPUS: usize = 64;
+pub const MAX_CPUS: usize = kscheduler::MAX_CPUS;
 pub const TLB_SHOOTDOWN_VECTOR: u8 = 251;
 pub const AP_TRAMPOLINE_PHYS: u64 = 0x8000;
 pub const AP_TRAMPOLINE_PAGE: u8 = 0x08;

@@ -1,9 +1,9 @@
 # KashOS implementation roadmap
 
-**Audit date:** 2026-10-20  
-**Repository state checked:** `main` at `81c90ad99e1de6b776eb03e94f916e5f20429f09` (PR #23)
-**Active work branch:** `main`
-**Current gate:** A11 groundwork; GDT/TSS/IST, IDT, expected-fault recovery, timer counters, and current-task identity are CPU-local. APs remain parked until AP-local syscall setup and genuinely concurrent scheduler/context-switch state are initialized and tested.
+**Audit date:** 2026-10-21
+**Repository state checked:** `main` at `f7d43d3acd8c5598e5f5a35c55a095fb54a8d83e` (PR #23 plus docs sync)
+**Active work branch:** `codex/a11-percpu-scheduler-current`
+**Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
@@ -52,9 +52,14 @@ compatibility.
 - PR #23 rejects duplicate enqueue of a scheduler task already marked `Ready`;
   failure-first host regression and verification are in
   [`EVIDENCE/A11-scheduler-ready-state.md`](EVIDENCE/A11-scheduler-ready-state.md).
-  This fixes queue lifecycle correctness only; global scheduler/current-task
-  state still blocks concurrent CPU execution. PR #23 merged to `main` at
-  `81c90ad`; all three required GitHub Actions jobs passed.
+  This fixes queue lifecycle correctness only. Shared scheduler queues, the
+  global scheduler lock, TCB/FPU storage, and timer/context ownership still
+  block concurrent CPU execution. PR #23 merged to `main` at `81c90ad`; all
+  three required GitHub Actions jobs passed.
+- The active A11 follow-up adds per-CPU current slots and CPU-indexed scheduler
+  timer/selection APIs, applies affinity during queue selection, and passes the
+  CPU slot through the x86 timer path. Ready queues remain shared and APs remain
+  parked. See [`EVIDENCE/A11-percpu-scheduler-current.md`](EVIDENCE/A11-percpu-scheduler-current.md).
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.

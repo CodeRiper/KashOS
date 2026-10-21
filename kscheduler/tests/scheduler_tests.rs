@@ -171,3 +171,59 @@ fn duplicate_ready_enqueue_is_rejected_without_scheduling_one_task_twice() {
     assert_eq!(s.schedule(), Some(only));
     assert_eq!(s.schedule(), None, "a running task must not remain queued");
 }
+
+#[test]
+fn cpu_local_current_tasks_respect_affinity_and_are_distinct() {
+    let mut s = QoSScheduler::new();
+    let cpu0_task = s.create_task(301, QoSClass::Background, 0).unwrap();
+    let cpu1_task = s.create_task(302, QoSClass::UserInteractive, 0).unwrap();
+    s.set_task_affinity(cpu0_task, 1 << 0).unwrap();
+    s.set_task_affinity(cpu1_task, 1 << 1).unwrap();
+    s.enqueue_ready(cpu1_task).unwrap();
+    s.enqueue_ready(cpu0_task).unwrap();
+
+    assert_eq!(s.schedule_on_cpu(0), Some(cpu0_task));
+    assert_eq!(s.current_task_on_cpu(0).unwrap().tid, 301);
+    assert_eq!(s.schedule_on_cpu(1), Some(cpu1_task));
+    assert_eq!(s.current_task_on_cpu(1).unwrap().tid, 302);
+    assert_eq!(s.current_task().unwrap().tid, 301, "legacy current_task refers to CPU 0");
+}
+
+#[test]
+fn scheduling_rejects_cpu_indices_outside_the_per_cpu_table() {
+    let mut s = QoSScheduler::new();
+    assert_eq!(s.schedule_on_cpu(kscheduler::MAX_CPUS), None);
+    assert!(s.current_task_on_cpu(kscheduler::MAX_CPUS).is_none());
+    assert_eq!(s.on_timer_tick_on_cpu(kscheduler::MAX_CPUS, 100), None);
+}
+
+#[test]
+fn timer_tick_on_one_cpu_does_not_preempt_for_another_cpus_affinity_queue() {
+    let mut s = QoSScheduler::new();
+    let cpu0_background = s.create_task(401, QoSClass::Background, 0).unwrap();
+    let cpu1_interactive = s.create_task(402, QoSClass::UserInteractive, 0).unwrap();
+    s.set_task_affinity(cpu0_background, 1 << 0).unwrap();
+    s.set_task_affinity(cpu1_interactive, 1 << 1).unwrap();
+    s.enqueue_ready(cpu0_background).unwrap();
+    assert_eq!(s.schedule_on_cpu(0), Some(cpu0_background));
+
+    s.enqueue_ready(cpu1_interactive).unwrap();
+    assert_eq!(s.on_timer_tick_on_cpu(0, 1), Some(cpu0_background));
+    assert_eq!(s.current_task_on_cpu(0).unwrap().tid, 401);
+    assert_eq!(s.schedule_on_cpu(1), Some(cpu1_interactive));
+}
+
+#[test]
+fn terminated_slot_reuse_does_not_leave_duplicate_ready_entries() {
+    let mut s = QoSScheduler::new();
+    let old = s.create_task(501, QoSClass::Background, 0).unwrap();
+    s.enqueue_ready(old).unwrap();
+    s.terminate_task(old).unwrap();
+
+    let replacement = s.create_task(502, QoSClass::Background, 0).unwrap();
+    assert_eq!(replacement, old, "the test must reuse the terminated slot");
+    s.enqueue_ready(replacement).unwrap();
+
+    assert_eq!(s.schedule(), Some(replacement));
+    assert_eq!(s.schedule(), None, "stale slot entries must not schedule the replacement twice");
+}

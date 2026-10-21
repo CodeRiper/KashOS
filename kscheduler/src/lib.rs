@@ -106,6 +106,8 @@ impl TaskControlBlock {
 }
 
 pub const MAX_TASKS: usize = 64;
+/// Maximum CPU slots represented by scheduler current-task state and affinity masks.
+pub const MAX_CPUS: usize = 64;
 const BAND_COUNT: usize = 3;
 
 fn band_slice_us(qos: QoSClass) -> u32 {
@@ -146,12 +148,25 @@ impl BandQueue {
         self.len -= 1;
         v
     }
+
+    fn remove(&mut self, task_idx: u32) {
+        let mut remaining = self.len;
+        while remaining > 0 {
+            remaining -= 1;
+            let Some(queued_idx) = self.pop() else {
+                break;
+            };
+            if queued_idx != task_idx {
+                let _ = self.push(queued_idx);
+            }
+        }
+    }
 }
 
 pub struct QoSScheduler {
     tasks: [TaskControlBlock; MAX_TASKS],
     queues: [BandQueue; BAND_COUNT],
-    current: Option<usize>,
+    current: [Option<usize>; MAX_CPUS],
     system_ticks_us: AtomicU64,
 }
 
@@ -160,7 +175,7 @@ impl QoSScheduler {
         QoSScheduler {
             tasks: [TaskControlBlock::EMPTY; MAX_TASKS],
             queues: [BandQueue::new(), BandQueue::new(), BandQueue::new()],
-            current: None,
+            current: [None; MAX_CPUS],
             system_ticks_us: AtomicU64::new(0),
         }
     }
@@ -218,8 +233,13 @@ impl QoSScheduler {
         let t = self.tasks.get_mut(idx).ok_or(SchedError::NoSuchTask)?;
         t.state = ThreadState::Terminated;
         t.in_use = false;
-        if self.current == Some(idx) {
-            self.current = None;
+        for queue in self.queues.iter_mut() {
+            queue.remove(idx as u32);
+        }
+        for current in self.current.iter_mut() {
+            if *current == Some(idx) {
+                *current = None;
+            }
         }
         Ok(())
     }
@@ -242,17 +262,50 @@ impl QoSScheduler {
         Ok(())
     }
 
-    fn dequeue_next(&mut self) -> Option<usize> {
-        for q in self.queues.iter_mut() {
-            if let Some(idx) = q.pop() {
-                return Some(idx as usize);
+    fn dequeue_next(&mut self, core_id: usize) -> Option<usize> {
+        if core_id >= MAX_CPUS {
+            return None;
+        }
+        for band in 0..BAND_COUNT {
+            let mut remaining = self.queues.get(band).map(|q| q.len).unwrap_or(0);
+            while remaining > 0 {
+                remaining -= 1;
+                let Some(raw_idx) = self.queues.get_mut(band).and_then(BandQueue::pop) else {
+                    break;
+                };
+                let idx = raw_idx as usize;
+                let live = self.tasks.get(idx).map(|task| task.in_use).unwrap_or(false);
+                if !live {
+                    continue;
+                }
+                if self.can_run_on_core(idx, core_id) {
+                    return Some(idx);
+                }
+                if let Some(queue) = self.queues.get_mut(band) {
+                    let _ = queue.push(raw_idx);
+                }
             }
         }
         None
     }
 
-    fn ready_count(&self, band: usize) -> usize {
-        self.queues.get(band).map(|q| q.len).unwrap_or(0)
+    fn has_ready_on_core(&self, band: usize, core_id: usize) -> bool {
+        let Some(queue) = self.queues.get(band) else {
+            return false;
+        };
+        for offset in 0..queue.len {
+            let position = (queue.head + offset) % MAX_TASKS;
+            let Some(raw_idx) = queue.ring.get(position).copied() else {
+                continue;
+            };
+            let idx = raw_idx as usize;
+            if self.tasks.get(idx).map(|task| task.in_use).unwrap_or(false)
+                && self.can_run_on_core(idx, core_id)
+            {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn task(&self, idx: usize) -> Option<&TaskControlBlock> {
@@ -266,7 +319,16 @@ impl QoSScheduler {
     }
 
     pub fn current_task(&self) -> Option<&TaskControlBlock> {
-        self.current.and_then(|i| self.tasks.get(i))
+        self.current_task_on_cpu(0)
+    }
+
+    /// Return the task currently assigned to a CPU slot, if the slot is valid.
+    pub fn current_task_on_cpu(&self, core_id: usize) -> Option<&TaskControlBlock> {
+        self.current
+            .get(core_id)
+            .copied()
+            .flatten()
+            .and_then(|idx| self.tasks.get(idx))
     }
 
     pub fn system_ticks_us(&self) -> u64 {
@@ -274,14 +336,20 @@ impl QoSScheduler {
     }
 
     /// Pick the highest-priority ready task, arm its slice, and make it
-    /// current. Loops past any queue entry whose task was terminated after
-    /// being enqueued — `terminate_task` marks the task dead but, by
-    /// design, does not walk every band queue removing it (that would be an
-    /// O(MAX_TASKS) scan on every termination for a case `schedule` can
-    /// instead just skip past lazily, here, the one place that matters).
+    /// current. It skips stale dead-task entries defensively. Termination
+    /// removes queued entries before a TCB slot can be reused.
     pub fn schedule(&mut self) -> Option<usize> {
+        self.schedule_on_cpu(0)
+    }
+
+    /// Pick the highest-priority ready task permitted on `core_id` and make
+    /// it current for that CPU. Invalid CPU slots fail closed with `None`.
+    pub fn schedule_on_cpu(&mut self, core_id: usize) -> Option<usize> {
+        if core_id >= MAX_CPUS {
+            return None;
+        }
         loop {
-            match self.dequeue_next() {
+            match self.dequeue_next(core_id) {
                 Some(idx) => {
                     let live = self.tasks.get(idx).map(|t| t.in_use).unwrap_or(false);
                     if !live {
@@ -292,11 +360,15 @@ impl QoSScheduler {
                         t.slice_budget_us = band_slice_us(t.qos);
                         t.consumed_slice_us = 0;
                     }
-                    self.current = Some(idx);
+                    if let Some(current) = self.current.get_mut(core_id) {
+                        *current = Some(idx);
+                    }
                     return Some(idx);
                 }
                 None => {
-                    self.current = None;
+                    if let Some(current) = self.current.get_mut(core_id) {
+                        *current = None;
+                    }
                     return None;
                 }
             }
@@ -309,24 +381,36 @@ impl QoSScheduler {
     /// is expected to context-switch to whatever this returns if it differs
     /// from what was running going in.
     pub fn on_timer_tick(&mut self, elapsed_us: u32) -> Option<usize> {
+        self.on_timer_tick_on_cpu(0, elapsed_us)
+    }
+
+    /// Account for a timer tick on one CPU and choose that CPU's next task.
+    /// Task queues remain shared and callers must serialize access to this
+    /// scheduler; this API alone does not provide SMP-safe context switching.
+    pub fn on_timer_tick_on_cpu(&mut self, core_id: usize, elapsed_us: u32) -> Option<usize> {
+        if core_id >= MAX_CPUS {
+            return None;
+        }
         self.system_ticks_us.fetch_add(elapsed_us as u64, Ordering::Relaxed);
 
-        let Some(curr_idx) = self.current else {
-            return self.schedule();
+        let Some(curr_idx) = self.current.get(core_id).copied().flatten() else {
+            return self.schedule_on_cpu(core_id);
         };
         // Extract the Copy fields we need and let this mutable borrow of
-        // `self.tasks` end here, before `ready_count` below needs `&self`.
+        // `self.tasks` end here, before the affinity-aware queue check below.
         let (qos, consumed, budget) = match self.tasks.get_mut(curr_idx) {
             Some(t) => {
                 t.consumed_slice_us += elapsed_us;
                 (t.qos, t.consumed_slice_us, t.slice_budget_us)
             }
-            None => return self.schedule(),
+            None => return self.schedule_on_cpu(core_id),
         };
 
         let higher_priority_waiting = match qos {
-            QoSClass::Background => self.ready_count(0) > 0 || self.ready_count(1) > 0,
-            QoSClass::RealTimeIO => self.ready_count(0) > 0,
+            QoSClass::Background => {
+                self.has_ready_on_core(0, core_id) || self.has_ready_on_core(1, core_id)
+            }
+            QoSClass::RealTimeIO => self.has_ready_on_core(0, core_id),
             QoSClass::UserInteractive => false,
         };
 
@@ -335,7 +419,7 @@ impl QoSScheduler {
                 c.consumed_slice_us = 0;
             }
             let _ = self.enqueue_ready(curr_idx);
-            self.schedule()
+            self.schedule_on_cpu(core_id)
         } else {
             Some(curr_idx)
         }
@@ -344,8 +428,20 @@ impl QoSScheduler {
     /// Evaluates timer tick and computes a hardware context switch plan
     /// (callee-saved registers, CR3 page table reload, and TSS.RSP0 stack).
     pub fn plan_context_switch(&mut self, elapsed_us: u32) -> Option<ContextSwitchPlan> {
-        let prev = self.current;
-        let next = self.on_timer_tick(elapsed_us)?;
+        self.plan_context_switch_on_cpu(0, elapsed_us)
+    }
+
+    /// Calculate a context-switch plan for one CPU's current task.
+    pub fn plan_context_switch_on_cpu(
+        &mut self,
+        core_id: usize,
+        elapsed_us: u32,
+    ) -> Option<ContextSwitchPlan> {
+        if core_id >= MAX_CPUS {
+            return None;
+        }
+        let prev = self.current.get(core_id).copied().flatten();
+        let next = self.on_timer_tick_on_cpu(core_id, elapsed_us)?;
         if Some(next) != prev {
             let tcb = self.tasks.get(next)?;
             Some(ContextSwitchPlan {
