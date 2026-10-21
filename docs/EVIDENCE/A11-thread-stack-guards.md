@@ -36,5 +36,4 @@ T0 used one Conroe CPU under emulation. It verifies one deliberate guard
 write on the BSP, not all stack sizes, AP execution, arbitrary fault-handler
 stack exhaustion, or physical hardware. A11 remains incomplete; APs remain
 parked, and findings F8 (hardware IOMMU/DMA path unavailable) and F10 (normal
-GUI/session in Ring 0) remain present. No readiness or formal verification
-claim is made.
+GUI/session in Ring 0) remain present. The OS remains a development prototype.
