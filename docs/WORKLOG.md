@@ -784,6 +784,10 @@ is complete. Keep AP startup disabled until those tests pass.
   space mutation is not supported. APs remain parked; B4 remains incomplete.
 - `rtk` is specified by repository instructions but is not installed in this
   shell. Commands were run directly in PowerShell.
+- PR #41 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, then merged to `main` at
+  `5d55ab27bb35343a864695d1adae713cde4fa35b`. Local `main` was fast-forwarded
+  to that exact remote commit.
 
 ## A11 voluntary syscall yield (2026-10-21)
 

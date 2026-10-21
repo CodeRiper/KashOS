@@ -1,6 +1,6 @@
 # KashOS Master Task Ledger
 
-> Audit note (2026-10-21): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#37 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
+> Audit note (2026-10-21): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#41 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
 
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
@@ -34,7 +34,7 @@
 | B1 | Untyped Memory Model & Watermark Allocator | Needs revalidation | main | docs/EVIDENCE/B1.md |
 | B2 | CNode Guarded Radix Trees & Capability Derivation Tree (CDT) | Needs revalidation | main | docs/EVIDENCE/B2.md |
 | B3 | Transitive Revocation & Amnesic Memory Zeroing | Needs revalidation | main | docs/EVIDENCE/B3.md |
-| B4 | Badged Synchronous Endpoints & Capability Routing | Needs revalidation (direct delivery only; blocked-context handoff exists; undersized receive and unmapped/non-writable output reject before consuming; unmatched IPC still returns WouldBlock and endpoint/task/result transition is not integrated) | codex/ipc-user-page-permission-preflight | docs/EVIDENCE/B4.md; docs/EVIDENCE/B4-ipc-would-block.md; docs/EVIDENCE/B4-scheduler-block-wake.md; docs/EVIDENCE/B4-idle-handoff.md; docs/EVIDENCE/B4-ipc-user-buffer-preflight.md; docs/EVIDENCE/B4-ipc-user-page-permission-preflight.md; docs/EVIDENCE/B4-ipc-wake-failure-rollback.md; docs/EVIDENCE/B4-blocked-syscall-handoff.md; docs/EVIDENCE/B4-ipc-complete-receive.md; docs/EVIDENCE/A11-syscall-voluntary-yield.md |
+| B4 | Badged Synchronous Endpoints & Capability Routing | Needs revalidation (direct delivery only; blocked-context handoff exists; undersized receive and unmapped/non-writable output reject before consuming; unmatched IPC still returns WouldBlock and endpoint/task/result transition is not integrated) | main | docs/EVIDENCE/B4.md; docs/EVIDENCE/B4-ipc-would-block.md; docs/EVIDENCE/B4-scheduler-block-wake.md; docs/EVIDENCE/B4-idle-handoff.md; docs/EVIDENCE/B4-ipc-user-buffer-preflight.md; docs/EVIDENCE/B4-ipc-user-page-permission-preflight.md; docs/EVIDENCE/B4-ipc-wake-failure-rollback.md; docs/EVIDENCE/B4-blocked-syscall-handoff.md; docs/EVIDENCE/B4-ipc-complete-receive.md; docs/EVIDENCE/A11-syscall-voluntary-yield.md |
 | B5 | Asynchronous Notifications & Event Signaling | Needs revalidation | main | docs/EVIDENCE/B5.md |
 | B6 | Thread Control Blocks (TCBs), Fault Handlers & State | Needs revalidation | main | docs/EVIDENCE/B6.md |
 | B7 | Mixed-Criticality Scheduling (MCS): SchedContext & Temporal Isolation | Planned | - | docs/EVIDENCE/B7.md |
@@ -51,7 +51,7 @@
 
 ## Current implementation handoff
 
-- Verified repository tip: `main` at `2585d23417e412d7ae20856dc54760a479f48fa6` (PR #37).
+- Verified repository tip: `main` at `5d55ab27bb35343a864695d1adae713cde4fa35b` (PR #41).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
 - PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
 - PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.
@@ -62,4 +62,5 @@
 - PR #28 removes all x86-64 thread stack guard pages from the writable image mapping, matches expected page-fault error codes exactly, and verifies one guard write under T0 QEMU. All three required CI jobs passed; see `docs/EVIDENCE/A11-thread-stack-guards.md`.
 - PR #15 corrected README, threat model and claims inventory to describe the prototype status and unavailable networking, TPM, DMA isolation, user services and SMP; see `docs/EVIDENCE/READINESS.md`.
 - Timer stack analysis records a 935-byte normal-path increment but does not establish total stack safety; see `docs/EVIDENCE/A11-timer-stack-budget.md`. IPC wake-by-TID now resolves and enqueues under one scheduler lock; broader shared-state ownership remains open. See `docs/EVIDENCE/A11-scheduler-tcb-ownership.md`; AP startup remains disabled.
+- PR #41 adds x86-64 user-page permission preflight before syscall copies, corrects ELF stack placement, and adds actual-page-table QEMU checks. Its verification and limits are recorded in `docs/EVIDENCE/B4-ipc-user-page-permission-preflight.md`; fault-safe copy and SMP remain unsupported.
 
