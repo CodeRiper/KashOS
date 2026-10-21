@@ -104,6 +104,9 @@ jobs:
       - name: Verify Current Task Identity Is CPU-Local
         run: python3 tools/test_task_identity_per_cpu.py
 
+      - name: Verify IPC Wakeup Resolves and Enqueues Atomically
+        run: python3 tools/test_ipc_task_wakeup_atomic.py
+
       - name: Verify T0 QEMU Smoke Test Has a Bounded Serial Reader
         run: python3 tools/test_qemu_boot_timeout.py
 

@@ -15,7 +15,7 @@
 use crate::arch::x86_64::syscall::SyscallError;
 use crate::process::{PROCESS_CSPACES, PROCESS_TABLE, ProcessState};
 use crate::sync::TicketSpinLock;
-use crate::task::{current_tid, SCHEDULER};
+use crate::task::{current_tid, enqueue_ready_by_tid};
 use kcore::{Cap, CapKind, Rights};
 pub use kipc::{ChannelError, RingChannel};
 
@@ -193,8 +193,6 @@ pub fn sys_ipc_send(
         EndpointState::WaitRecv => {
             // Rendezvous: receiver is already waiting! Deliver directly.
             let receiver_pid = ep.waiting_pid.ok_or(SyscallError::InvalidCapability)?;
-            let rx_task_idx = SCHEDULER.lock().task_index_for_tid(receiver_pid)
-                .ok_or(SyscallError::InvalidCapability)?;
             let dest_slot = ep.dest_cap_slot;
 
             // If capability transfer was requested, install into receiver's CSpace
@@ -219,11 +217,8 @@ pub fn sys_ipc_send(
                     pcb.state = ProcessState::Ready;
                 }
             }
-            {
-                let mut sched = SCHEDULER.lock();
-                sched.enqueue_ready(rx_task_idx)
-                    .map_err(|_| SyscallError::InvalidCapability)?;
-            }
+            enqueue_ready_by_tid(receiver_pid)
+                .map_err(|_| SyscallError::InvalidCapability)?;
 
             Ok(())
         }
@@ -275,8 +270,6 @@ pub fn sys_ipc_recv(
         EndpointState::WaitSend => {
             // Rendezvous: sender is already waiting! Check FLASK MAC receive permission
             let sender_pid = ep.waiting_pid.ok_or(SyscallError::InvalidCapability)?;
-            let tx_task_idx = SCHEDULER.lock().task_index_for_tid(sender_pid)
-                .ok_or(SyscallError::InvalidCapability)?;
             let sender_sid = crate::process::get_process_sid(sender_pid);
             let receiver_sid = crate::process::get_process_sid(receiver_pid);
             if let Err(e) = crate::flask::check_ipc(sender_sid, receiver_sid, crate::flask::perms::IPC_RECV) {
@@ -305,11 +298,8 @@ pub fn sys_ipc_recv(
                     pcb.state = ProcessState::Ready;
                 }
             }
-            {
-                let mut sched = SCHEDULER.lock();
-                sched.enqueue_ready(tx_task_idx)
-                    .map_err(|_| SyscallError::InvalidCapability)?;
-            }
+            enqueue_ready_by_tid(sender_pid)
+                .map_err(|_| SyscallError::InvalidCapability)?;
 
             Ok(msg)
         }
