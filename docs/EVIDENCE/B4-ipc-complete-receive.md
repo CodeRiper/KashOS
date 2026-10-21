@@ -44,6 +44,10 @@ transition; no checks were removed or weakened.
 - `Get-ChildItem tools/test_*.py | ForEach-Object { python $_.FullName }` — PASS,
   all 31 source guards.
 - `git diff --check` — PASS.
+- GitHub PR #40: Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate — PASS; merged to `main` at
+  `d11213354d4376833a922b8737aede3ab2171bee` on 2026-10-21. Local `main` was
+  fast-forwarded to that commit.
 
 The repository instructions require the `rtk` command prefix. `rtk --version`
 previously showed it is not installed in this environment; commands ran

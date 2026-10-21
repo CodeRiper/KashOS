@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `3e766aa39e7548e1f642c04a8d04845335e46abc` (PR #39 docs sync)
-**Current task branch:** `codex/ipc-reject-truncated-receive`
-**Current engineering task:** Reject undersized IPC receive buffers before message consumption; keep AP startup disabled
+**Repository tip checked:** `main` at `d11213354d4376833a922b8737aede3ab2171bee` (PR #40)
+**Current task branch:** `main`
+**Current engineering task:** Design transactional blocked IPC with per-thread results and safe user-copy semantics; keep AP startup disabled
 
 ## B4 complete-message receive (2026-10-21)
 
@@ -14,15 +14,19 @@
   installation, sender wake, endpoint clearing, or PCB changes. T16 now checks
   the failed short-buffer attempt and a successful full-capacity retry.
 - Failure-first behavior is covered by the runtime self-test and a CI source
-  guard. Release kernel check/build, full host tests, and fresh T0 QEMU passed.
-  All source guards are being rerun after adapting three guards to the new
-  bounded receive implementation. Evidence: `docs/EVIDENCE/B4-ipc-complete-receive.md`.
+  guard. Release kernel check/build, full host tests, all 31 source guards,
+  claims lint, findings audit, and fresh T0 QEMU passed. Evidence:
+  `docs/EVIDENCE/B4-ipc-complete-receive.md`.
 - Canonical pointer validation still cannot prove page presence/write
   permission, and an actual copy fault can still occur after consumption.
   Unmatched IPC remains `WouldBlock`; no resumable IPC continuation or atomic
   SMP transaction is implemented. APs stay parked.
 - Next: design transactional blocked IPC with per-thread results and a
   fault-safe user-copy contract before enabling unmatched calls to block.
+- PR #40 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, then merged to `main` at
+  `d11213354d4376833a922b8737aede3ab2171bee` on 2026-10-21. Local `main` was
+  fast-forwarded to that exact `origin/main` commit.
 
 ## B4 supervisor blocked-context handoff (2026-10-21)
 
