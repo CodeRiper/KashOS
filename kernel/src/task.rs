@@ -111,14 +111,16 @@ pub fn set_current_tid(tid: u32) {
     }
 }
 
-/// Resolve a live task identifier and enqueue it without exposing its reusable slot.
+/// Resolve a live task identifier and apply its current-aware wake transition
+/// without exposing its reusable scheduler slot.
 ///
-/// Callers must not split TID lookup from enqueue: another CPU could terminate the
-/// task and reuse its scheduler slot between those operations.
-pub fn enqueue_ready_by_tid(tid: u32) -> Result<(), SchedError> {
+/// Callers must not split TID lookup from wake: another CPU could terminate the
+/// task and reuse its scheduler slot between those operations. The scheduler
+/// decides whether to restore a still-current task or enqueue a switched-out one.
+pub fn wake_task_by_tid(tid: u32) -> Result<(), SchedError> {
     let mut sched = SCHEDULER.lock();
     let task_idx = sched.task_index_for_tid(tid).ok_or(SchedError::NoSuchTask)?;
-    sched.enqueue_ready(task_idx)
+    sched.wake_task(task_idx)
 }
 
 /// Total number of successful thread preemptions observed.
@@ -134,7 +136,7 @@ extern "C" fn thread_entry_stub(entry: extern "C" fn(u64), arg: u64) {
 extern "C" fn idle_entry(_arg: u64) {
     loop {
         let wake_tid = IDLE_WAKE_PROBE_TID.swap(0, Ordering::AcqRel);
-        if wake_tid != 0 && enqueue_ready_by_tid(wake_tid).is_err() {
+        if wake_tid != 0 && wake_task_by_tid(wake_tid).is_err() {
             kprintln!("[sched] Idle handoff probe could not wake TID {}; halting.", wake_tid);
             crate::arch::shutdown(true);
         }

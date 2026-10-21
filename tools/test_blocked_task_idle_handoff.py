@@ -41,7 +41,7 @@ assert "set_tss_rsp0(idle_stack_top)" in idle_switch
 assert "CPU_CURRENT_TID[cpu_index].store(0" in idle_switch
 idle_entry = function_body(TASK, "extern \"C\" fn idle_entry(")
 assert "IDLE_WAKE_PROBE_TID.swap(0" in idle_entry
-assert "enqueue_ready_by_tid(wake_tid)" in idle_entry
+assert "wake_task_by_tid(wake_tid)" in idle_entry
 timer = function_body(TASK, "pub fn on_timer_tick(")
 assert "ContextSwitchTarget::Idle" in timer
 assert "crate::arch::shutdown(true)" in timer, "invalid task context must fail closed"

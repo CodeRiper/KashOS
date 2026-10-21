@@ -51,8 +51,8 @@ require("% MAX_PROCESSES" not in ipc
 require("% MAX_ENDPOINTS" not in ipc
         and "endpoint_slot_for_id" in ipc,
         "IPC endpoint IDs must resolve to an exact live endpoint")
-require(ipc.count("enqueue_ready_by_tid(") == 2 and "task_index_for_tid" not in ipc,
-        "IPC wakeups resolve live process TIDs atomically under the scheduler lock")
+require(ipc.count("wake_task_by_tid(") == 2 and "task_index_for_tid" not in ipc,
+        "IPC wakeups resolve and wake live process TIDs atomically under the scheduler lock")
 require("provision_driver_cspace" in driver
         and "unavailable" in driver.lower(),
         "driver capability provisioning remains fail-closed until real driver processes exist")

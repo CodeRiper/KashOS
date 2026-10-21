@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard IPC task wakeups against scheduler-slot reuse between lookup and enqueue."""
+"""Guard IPC task wakeups against slot reuse and premature queue insertion."""
 
 from pathlib import Path
 import re
@@ -25,10 +25,11 @@ def function_body(source: str, signature: str) -> str:
 
 
 def check(task: str, ipc: str) -> None:
-    wake_body = function_body(task, "pub fn enqueue_ready_by_tid(tid: u32)")
+    wake_body = function_body(task, "pub fn wake_task_by_tid(tid: u32)")
     assert "let mut sched = SCHEDULER.lock()" in wake_body
     assert "sched.task_index_for_tid(tid)" in wake_body
-    assert "sched.enqueue_ready(task_idx)" in wake_body
+    assert "sched.wake_task(task_idx)" in wake_body
+    assert "sched.enqueue_ready(task_idx)" not in wake_body
 
     for signature, tid_name in (
         ("pub fn sys_ipc_send(", "receiver_pid"),
@@ -36,15 +37,15 @@ def check(task: str, ipc: str) -> None:
     ):
         body = function_body(ipc, signature)
         assert "task_index_for_tid" not in body, f"split TID lookup remains in {signature}"
-        assert "enqueue_ready_by_tid" in body, f"atomic scheduler wake missing in {signature}"
-        assert f"enqueue_ready_by_tid({tid_name})" in body
+        assert "wake_task_by_tid" in body, f"atomic scheduler wake missing in {signature}"
+        assert f"wake_task_by_tid({tid_name})" in body
 
 
 def main() -> None:
     task = TASK_PATH.read_text(encoding="utf-8")
     ipc = IPC_PATH.read_text(encoding="utf-8")
     check(task, ipc)
-    print("PASS: IPC wake resolves and enqueues each TID under one scheduler lock")
+    print("PASS: IPC wake resolves and wakes each TID under one scheduler lock")
 
 
 if __name__ == "__main__":

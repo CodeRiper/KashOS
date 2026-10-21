@@ -16,7 +16,7 @@
 use crate::arch::x86_64::syscall::SyscallError;
 use crate::process::{PROCESS_CSPACES, PROCESS_TABLE, ProcessState};
 use crate::sync::TicketSpinLock;
-use crate::task::{current_tid, enqueue_ready_by_tid};
+use crate::task::{current_tid, wake_task_by_tid};
 use kcore::{Cap, CapKind, Rights};
 pub use kipc::{ChannelError, RingChannel};
 
@@ -206,7 +206,7 @@ pub fn sys_ipc_send(
                     pcb.state = ProcessState::Ready;
                 }
             }
-            enqueue_ready_by_tid(receiver_pid)
+            wake_task_by_tid(receiver_pid)
                 .map_err(|_| SyscallError::InvalidCapability)?;
 
             Ok(())
@@ -277,7 +277,7 @@ pub fn sys_ipc_recv(
                     pcb.state = ProcessState::Ready;
                 }
             }
-            enqueue_ready_by_tid(sender_pid)
+            wake_task_by_tid(sender_pid)
                 .map_err(|_| SyscallError::InvalidCapability)?;
 
             Ok(msg)
