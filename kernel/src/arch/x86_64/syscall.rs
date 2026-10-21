@@ -27,6 +27,7 @@ pub enum SyscallError {
     NamespaceViolation = -6,
     InvalidArgument = -7,
     NoSuchSyscall = -8,
+    WouldBlock = -9,
 }
 
 /// System call IDs.

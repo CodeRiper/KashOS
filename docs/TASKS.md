@@ -34,7 +34,7 @@
 | B1 | Untyped Memory Model & Watermark Allocator | Needs revalidation | main | docs/EVIDENCE/B1.md |
 | B2 | CNode Guarded Radix Trees & Capability Derivation Tree (CDT) | Needs revalidation | main | docs/EVIDENCE/B2.md |
 | B3 | Transitive Revocation & Amnesic Memory Zeroing | Needs revalidation | main | docs/EVIDENCE/B3.md |
-| B4 | Badged Synchronous Endpoints & Capability Routing | Needs revalidation | main | docs/EVIDENCE/B4.md |
+| B4 | Badged Synchronous Endpoints & Capability Routing | Needs revalidation (direct delivery only; unmatched calls return WouldBlock until resumable syscall blocking exists) | codex/ipc-would-block-fail-closed | docs/EVIDENCE/B4.md; docs/EVIDENCE/B4-ipc-would-block.md |
 | B5 | Asynchronous Notifications & Event Signaling | Needs revalidation | main | docs/EVIDENCE/B5.md |
 | B6 | Thread Control Blocks (TCBs), Fault Handlers & State | Needs revalidation | main | docs/EVIDENCE/B6.md |
 | B7 | Mixed-Criticality Scheduling (MCS): SchedContext & Temporal Isolation | Planned | - | docs/EVIDENCE/B7.md |

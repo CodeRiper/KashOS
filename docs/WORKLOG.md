@@ -535,3 +535,18 @@ is complete. Keep AP startup disabled until those tests pass.
   `git diff --check` passed. The T0 run was single-CPU and does not exercise
   concurrent IPC wakeups. `cargo fmt --all -- --check` reports existing
   formatting drift in untouched workspace files.
+
+## B4 IPC blocking correction (2026-10-21)
+
+- Re-audit found unmatched IPC send/receive returned success after marking only
+  the PCB Blocked; the scheduler task continued to run, and receive returned an
+  empty message. The syscall path has no resumable blocked-call continuation.
+- Unmatched operations now return `SyscallError::WouldBlock` (`-9`) and do not
+  alter endpoint or PCB state. Direct delivery to a pre-existing waiter remains
+  available. Updated the boot self-test and added a CI source guard.
+- True synchronous blocking remains unimplemented. The B4 ledger remains
+  `Needs revalidation`; evidence/design: `docs/EVIDENCE/B4-ipc-would-block.md`
+  and `docs/design/b4-ipc-blocking.md`.
+- Downgraded the boot status from `Real` to `Partial`; corrected T16's output,
+  the legacy Phase 3 design note, and `docs/EVIDENCE/B4.md` so the host model
+  tests are not presented as kernel blocking evidence.

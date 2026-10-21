@@ -115,8 +115,8 @@ pub fn run(region: MemRegion) {
     // ── Test 15: Capability Revocation 1,000-Node Micro-Benchmark ──────
     test_revocation_benchmark();
 
-    // ── Test 16: Synchronous IPC Rendezvous & Capability Transfer ───────
-    test_synchronous_ipc_rendezvous();
+    // ── Test 16: Direct IPC Delivery & WouldBlock Behavior ──────────────
+    test_ipc_direct_delivery_and_would_block();
 
     // ── Test 17: Kernel-Object Quota Isolation & Safe Exhaustion ────────
     test_kernel_object_quota_isolation();
@@ -147,7 +147,7 @@ pub fn run(region: MemRegion) {
 
     crate::status::update(|s| {
         s.kcore_caps = crate::status::ComponentStatus::Real;
-        s.sync_ipc = crate::status::ComponentStatus::Real;
+        s.sync_ipc = crate::status::ComponentStatus::Partial;
         s.vtd_iommu = crate::status::ComponentStatus::Stub;
         s.ps2_input = crate::status::ComponentStatus::Real;
         s.xhci_usb = match crate::arch::get_xhci_status() {
@@ -709,11 +709,12 @@ fn test_revocation_benchmark() {
               elapsed_us, elapsed_cycles);
 }
 
-/// Test 16: Synchronous IPC Rendezvous & Capability Transfer
+/// Test 16: Direct IPC Delivery & WouldBlock Behavior
 /// Verifies:
-/// - Thread rendezvous: sender/receiver meet; unforgeable compartment badges delivered.
-/// - Direct capability transfer across process boundary under kernel mediation.
-fn test_synchronous_ipc_rendezvous() {
+/// - Unmatched send and receive return WouldBlock without mutating wait state.
+/// - A staged receiver gets direct delivery, badge, and capability transfer.
+/// This does not test scheduler-backed syscall suspension/resumption.
+fn test_ipc_direct_delivery_and_would_block() {
     let ep_idx = 10;
     // Reset endpoint 10
     {
@@ -797,23 +798,58 @@ fn test_synchronous_ipc_rendezvous() {
         endpoints[ep_idx + 1] = crate::ipc::Endpoint::new((ep_idx + 1) as u64);
     }
 
-    // 1. Receiver calls sys_ipc_recv (blocks waiting on empty endpoint)
+    // 1. Receiver probes an empty endpoint and must not receive fake success.
     let recv_res = crate::ipc::sys_ipc_recv(1, Some(2));
-    check!(recv_res.is_ok());
+    check!(matches!(recv_res, Err(crate::arch::x86_64::syscall::SyscallError::WouldBlock)));
     {
         let endpoints = crate::ipc::ENDPOINTS.lock();
-        check!(endpoints[ep_idx].state == crate::ipc::EndpointState::WaitRecv);
-        check!(endpoints[ep_idx].waiting_pid == Some(receiver_pid));
-        check!(endpoints[ep_idx].dest_cap_slot == Some(2));
+        check!(endpoints[ep_idx].state == crate::ipc::EndpointState::Idle);
+        check!(endpoints[ep_idx].waiting_pid.is_none());
+        check!(endpoints[ep_idx].dest_cap_slot.is_none());
+    }
+    {
+        let table = crate::process::PROCESS_TABLE.lock();
+        check!(table.iter().any(|p| p.in_use && p.pid == receiver_pid && p.state == crate::process::ProcessState::Ready));
     }
 
-    // 2. Sender arrives: calls sys_ipc_send
+    // 2. Sender probing the same empty endpoint also gets WouldBlock and leaves
+    // no phantom queued message or process-blocked state.
     crate::task::set_current_tid(sender_pid);
     let payload = [0x1111_2222u64, 0x3333_4444u64];
+    let send_res = crate::ipc::sys_ipc_send(1, 0x900D_CAFE, &payload, None);
+    check!(matches!(send_res, Err(crate::arch::x86_64::syscall::SyscallError::WouldBlock)));
+    {
+        let endpoints = crate::ipc::ENDPOINTS.lock();
+        check!(endpoints[ep_idx].state == crate::ipc::EndpointState::Idle);
+        check!(endpoints[ep_idx].waiting_pid.is_none());
+        check!(endpoints[ep_idx].pending_msg.is_none());
+    }
+    {
+        let table = crate::process::PROCESS_TABLE.lock();
+        check!(table.iter().any(|p| p.in_use && p.pid == sender_pid && p.state == crate::process::ProcessState::Ready));
+    }
+
+    // The direct rendezvous delivery path can be exercised with an explicitly
+    // staged waiter. Real syscalls cannot stage one until resumable blocking is
+    // implemented.
+    {
+        let mut endpoints = crate::ipc::ENDPOINTS.lock();
+        endpoints[ep_idx].state = crate::ipc::EndpointState::WaitRecv;
+        endpoints[ep_idx].waiting_pid = Some(receiver_pid);
+        endpoints[ep_idx].dest_cap_slot = Some(2);
+    }
+    {
+        let mut table = crate::process::PROCESS_TABLE.lock();
+        if let Some(pcb) = table.iter_mut().find(|p| p.in_use && p.pid == receiver_pid) {
+            pcb.state = crate::process::ProcessState::Blocked;
+        }
+    }
+
+    // 3. Sender arrives while the receiver is staged as waiting.
     let send_res = crate::ipc::sys_ipc_send(1, 0x900D_CAFE, &payload, Some(2));
     check!(send_res.is_ok());
 
-    // 3. Verify endpoint rendezvous state returned to Idle
+    // 4. Verify endpoint rendezvous state returned to Idle
     {
         let endpoints = crate::ipc::ENDPOINTS.lock();
         check!(endpoints[ep_idx].state == crate::ipc::EndpointState::Idle);
@@ -831,7 +867,7 @@ fn test_synchronous_ipc_rendezvous() {
         check!(sched.task(sender_task_idx).unwrap().state == kscheduler::ThreadState::Blocked);
     }
 
-    // 4. Verify capability was installed into receiver's CSpace at slot 2!
+    // 5. Verify capability was installed into receiver's CSpace at slot 2!
     {
         let cspaces = crate::process::PROCESS_CSPACES.lock();
         let r_cs = &cspaces[r_cspace_idx];
@@ -863,7 +899,7 @@ fn test_synchronous_ipc_rendezvous() {
         endpoints[ep_idx] = crate::ipc::Endpoint::new(ep_idx as u64);
     }
 
-    kprintln!("[selftest] PASS: T16 Synchronous IPC Rendezvous & Capability Transfer verified (unforgeable badge 0x{:X} + Frame transferred)", 0xBEEF_7777u64);
+    kprintln!("[selftest] PASS: T16 direct IPC delivery and WouldBlock state checks passed (badge 0x{:X}); resumable blocking not implemented", 0xBEEF_7777u64);
 }
 
 /// Test 17: Kernel-Object Quota Isolation & Safe Exhaustion

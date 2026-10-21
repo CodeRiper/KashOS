@@ -1,10 +1,11 @@
-//! High-Assurance Synchronous IPC Subsystem (kipc integration).
+//! Prototype IPC Subsystem (kipc integration).
 //!
-//! Provides seL4-style synchronous rendezvous message passing and capability transfer
-//! between processes over badged endpoints.
+//! Provides direct rendezvous delivery and capability transfer between processes over
+//! badged endpoints when the peer is already waiting. Unmatched calls return
+//! `WouldBlock`; scheduler-backed syscall suspension and resumption are not implemented.
 //!
 //! Enforces:
-//! - Rendezvous semantics: sender and receiver must meet; whichever arrives first blocks.
+//! - Direct rendezvous semantics when the peer is already waiting.
 //! - Direct register/buffer transfer: payload is transferred under kernel mediation with SMAP safety.
 //! - Unforgeable compartment badges: the sender cannot spoof its badge; the kernel extracts it
 //!   from the sender's Endpoint capability and delivers it to the receiver.
@@ -30,18 +31,6 @@ pub struct IpcMessage {
     pub words: [u64; MAX_IPC_WORDS],
     pub words_len: usize,
     pub transferred_cap: Option<Cap>,
-}
-
-impl IpcMessage {
-    pub const fn empty() -> Self {
-        Self {
-            sender_badge: 0,
-            tag: 0,
-            words: [0; MAX_IPC_WORDS],
-            words_len: 0,
-            transferred_cap: None,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +89,7 @@ fn endpoint_slot_for_id(endpoints: &[Endpoint; MAX_ENDPOINTS], id: u64) -> Optio
     if matches.next().is_some() { None } else { Some(slot) }
 }
 
-/// Synchronous IPC Send: delivers message to a waiting receiver or blocks.
+/// IPC send: delivers to an already waiting receiver or returns `WouldBlock`.
 pub fn sys_ipc_send(
     endpoint_cptr: usize,
     tag: u64,
@@ -223,24 +212,14 @@ pub fn sys_ipc_send(
             Ok(())
         }
         _ => {
-            // No receiver waiting: block sender
-            ep.state = EndpointState::WaitSend;
-            ep.waiting_pid = Some(sender_pid);
-            ep.pending_msg = Some(msg);
-
-            {
-                let mut pcb_table = PROCESS_TABLE.lock();
-                if let Some(pcb) = pcb_table.iter_mut().find(|p| p.in_use && p.pid == sender_pid) {
-                    pcb.state = ProcessState::Blocked;
-                }
-            }
-
-            Ok(())
+            // The scheduler has no resumable syscall-block operation yet.
+            // Do not report success or leave a phantom waiter behind.
+            Err(SyscallError::WouldBlock)
         }
     }
 }
 
-/// Synchronous IPC Receive: receives message from a waiting sender or blocks.
+/// IPC receive: receives from an already waiting sender or returns `WouldBlock`.
 pub fn sys_ipc_recv(
     endpoint_cptr: usize,
     dest_cap_slot: Option<usize>,
@@ -304,20 +283,10 @@ pub fn sys_ipc_recv(
             Ok(msg)
         }
         _ => {
-            // No sender waiting: block receiver
-            ep.state = EndpointState::WaitRecv;
-            ep.waiting_pid = Some(receiver_pid);
-            ep.dest_cap_slot = dest_cap_slot;
-
-            {
-                let mut pcb_table = PROCESS_TABLE.lock();
-                if let Some(pcb) = pcb_table.iter_mut().find(|p| p.in_use && p.pid == receiver_pid) {
-                    pcb.state = ProcessState::Blocked;
-                }
-            }
-
-            // Return empty pending message until woken
-            Ok(IpcMessage::empty())
+            // The scheduler has no resumable syscall-block operation yet.
+            // Do not report success with an empty message or leave a phantom waiter.
+            let _ = dest_cap_slot;
+            Err(SyscallError::WouldBlock)
         }
     }
 }

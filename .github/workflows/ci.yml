@@ -107,6 +107,9 @@ jobs:
       - name: Verify IPC Wakeup Resolves and Enqueues Atomically
         run: python3 tools/test_ipc_task_wakeup_atomic.py
 
+      - name: Verify Unmatched IPC Fails With WouldBlock
+        run: python3 tools/test_ipc_would_block_fail_closed.py
+
       - name: Verify T0 QEMU Smoke Test Has a Bounded Serial Reader
         run: python3 tools/test_qemu_boot_timeout.py
 
