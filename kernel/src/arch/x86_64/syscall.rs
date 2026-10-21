@@ -13,6 +13,12 @@ pub const IA32_FMASK: u32 = 0xC000_0084;
 
 /// User space ceiling: unprivileged applications cannot touch addresses >= 0x0000_8000_0000_0000.
 pub const USER_SPACE_CEILING: usize = 0x0000_7FFF_FFFF_FFFF;
+const USER_PAGE_PRESENT: u64 = 1 << 0;
+const USER_PAGE_WRITABLE: u64 = 1 << 1;
+const USER_PAGE_USER: u64 = 1 << 2;
+const USER_PAGE_LARGE: u64 = 1 << 7;
+const CR3_ADDRESS_MASK: u64 = 0x000F_FFFF_FFFF_F000;
+const USER_PAGE_MASK: u64 = !(kpaging::PAGE_SIZE as u64 - 1);
 
 /// System call error codes returned across the user boundary.
 #[repr(i64)]
@@ -60,10 +66,105 @@ pub fn validate_user_memory_region(ptr: *const u8, len: usize) -> Result<(), Sys
     Ok(())
 }
 
+/// Check every 4 KiB page touched by a validated user range against an
+/// explicitly supplied, kernel-created x86-64 four-level address space.
+///
+/// # Safety
+/// `cr3` must identify a live page-table root whose paging structures are
+/// directly addressable by the kernel. The current ELF loader and its frame
+/// allocators already rely on this identity-addressability contract.
+pub(crate) unsafe fn validate_user_page_range(
+    cr3: u64,
+    ptr: *const u8,
+    len: usize,
+    writable: bool,
+) -> Result<(), SyscallError> {
+    if len == 0 {
+        return Ok(());
+    }
+    if cr3 & CR3_ADDRESS_MASK == 0 {
+        return Err(SyscallError::InvalidMemoryAccess);
+    }
+
+    let first = (ptr as u64) & USER_PAGE_MASK;
+    let last_byte = (ptr as u64)
+        .checked_add(len as u64)
+        .and_then(|end| end.checked_sub(1))
+        .ok_or(SyscallError::InvalidMemoryAccess)?;
+    let last = last_byte & USER_PAGE_MASK;
+    let root = (cr3 & CR3_ADDRESS_MASK) as *const kpaging::PageTable;
+    let mut page = first;
+
+    loop {
+        let indices = [
+            ((page >> 39) & 0x1FF) as usize,
+            ((page >> 30) & 0x1FF) as usize,
+            ((page >> 21) & 0x1FF) as usize,
+            ((page >> 12) & 0x1FF) as usize,
+        ];
+        let mut table = root;
+
+        for (level, index) in indices.iter().copied().enumerate() {
+            // SAFETY: the caller supplies a live kernel-created CR3 whose
+            // paging structures are directly addressable. Each index is
+            // masked to 9 bits, within the 512 entries.
+            let entry = unsafe { core::ptr::read_volatile((*table).entries.as_ptr().add(index)) };
+            if entry & (USER_PAGE_PRESENT | USER_PAGE_USER)
+                != (USER_PAGE_PRESENT | USER_PAGE_USER)
+                || (writable && entry & USER_PAGE_WRITABLE == 0)
+            {
+                return Err(SyscallError::InvalidMemoryAccess);
+            }
+
+            if level < 3 {
+                // KashOS currently constructs 4 KiB leaves only. Reject
+                // large-page descriptors rather than interpreting them as tables.
+                if entry & USER_PAGE_LARGE != 0 {
+                    return Err(SyscallError::InvalidMemoryAccess);
+                }
+                table = (entry & CR3_ADDRESS_MASK) as *const kpaging::PageTable;
+            }
+        }
+
+        if page == last {
+            break;
+        }
+        page = page
+            .checked_add(kpaging::PAGE_SIZE as u64)
+            .ok_or(SyscallError::InvalidMemoryAccess)?;
+    }
+
+    Ok(())
+}
+
+/// Validate active user pages only when the current thread is a Ring 3 task.
+/// Kernel self-tests retain their address-range-only behavior; user syscalls
+/// validate against the CR3 currently installed for the calling process.
+fn validate_active_user_pages(
+    ptr: *const u8,
+    len: usize,
+    writable: bool,
+) -> Result<(), SyscallError> {
+    if len == 0 || crate::task::current_tid() < kscheduler::MAX_TASKS as u32 + 2 {
+        return Ok(());
+    }
+
+    let cr3: u64;
+    // SAFETY: reading CR3 is a side-effect-free supervisor operation. Syscall
+    // entry has already established the current thread's trusted kernel stack.
+    unsafe {
+        core::arch::asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags));
+    }
+    // SAFETY: process roots and all page-table frames are kernel-created by the
+    // current ELF loader; its allocator contract supplies identity-addressable RAM.
+    unsafe { validate_user_page_range(cr3, ptr, len, writable) }
+}
+
 /// Safely copies bytes from an unprivileged user memory region into a kernel buffer.
 /// Enforces STAC/CLAC SMAP user-access toggle when supported by hardware.
 pub unsafe fn copy_from_user(dst: &mut [u8], src_user: *const u8) -> Result<(), SyscallError> {
     validate_user_memory_region(src_user, dst.len())?;
+    validate_active_user_pages(src_user, dst.len(), false)?;
     let has_smap = super::cpuid::detect().has_smap;
     unsafe {
         if has_smap {
@@ -81,6 +182,7 @@ pub unsafe fn copy_from_user(dst: &mut [u8], src_user: *const u8) -> Result<(), 
 /// Enforces STAC/CLAC SMAP user-access toggle when supported by hardware.
 pub unsafe fn copy_to_user(dst_user: *mut u8, src: &[u8]) -> Result<(), SyscallError> {
     validate_user_memory_region(dst_user, src.len())?;
+    validate_active_user_pages(dst_user, src.len(), true)?;
     let has_smap = super::cpuid::detect().has_smap;
     unsafe {
         if has_smap {
@@ -175,6 +277,8 @@ pub(crate) fn validate_ipc_user_buffer(
         .checked_mul(core::mem::size_of::<u64>())
         .ok_or(SyscallError::InvalidMemoryAccess)?;
     validate_user_memory_region(user_buf.cast::<u8>(), byte_len)
+        .map_err(|_| SyscallError::InvalidMemoryAccess)?;
+    validate_active_user_pages(user_buf.cast::<u8>(), byte_len, true)
         .map_err(|_| SyscallError::InvalidMemoryAccess)?;
     Ok(bounded_words)
 }

@@ -762,6 +762,29 @@ is complete. Keep AP startup disabled until those tests pass.
   Build Guide v2 Claims & Honesty Gate, then merged to `main` at `4c33be35373ae23e5d9df62822840ab76c65acbd` on
   2026-10-21. Local `main` was fast-forwarded to that exact origin commit.
 
+## B4 syscall user-page permission preflight (2026-10-21)
+
+- Source review found syscall copies and IPC receive validated canonical address
+  bounds but not whether each touched page was present, user-accessible, or
+  writable. It also found the ELF loader's initial stack pointer above its four
+  mapped stack pages.
+- Added an x86-64 four-level page-table walk for active Ring 3 copy ranges,
+  requiring Present+User at every level and Writable for kernel-to-user output.
+  IPC receive output is preflighted before endpoint consumption. Corrected the
+  stack base so its four mapped pages contain the configured initial RSP.
+- Failure-first source guard failed before implementation. Workspace host
+  tests, release kernel check/build, all 32 source guards, claims lint, findings
+  audit, and QEMU T0 through the locked shell passed. QEMU verified RX text,
+  RW stack, rejected text writes and ranges touching unmapped pages. The QEMU
+  script does not build the kernel; the release image was explicitly rebuilt
+  before the passing run.
+- Evidence and limits: `docs/EVIDENCE/B4-ipc-user-page-permission-preflight.md`.
+  This uses the current identity-addressable x86-64 page-table allocator and
+  single-CPU configuration; copies are not fault-recoverable and SMP address
+  space mutation is not supported. APs remain parked; B4 remains incomplete.
+- `rtk` is specified by repository instructions but is not installed in this
+  shell. Commands were run directly in PowerShell.
+
 ## A11 voluntary syscall yield (2026-10-21)
 
 - Source review found `SYS_YIELD` was a no-op. Added scheduler rotation with no
