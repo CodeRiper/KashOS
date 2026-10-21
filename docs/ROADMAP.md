@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `e0d33360357ea97a1c4b8119d730a4bc7320f451` (PR #26)
-**Active work branch:** `main`
+**Repository state checked:** `main` at `790183b` (PR #26 plus docs-only handoff sync)
+**Active work branch:** `codex/a11-switched-fpu-state`
 **Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
@@ -73,6 +73,11 @@ compatibility.
   self-test verifies XMM15 survives the same-task timer path; APs remain parked.
   See [`EVIDENCE/A11-timer-fpu-save-boundary.md`](EVIDENCE/A11-timer-fpu-save-boundary.md).
   PR #26 merged to `main` at `e0d3336`; all required GitHub Actions jobs passed.
+- Current A11 follow-up adds a BSP worker that holds XMM15 across an actual
+  timer-driven switch away and back; T0 QEMU observes the pass marker. The old
+  worker test's optimized-away floating-point/constant checks were removed from
+  its claims. APs remain parked; see
+  [`EVIDENCE/A11-switched-fpu-state.md`](EVIDENCE/A11-switched-fpu-state.md).
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.

@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `e0d33360357ea97a1c4b8119d730a4bc7320f451` (PR #26)
-**Current task branch:** `main`
-**Current engineering task:** Add switched-task FPU handoff coverage and make scheduler/TCB ownership safe before AP execution
+**Repository tip checked:** `main` at `790183b` (PR #26 plus docs-only handoff sync)
+**Current task branch:** `codex/a11-switched-fpu-state`
+**Current engineering task:** Verify saved FPU state across an actual BSP task switch; then address shared scheduler/TCB ownership before AP execution
 
 ## Completed in this task
 
@@ -451,3 +451,20 @@ is complete. Keep AP startup disabled until those tests pass.
 - Next: exercise FPU image selection across an actual task switch, analyze the
   528-byte interrupt stack cost, then address scheduler and TCB ownership. AP
   startup stays disabled until switched-context and concurrent-CPU gates pass.
+
+## A11 switched-task FPU regression (2026-10-21)
+
+- Added a third BSP preemption worker that loads a unique XMM15 sentinel, marks
+  itself started, and spins until the boot task sets its stop flag after being
+  scheduled again. It then checks XMM15 after a later timer handoff.
+- QEMU T0 observed the switched-task marker and booted to the shell. The
+  same-task test and switched-task test now have separate required markers.
+- Audit removed the old worker test's optimized-away floating-point and
+  constant register comparisons; its output now reports only actual counter
+  iterations. The dedicated assembly sentinel provides the observable FPU
+  check.
+- Workspace host tests, release kernel check/build, all Python source guards,
+  claims/finding audits, and QEMU T0 passed. F8 and F10 remain present.
+- Next: analyze the 528-byte interrupt scratch against worst-case kernel stack
+  usage, then isolate scheduler queues and TCB/FPU storage. This remains BSP
+  behavior only; APs remain parked.

@@ -193,21 +193,60 @@ static COUNTER_A: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64:
 static COUNTER_B: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 #[cfg(target_arch = "x86_64")]
 static PREEMPT_RUNNING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(true);
+#[cfg(target_arch = "x86_64")]
+static FPU_SWITCH_STARTED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+#[cfg(target_arch = "x86_64")]
+static FPU_SWITCH_STOP: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+#[cfg(target_arch = "x86_64")]
+static FPU_SWITCH_DONE: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+#[cfg(target_arch = "x86_64")]
+static FPU_SWITCH_OK: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 #[cfg(target_arch = "x86_64")]
 static RO_TEST_BYTE: u8 = 0xAA;
 
 #[cfg(target_arch = "x86_64")]
-extern "C" fn thread_worker_a(arg: u64) {
-    let expected = 0xAAAA_BBBB_CCCC_DDDDu64.wrapping_add(arg);
-    let local = expected;
-    let mut sse: f32 = 1.0;
+extern "C" fn fpu_switch_worker(_arg: u64) {
+    let sentinel = [
+        0x7d, 0x39, 0xf5, 0xb1, 0x6e, 0x2a, 0xe6, 0xa2, 0x5f, 0x1b, 0xd7, 0x93, 0x4c, 0x08,
+        0xc4, 0x80,
+    ];
+    let mut observed = [0u8; 16];
+    let started = core::ptr::addr_of!(FPU_SWITCH_STARTED).cast::<u8>();
+    let stop = core::ptr::addr_of!(FPU_SWITCH_STOP).cast::<u8>();
+    // SAFETY: This kernel-only worker runs on the BSP with initialized SSE and
+    // timer state. The byte accesses target AtomicBool storage; x86 byte loads
+    // and XCHG stores are atomic. The scheduler saves/restores XMM15 at every
+    // timer-driven task handoff before this loop resumes.
+    unsafe {
+        core::arch::asm!(
+            "movdqu xmm15, xmmword ptr [{sentinel}]",
+            "mov al, 1",
+            "xchg byte ptr [{started}], al",
+            "2:",
+            "cmp byte ptr [{stop}], 0",
+            "je 2b",
+            "movdqu xmmword ptr [{observed}], xmm15",
+            sentinel = in(reg) sentinel.as_ptr(),
+            started = in(reg) started,
+            stop = in(reg) stop,
+            observed = in(reg) observed.as_mut_ptr(),
+            out("rax") _,
+            lateout("xmm15") _,
+        );
+    }
+    FPU_SWITCH_OK.store(observed == sentinel, core::sync::atomic::Ordering::Release);
+    FPU_SWITCH_DONE.store(true, core::sync::atomic::Ordering::Release);
+}
+
+#[cfg(target_arch = "x86_64")]
+extern "C" fn thread_worker_a(_arg: u64) {
     while PREEMPT_RUNNING.load(core::sync::atomic::Ordering::Relaxed) {
         let count = COUNTER_A.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        sse = sse * 1.00001 + 0.00001;
-        if local != expected {
-            panic!("Thread A register corrupted!");
-        }
         let total = count + COUNTER_B.load(core::sync::atomic::Ordering::Relaxed);
         if total >= 1_000_000 {
             break;
@@ -217,16 +256,9 @@ extern "C" fn thread_worker_a(arg: u64) {
 }
 
 #[cfg(target_arch = "x86_64")]
-extern "C" fn thread_worker_b(arg: u64) {
-    let expected = 0x1111_2222_3333_4444u64.wrapping_add(arg);
-    let local = expected;
-    let mut sse: f32 = 2.0;
+extern "C" fn thread_worker_b(_arg: u64) {
     while PREEMPT_RUNNING.load(core::sync::atomic::Ordering::Relaxed) {
         let count = COUNTER_B.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        sse = sse * 0.99999 - 0.00001;
-        if local != expected {
-            panic!("Thread B register corrupted!");
-        }
         let total = count + COUNTER_A.load(core::sync::atomic::Ordering::Relaxed);
         if total >= 1_000_000 {
             break;
@@ -237,13 +269,36 @@ extern "C" fn thread_worker_b(arg: u64) {
 
 #[cfg(target_arch = "x86_64")]
 pub fn test_preemptive_multitasking() {
-    kprintln!("[sched] launching 1,000,000 cycle thread preemption & register integrity test...");
+    kprintln!("[sched] launching worker-cycle and switched FPU tests...");
+    FPU_SWITCH_STARTED.store(false, core::sync::atomic::Ordering::Relaxed);
+    FPU_SWITCH_STOP.store(false, core::sync::atomic::Ordering::Relaxed);
+    FPU_SWITCH_DONE.store(false, core::sync::atomic::Ordering::Relaxed);
+    FPU_SWITCH_OK.store(false, core::sync::atomic::Ordering::Relaxed);
+    let fpu_task = crate::task::spawn_kernel_thread(
+        "fpu-switch-worker",
+        kscheduler::QoSClass::UserInteractive,
+        fpu_switch_worker,
+        0,
+    );
     let t1 = crate::task::spawn_kernel_thread("worker-a", kscheduler::QoSClass::UserInteractive, thread_worker_a, 1);
     let t2 = crate::task::spawn_kernel_thread("worker-b", kscheduler::QoSClass::UserInteractive, thread_worker_b, 2);
+    check!(fpu_task.is_ok());
     check!(t1.is_ok());
     check!(t2.is_ok());
 
-    while COUNTER_A.load(core::sync::atomic::Ordering::Relaxed) + COUNTER_B.load(core::sync::atomic::Ordering::Relaxed) < 1_000_000 {
+    while !FPU_SWITCH_STARTED.load(core::sync::atomic::Ordering::Acquire) {
+        core::hint::spin_loop();
+    }
+    FPU_SWITCH_STOP.store(true, core::sync::atomic::Ordering::Release);
+    while !FPU_SWITCH_DONE.load(core::sync::atomic::Ordering::Acquire) {
+        core::hint::spin_loop();
+    }
+    check!(FPU_SWITCH_OK.load(core::sync::atomic::Ordering::Acquire));
+
+    while COUNTER_A.load(core::sync::atomic::Ordering::Relaxed)
+        + COUNTER_B.load(core::sync::atomic::Ordering::Relaxed)
+        < 1_000_000
+    {
         core::hint::spin_loop();
     }
     PREEMPT_RUNNING.store(false, core::sync::atomic::Ordering::Relaxed);
@@ -251,7 +306,8 @@ pub fn test_preemptive_multitasking() {
     let ca = COUNTER_A.load(core::sync::atomic::Ordering::Relaxed);
     let cb = COUNTER_B.load(core::sync::atomic::Ordering::Relaxed);
     check!(ca > 0 && cb > 0);
-    kprintln!("[sched] PASS: 1,000,000 preemptions verified without corruption (Thread A: {}, Thread B: {})", ca, cb);
+    kprintln!("[sched] PASS: 1,000,000 combined worker counter iterations completed (Thread A: {}, Thread B: {})", ca, cb);
+    kprintln!("[sched] PASS: XMM15 state survived timer-driven switch away and back");
     crate::status::update(|s| s.kscheduler_preempt = crate::status::ComponentStatus::Real);
 }
 
