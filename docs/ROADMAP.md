@@ -1,9 +1,9 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `65bb765bcf3136153ad3faea1809bcf0c8d66de0` (PR #39)
-**Active work branch:** `main`
-**Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test now marks the current task Blocked and enters DPL-0 vector `0xF1` to switch to idle, wake synthetically, and resume the saved kernel call. Fast Ring 3 syscall entry uses the current task's guarded kernel stack. IPC receive output pointers are bounded and canonical-range checked before endpoint lookup; mapped-page writability and transactional delivery remain unverified. Ring 3 SYS_YIELD uses a separate DPL-0 reschedule gate. Direct IPC preserves endpoint and PCB state if the scheduler rejects a peer wake. Unmatched IPC still returns `WouldBlock`; no syscall result object or one atomic endpoint/scheduler/PCB/CSpace transition is implemented. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
+**Repository state checked:** `main` at `3e766aa39e7548e1f642c04a8d04845335e46abc` (PR #39 docs sync)
+**Active work branch:** `codex/ipc-reject-truncated-receive` (pending)
+**Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test now marks the current task Blocked and enters DPL-0 vector `0xF1` to switch to idle, wake synthetically, and resume the saved kernel call. Fast Ring 3 syscall entry uses the current task's guarded kernel stack. IPC receive pointers are bounded and canonical-range checked before endpoint lookup; undersized buffers now fail before consuming a complete message, installing a cap, or waking its sender. Mapped-page writability and fault-safe copy remain unverified. Ring 3 SYS_YIELD uses a separate DPL-0 reschedule gate. Direct IPC preserves endpoint and PCB state if the scheduler rejects a peer wake. Unmatched IPC still returns `WouldBlock`; no syscall result object or one atomic endpoint/scheduler/PCB/CSpace transition is implemented. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 **B4 note:** IPC calls with no waiting peer now return `WouldBlock` without
 pretending the caller was suspended. Scheduler block/wake and x86 idle handoff
@@ -15,6 +15,8 @@ runtime IPC status is Partial. See
 [`EVIDENCE/B4-ipc-wake-failure-rollback.md`](EVIDENCE/B4-ipc-wake-failure-rollback.md).
 The supervisor blocked-context handoff groundwork is recorded in
 [`EVIDENCE/B4-blocked-syscall-handoff.md`](EVIDENCE/B4-blocked-syscall-handoff.md).
+The bounded receive capacity check and retry behavior are recorded in
+[`EVIDENCE/B4-ipc-complete-receive.md`](EVIDENCE/B4-ipc-complete-receive.md).
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from

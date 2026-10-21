@@ -1,9 +1,28 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `65bb765bcf3136153ad3faea1809bcf0c8d66de0` (PR #39)
-**Current task branch:** `main`
-**Current engineering task:** Integrate the blocked syscall handoff with a failure-safe IPC continuation; keep AP startup disabled
+**Repository tip checked:** `main` at `3e766aa39e7548e1f642c04a8d04845335e46abc` (PR #39 docs sync)
+**Current task branch:** `codex/ipc-reject-truncated-receive`
+**Current engineering task:** Reject undersized IPC receive buffers before message consumption; keep AP startup disabled
+
+## B4 complete-message receive (2026-10-21)
+
+- Found that `SYS_IPC_RECV` copied only `min(buffer capacity, message length)`
+  after consuming the complete endpoint message, silently discarding any tail.
+- The dispatcher now passes its validated capacity into the receive operation.
+  A message larger than that capacity returns `InvalidArgument` before cap
+  installation, sender wake, endpoint clearing, or PCB changes. T16 now checks
+  the failed short-buffer attempt and a successful full-capacity retry.
+- Failure-first behavior is covered by the runtime self-test and a CI source
+  guard. Release kernel check/build, full host tests, and fresh T0 QEMU passed.
+  All source guards are being rerun after adapting three guards to the new
+  bounded receive implementation. Evidence: `docs/EVIDENCE/B4-ipc-complete-receive.md`.
+- Canonical pointer validation still cannot prove page presence/write
+  permission, and an actual copy fault can still occur after consumption.
+  Unmatched IPC remains `WouldBlock`; no resumable IPC continuation or atomic
+  SMP transaction is implemented. APs stay parked.
+- Next: design transactional blocked IPC with per-thread results and a
+  fault-safe user-copy contract before enabling unmatched calls to block.
 
 ## B4 supervisor blocked-context handoff (2026-10-21)
 
