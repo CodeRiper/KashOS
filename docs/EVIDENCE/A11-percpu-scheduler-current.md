@@ -51,3 +51,6 @@ T2 verifies CPU discovery and the AP-disabled gate only; it does not execute
 scheduler code on APs and does not verify multi-CPU execution. These results
 do not establish equivalent assurance or a production-ready OS. `rtk` is not
 installed in the environment, so PowerShell commands were run directly.
+
+PR #24 passed all three required GitHub Actions jobs and merged to `main` at
+`5a5a2326d8554b2b8eece38fa0d991ad6dea058e`.

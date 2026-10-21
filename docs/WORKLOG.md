@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `f7d43d3acd8c5598e5f5a35c55a095fb54a8d83e`
-**Current task branch:** `codex/a11-percpu-scheduler-current`
-**Current engineering task:** CPU-indexed scheduler selection and timer-current state; APs remain parked
+**Repository tip checked:** `main` at `5a5a2326d8554b2b8eece38fa0d991ad6dea058e`
+**Current task branch:** `main`
+**Current engineering task:** Continue A11 with TCB/FPU ownership and concurrent timer/context safety; APs remain parked
 
 ## Completed in this task
 
@@ -397,6 +397,8 @@ task identity on multiple CPUs before enabling any AP.
 - This is CPU-indexed scheduler policy, not SMP. Ready queues, scheduler lock,
   task table, and FPU/thread storage remain shared; no AP executes KashOS code.
   A11 remains incomplete.
+- PR #24 passed all three required GitHub Actions jobs and merged to `main` at
+  `5a5a2326d8554b2b8eece38fa0d991ad6dea058e`.
 
 ## Next task
 
