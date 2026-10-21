@@ -122,6 +122,9 @@ jobs:
       - name: Verify Unmatched IPC Fails With WouldBlock
         run: python3 tools/test_ipc_would_block_fail_closed.py
 
+      - name: Verify IPC State Is Preserved When Peer Wake Fails
+        run: python3 tools/test_ipc_wake_failure_preserves_state.py
+
       - name: Verify T0 QEMU Smoke Test Has a Bounded Serial Reader
         run: python3 tools/test_qemu_boot_timeout.py
 
