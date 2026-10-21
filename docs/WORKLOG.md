@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `790183b` (PR #26 plus docs-only handoff sync)
-**Current task branch:** `codex/a11-switched-fpu-state`
-**Current engineering task:** Verify saved FPU state across an actual BSP task switch; then address shared scheduler/TCB ownership before AP execution
+**Repository tip checked:** `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa` (PR #27)
+**Current task branch:** `main`
+**Current engineering task:** Analyze the 528-byte interrupt stack cost, then address shared scheduler/TCB ownership before AP execution
 
 ## Completed in this task
 
@@ -468,3 +468,5 @@ is complete. Keep AP startup disabled until those tests pass.
 - Next: analyze the 528-byte interrupt scratch against worst-case kernel stack
   usage, then isolate scheduler queues and TCB/FPU storage. This remains BSP
   behavior only; APs remain parked.
+- PR #27 passed all three required GitHub Actions jobs in both triggered runs
+  and merged to `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa`.

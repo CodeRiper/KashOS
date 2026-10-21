@@ -48,6 +48,11 @@ XMM test separately.
 
 ## Limits
 
+PR #27 passed the required GitHub Actions gates and merged to `main` at
+`7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa` on 2026-10-21. Both triggered runs
+reported success for Workspace Subsystem Tests, Build Microkernel (x86-64),
+and Build Guide v2 Claims & Honesty Gate.
+
 This regression covers a timer-driven switch between tasks on the BSP only. It
 does not test AP concurrency, per-CPU run queues, worst-case interrupt stack
 usage, hardware other than QEMU T0, or formal isolation.
