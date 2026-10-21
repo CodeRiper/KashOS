@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `4d9c5dc` (PR #25 plus docs-only handoff sync)
-**Current task branch:** `codex/a11-fpu-interrupt-save`
-**Current engineering task:** Save outgoing FPU/SSE state before Rust timer handling and restore the selected image at ISR exit; APs remain parked
+**Repository tip checked:** `main` at `e0d33360357ea97a1c4b8119d730a4bc7320f451` (PR #26)
+**Current task branch:** `main`
+**Current engineering task:** Add switched-task FPU handoff coverage and make scheduler/TCB ownership safe before AP execution
 
 ## Completed in this task
 
@@ -446,3 +446,8 @@ is complete. Keep AP startup disabled until those tests pass.
   exhaustion analysis is not complete. The T0 runtime check exercises only the
   same-task return path; it does not test context-switch image selection or
   simultaneous CPUs. Scheduler/TCB state remains shared and APs remain parked.
+- PR #26 passed all three required GitHub Actions jobs in both triggered runs
+  and merged to `main` at `e0d33360357ea97a1c4b8119d730a4bc7320f451`.
+- Next: exercise FPU image selection across an actual task switch, analyze the
+  528-byte interrupt stack cost, then address scheduler and TCB ownership. AP
+  startup stays disabled until switched-context and concurrent-CPU gates pass.

@@ -47,8 +47,12 @@ instruction existed in the timer entry stub.
 
 ## Limits
 
+PR #26 passed the required GitHub Actions gates and merged to `main` at
+`e0d33360357ea97a1c4b8119d730a4bc7320f451` on 2026-10-21. Both triggered runs
+reported success for Workspace Subsystem Tests, Build Microkernel (x86-64),
+and Build Guide v2 Claims & Honesty Gate.
+
 The scheduler/TCB storage remains shared and AP startup remains disabled. The
 temporary area adds 528 bytes to the active task stack during a timer interrupt;
 no worst-case kernel stack-depth analysis is included. The source guard and QEMU
-smoke run do not establish SMP correctness or formal isolation. CI status for
-the current task branch: pending.
+smoke run do not establish SMP correctness or formal isolation.

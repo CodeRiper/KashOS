@@ -1,6 +1,6 @@
 # KashOS Master Task Ledger
 
-> Audit note (2026-10-21): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#25 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
+> Audit note (2026-10-21): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#26 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
 
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | In progress (FPU saved before timer Rust path; same-task QEMU check; shared queues/context; AP startup disabled) | codex/a11-fpu-interrupt-save | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md |
+| A11 | SMP and scheduler | In progress (BSP timer saves FPU before Rust; same-task QEMU check; shared queues/context; AP startup disabled) | main | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
