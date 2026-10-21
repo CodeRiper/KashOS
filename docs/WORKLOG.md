@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa` (PR #27)
-**Current task branch:** `main`
-**Current engineering task:** Analyze the 528-byte interrupt stack cost, then address shared scheduler/TCB ownership before AP execution
+**Repository base checked:** `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa` (PR #27)
+**Current task branch:** `codex/a11-unmapped-thread-stack-guards`
+**Current engineering task:** Unmap per-thread kernel-stack guard pages; next analyze timer interrupt stack use, then address shared scheduler/TCB ownership before AP execution
 
 ## Completed in this task
 
@@ -470,3 +470,21 @@ is complete. Keep AP startup disabled until those tests pass.
   behavior only; APs remain parked.
 - PR #27 passed all three required GitHub Actions jobs in both triggered runs
   and merged to `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa`.
+
+## A11 per-thread kernel stack guard pages (2026-10-21)
+
+- Source audit found the kernel image's broad `.data`/`.bss` RW map included
+  every nominal `ThreadStack.guard_page`; only the boot stack's guard was
+  unmapped. The x86 page-table build now unmaps each thread guard and fails
+  closed if any expected unmap fails.
+- The deliberate-fault path now requires exact #PF error-code equality as
+  well as exact fault RIP. QEMU T0 writes to a reserved thread guard and
+  observed supervisor non-present write error code `0x2`, recovered at the
+  exact RIP, and reached the locked shell.
+- Full workspace host tests, release x86-64 kernel check/build, all Python
+  source guards, claims lint, findings audit, and QEMU T0 passed. F8 and F10
+  remain present. This checks one guard at runtime on the BSP; APs remain
+  parked, A11 remains incomplete, and worst-case interrupt/stack usage remains
+  unanalyzed. Evidence: `docs/EVIDENCE/A11-thread-stack-guards.md`.
+- Next: analyze the 528-byte interrupt scratch and total worst-case kernel
+  stack depth, then address shared scheduler and TCB/FPU ownership.

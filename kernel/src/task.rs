@@ -58,6 +58,14 @@ impl Thread {
 pub static THREAD_STACKS: TicketSpinLock<[ThreadStack; MAX_TASKS]> =
     TicketSpinLock::new([const { ThreadStack::new() }; MAX_TASKS]);
 
+/// Return the virtual address of each statically reserved thread-stack guard.
+/// The kernel currently uses an identity map, so these are also the addresses
+/// to remove from the x86 page table before it is installed.
+pub fn stack_guard_page_addresses() -> [u64; MAX_TASKS] {
+    let stacks = THREAD_STACKS.lock();
+    core::array::from_fn(|index| stacks[index].guard_page.as_ptr() as u64)
+}
+
 pub static THREADS: TicketSpinLock<[Thread; MAX_TASKS]> =
     TicketSpinLock::new([const { Thread::empty() }; MAX_TASKS]);
 

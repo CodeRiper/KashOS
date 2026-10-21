@@ -91,6 +91,7 @@ def test_t0_boot():
         "test_t22": False,
         "timer_fpu_preserved": False,
         "switched_fpu_preserved": False,
+        "stack_guard_unmapped": False,
         "kms_locked": False,
         "unlock_help": False,
         "shell_ready": False,
@@ -115,7 +116,7 @@ def test_t0_boot():
             collected_lines.append(line)
 
             # Echo relevant boot lines
-            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest]", "[fpu]", "[sched]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01"]):
+            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest]", "[fpu]", "[sched]", "[stack]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01"]):
                 print(f"  {line}")
 
             if "W^X" in line:
@@ -132,6 +133,8 @@ def test_t0_boot():
                 required_markers["timer_fpu_preserved"] = True
             if "[sched] PASS: XMM15 state survived timer-driven switch away and back" in line:
                 required_markers["switched_fpu_preserved"] = True
+            if "[stack] PASS: per-thread stack guard is non-present" in line:
+                required_markers["stack_guard_unmapped"] = True
             if "[kms] Locked:" in line:
                 required_markers["kms_locked"] = True
             if "[storage] Vault is locked. Use 'unlock'; passphrase input is hidden." in line:

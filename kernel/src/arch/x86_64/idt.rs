@@ -59,6 +59,7 @@ struct CpuInterruptState {
     idt: Idt,
     expected_fault: AtomicBool,
     expected_fault_rip: AtomicU64,
+    expected_fault_error: AtomicU64,
     fault_caught: AtomicBool,
     fault_recovery_rip: AtomicU64,
     user_fault_recovery_rip: AtomicU64,
@@ -71,6 +72,7 @@ impl CpuInterruptState {
             idt: Idt::new(),
             expected_fault: AtomicBool::new(false),
             expected_fault_rip: AtomicU64::new(0),
+            expected_fault_error: AtomicU64::new(3),
             fault_caught: AtomicBool::new(false),
             fault_recovery_rip: AtomicU64::new(0),
             user_fault_recovery_rip: AtomicU64::new(0),
@@ -173,6 +175,12 @@ static EXCEPTION_NAMES: [&str; 32] = [
 
 /// Arms an expected deliberate fault (e.g. NX, SMEP, WP test) that recovers to `recovery_rip`.
 pub fn set_expected_fault(fault_rip: u64, recovery_rip: u64) {
+    set_expected_page_fault(fault_rip, recovery_rip, 0b011);
+}
+
+/// Arms an expected page fault with an exact architectural error code.
+/// Callers must also provide the exact faulting instruction and recovery RIP.
+pub fn set_expected_page_fault(fault_rip: u64, recovery_rip: u64, error_code: u64) {
     let Some(state) = current_cpu_interrupt_state() else {
         return;
     };
@@ -180,6 +188,7 @@ pub fn set_expected_fault(fault_rip: u64, recovery_rip: u64) {
         .fault_recovery_rip
         .store(recovery_rip, Ordering::SeqCst);
     state.expected_fault_rip.store(fault_rip, Ordering::SeqCst);
+    state.expected_fault_error.store(error_code, Ordering::SeqCst);
     state.fault_caught.store(false, Ordering::SeqCst);
     state.expected_fault.store(true, Ordering::SeqCst);
 }
@@ -189,6 +198,7 @@ pub fn clear_expected_fault() {
     if let Some(state) = current_cpu_interrupt_state() {
         state.expected_fault.store(false, Ordering::SeqCst);
         state.expected_fault_rip.store(0, Ordering::SeqCst);
+        state.expected_fault_error.store(0, Ordering::SeqCst);
     }
 }
 
@@ -224,9 +234,9 @@ pub extern "C" fn x86_exception_handler(frame: &mut ExceptionFrame) {
     };
 
     if vec == 14
-        && (frame.error & 0b111) == 0b011
         && state.expected_fault.load(Ordering::SeqCst)
         && frame.rip == state.expected_fault_rip.load(Ordering::SeqCst)
+        && frame.error == state.expected_fault_error.load(Ordering::SeqCst)
     {
         state.expected_fault.store(false, Ordering::SeqCst);
         kprintln!("\n[security] deliberate {} violation caught and logged (vector={:#x} err={:#x} fault_rip={:#018x})",
