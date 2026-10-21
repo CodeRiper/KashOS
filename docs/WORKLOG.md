@@ -550,3 +550,9 @@ is complete. Keep AP startup disabled until those tests pass.
 - Downgraded the boot status from `Real` to `Partial`; corrected T16's output,
   the legacy Phase 3 design note, and `docs/EVIDENCE/B4.md` so the host model
   tests are not presented as kernel blocking evidence.
+- PR #31 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate in both branch runs, then merged to
+  `main` at `1800e03346ec96982d1f1c039f5b2f9563ef3f37` on 2026-10-21.
+- Local verification passed: workspace tests, release kernel check/build, all
+  25 source guards, claims lint, findings audit, QEMU T0 with the revised T16
+  marker, and `git diff --check`. The QEMU run was single-CPU.

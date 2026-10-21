@@ -38,7 +38,10 @@ git diff --check PASS
 ```
 
 The QEMU T0 run has one CPU. It does not exercise true blocking or concurrent
-IPC wakeup. PR and main CI are pending.
+IPC wakeup. PR #31 passed all three required jobs in both branch-triggered
+runs, then merged to `main` at
+`1800e03346ec96982d1f1c039f5b2f9563ef3f37` on 2026-10-21. Post-merge main CI
+is pending.
 
 The repository's `rtk` command wrapper is not installed in this environment;
 verification commands were run directly in PowerShell.

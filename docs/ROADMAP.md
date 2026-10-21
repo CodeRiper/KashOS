@@ -1,14 +1,14 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `e9cbe909afc47a20141d2b08fe693f9c6330b72f` (A11 docs sync)
-**Active work branch:** `codex/ipc-would-block-fail-closed`
+**Repository state checked:** `main` at `1800e03346ec96982d1f1c039f5b2f9563ef3f37` (PR #31)
+**Active work branch:** `main`
 **Current gate:** A11 groundwork; IPC wake-by-TID now resolves and enqueues under one scheduler lock. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 **B4 note:** IPC calls with no waiting peer now return `WouldBlock` without
 pretending the caller was suspended. True blocking and syscall resumption remain
-unimplemented; the current branch also downgrades the runtime IPC status from
-Real to Partial. See [`EVIDENCE/B4-ipc-would-block.md`](EVIDENCE/B4-ipc-would-block.md).
+unimplemented; the runtime IPC status is Partial. See
+[`EVIDENCE/B4-ipc-would-block.md`](EVIDENCE/B4-ipc-would-block.md).
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
