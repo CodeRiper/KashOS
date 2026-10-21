@@ -25,9 +25,9 @@ could therefore cross the nominal guard without a page fault.
 
 This changes x86-64 paging only. The QEMU test writes to one reserved guard
 page; source checks and fail-closed page-table construction cover enumeration
-and removal of the full static array. This is not a stack-usage bound, a proof
-of fault-handler safety under arbitrary stack exhaustion, AP/SMP coverage, or
-physical hardware validation. APs remain parked and A11 remains incomplete.
+and removal of the full static array. This does not bound stack usage or show
+fault-handler safety under arbitrary stack exhaustion, AP/SMP coverage, or
+physical hardware behavior. APs remain parked and A11 remains incomplete.
 
 ## Research
 
