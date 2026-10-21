@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `6091ee6e405916903f1477fa85e1dfa49243280e` (PR #35)
-**Current task branch:** `codex/ipc-user-buffer-guard`
-**Current engineering task:** Validate IPC syscall user buffers before endpoint state changes; saved continuation remains the next A11/B4 design step
+**Repository tip checked:** `main` at `4c33be35373ae23e5d9df62822840ab76c65acbd` (PR #36)
+**Current task branch:** `main`
+**Current engineering task:** Design saved syscall continuation and atomic IPC endpoint/task transitions; keep AP startup disabled
 
 ## Completed in this task
 
@@ -686,3 +686,7 @@ is complete. Keep AP startup disabled until those tests pass.
   mappings/write permission; a fault during the actual copy may still occur
   after message consumption. Unmatched IPC remains `WouldBlock`; no saved
   syscall continuation or atomic endpoint/PCB/scheduler transaction exists.
+
+- PR #36 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, then merged to `main` at `4c33be35373ae23e5d9df62822840ab76c65acbd` on
+  2026-10-21. Local `main` was fast-forwarded to that exact origin commit.
