@@ -454,7 +454,9 @@ pub fn test_user_mode_execution_and_fault_containment() {
     };
     let process_slot = crate::process::process_slot_for_pid(pid1)
         .expect("spawned process must resolve to its process-table slot");
-    check!(process_slot != (pid1 as usize % crate::process::MAX_PROCESSES));
+    if let Some(modulo_alias_pid) = pid1.checked_add(crate::process::MAX_PROCESSES as u32) {
+        check!(crate::process::process_slot_for_pid(modulo_alias_pid).is_none());
+    }
     check!(crate::process::PROCESS_CSPACES.lock()[process_slot]
         .lookup(0, kcore::Rights::NONE)
         .is_err());

@@ -31,9 +31,11 @@ require("pub fn process_slot_for_pid(pid: u32) -> Option<usize>" in process,
 require("AtomicU32::new((MAX_TASKS as u32) + 2)" in process
         and "NEXT_PID.compare_exchange_weak" in process,
         "user process IDs are disjoint from kernel TIDs and fail instead of wrapping")
-require("process_slot != (pid1 as usize % crate::process::MAX_PROCESSES)" in selftest
+require("pid1.checked_add(crate::process::MAX_PROCESSES as u32)" in selftest
+        and "process_slot_for_pid(modulo_alias_pid).is_none()" in selftest
+        and "process_slot != (pid1 as usize % crate::process::MAX_PROCESSES)" not in selftest
         and "PROCESS_CSPACES.lock()[process_slot]" in selftest,
-        "T13 exercises a PID whose CSpace slot differs from its modulo index and checks it starts empty")
+        "T13 checks exact PID resolution, rejects a modulo-alias PID, and checks the process starts empty")
 require("process_slot_for_pid(current_pid as u32)" in syscalls,
         "capability syscalls resolve the process slot before CSpace access")
 require("(current_pid as usize) % crate::process::MAX_PROCESSES" not in syscalls,

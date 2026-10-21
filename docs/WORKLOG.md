@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
-**Last updated:** 2026-10-20  
-**Repository tip checked:** `main` at `81c90ad99e1de6b776eb03e94f916e5f20429f09`
-**Current task branch:** `main`
-**Current engineering task:** Reject duplicate ready-queue entries; continue A11 SMP groundwork
+**Last updated:** 2026-10-21
+**Repository tip checked:** `main` at `f7d43d3acd8c5598e5f5a35c55a095fb54a8d83e`
+**Current task branch:** `codex/a11-percpu-scheduler-current`
+**Current engineering task:** CPU-indexed scheduler selection and timer-current state; APs remain parked
 
 ## Completed in this task
 
@@ -377,3 +377,30 @@ task identity on multiple CPUs before enabling any AP.
   `81c90ad99e1de6b776eb03e94f916e5f20429f09`.
 - PR #22 passed all three required CI jobs and merged to `main` at
   `3ee53f4bd9e3bc868df6a8154042298e673b44a5`; local `main` was fast-forwarded.
+
+## A11 CPU-indexed scheduler current state (2026-10-21)
+
+- Added per-CPU current task slots and CPU-indexed scheduling, timer, and
+  context-plan APIs. Queue selection honors task affinity while leaving the
+  ready queues shared under the existing global lock.
+- Wired the x86 timer path to its discovered CPU slot. Legacy scheduler APIs
+  remain CPU 0.
+- Added host checks for two distinct CPU current slots, CPU affinity, priority
+  preemption, and invalid CPU indexes. Updated T13's invalid incidental
+  `PID % MAX_PROCESSES` inequality to an explicit unknown modulo-alias lookup;
+  the source guard rejects the old assertion.
+- Evidence and design: `docs/EVIDENCE/A11-percpu-scheduler-current.md` and
+  `docs/design/a11-percpu-scheduler-current.md`.
+- Host workspace tests, release kernel build/check, all 19 Python source
+  guards, claims/finding gates, T0 QEMU shell boot, and T2 four-discovered / one-
+  active CPU gate passed locally.
+- This is CPU-indexed scheduler policy, not SMP. Ready queues, scheduler lock,
+  task table, and FPU/thread storage remain shared; no AP executes KashOS code.
+  A11 remains incomplete.
+
+## Next task
+
+Continue A11 with ownership and synchronization of per-CPU run queues, TCB/FPU
+state, and timer/context migration. Add QEMU tests that execute concurrently
+on multiple CPUs only after AP-local GDT/IDT/TSS, syscall, and interrupt setup
+is complete. Keep AP startup disabled until those tests pass.
