@@ -15,8 +15,9 @@ QEMU_PATH = "tests/test_qemu_boot.py"
 
 
 def check(task: str, arch: str, idt: str, selftest: str, qemu: str) -> None:
-    assert "pub fn stack_guard_page_addresses() -> [u64; MAX_TASKS]" in task
-    assert "stacks[index].guard_page.as_ptr() as u64" in task
+    assert "pub fn stack_guard_page_addresses() -> [u64; MAX_TASKS + smp::MAX_CPUS]" in task
+    assert "thread_stacks[index].guard_page.as_ptr() as u64" in task
+    assert "idle_stacks[index - MAX_TASKS].guard_page.as_ptr() as u64" in task
     assert "crate::task::stack_guard_page_addresses()" in arch
     assert "unmap_4k(guard_va)" in arch
     assert "unmap_4k(guard_paddr)" in arch, "boot stack guard must remain unmapped"
@@ -24,7 +25,7 @@ def check(task: str, arch: str, idt: str, selftest: str, qemu: str) -> None:
     assert "pub fn set_expected_page_fault(" in idt
     assert "frame.error == state.expected_fault_error.load(Ordering::SeqCst)" in idt
     assert "test_thread_stack_guard()" in selftest
-    assert "[stack] PASS: per-thread stack guard is non-present" in selftest
+    assert "[stack] PASS: thread and CPU idle stack guards are non-present" in selftest
     assert '"stack_guard_unmapped": False' in qemu
     assert 'required_markers["stack_guard_unmapped"] = True' in qemu
 
@@ -37,7 +38,7 @@ def read_sources() -> tuple[str, str, str, str, str]:
 
 def main() -> None:
     check(*read_sources())
-    print("PASS: every thread-stack guard is unmapped and checked by exact page fault")
+    print("PASS: thread and idle stack guards are unmapped and checked by exact page fault")
 
     if "--verify-baseline" in sys.argv:
         paths = (TASK_PATH, ARCH_PATH, IDT_PATH, SELFTEST_PATH, QEMU_PATH)

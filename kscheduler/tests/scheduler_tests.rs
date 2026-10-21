@@ -1,4 +1,4 @@
-use kscheduler::{QoSClass, QoSScheduler, SchedError, ThreadState};
+use kscheduler::{ContextSwitchTarget, QoSClass, QoSScheduler, SchedError, ThreadState};
 
 fn spawn_ready(s: &mut QoSScheduler, tid: u32, qos: QoSClass) -> usize {
     let idx = s.create_task(tid, qos, 0).unwrap();
@@ -261,6 +261,36 @@ fn wake_before_blocked_current_is_switched_out_does_not_duplicate_queue_entry() 
     assert_eq!(s.task(task).unwrap().state, ThreadState::Running);
     assert_eq!(s.on_timer_tick(1), Some(task));
     assert_eq!(s.task(task).unwrap().state, ThreadState::Running);
+}
+
+#[test]
+fn blocked_last_task_produces_an_explicit_idle_switch_plan() {
+    let mut s = QoSScheduler::new();
+    let task = s.create_task(124, QoSClass::Background, 0x124).unwrap();
+    s.enqueue_ready(task).unwrap();
+    assert_eq!(s.schedule_on_cpu(0), Some(task));
+    s.block_task(task).unwrap();
+
+    let plan = s.plan_context_switch_on_cpu(0, 10_000).unwrap();
+    assert_eq!(plan.prev_task_idx, Some(task));
+    assert_eq!(plan.target, ContextSwitchTarget::Idle);
+    assert!(s.current_task_on_cpu(0).is_none());
+}
+
+#[test]
+fn waking_from_idle_produces_task_switch_plan_without_previous_task() {
+    let mut s = QoSScheduler::new();
+    let task = s.create_task(125, QoSClass::Background, 0x125).unwrap();
+    s.enqueue_ready(task).unwrap();
+    assert_eq!(s.schedule_on_cpu(0), Some(task));
+    s.block_task(task).unwrap();
+    let idle = s.plan_context_switch_on_cpu(0, 1).unwrap();
+    assert_eq!(idle.target, ContextSwitchTarget::Idle);
+
+    s.wake_task(task).unwrap();
+    let wake = s.plan_context_switch_on_cpu(0, 1).unwrap();
+    assert_eq!(wake.prev_task_idx, None);
+    assert_eq!(wake.target, ContextSwitchTarget::Task { task_idx: task, cr3: 0 });
 }
 
 #[test]

@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `5ce6861ee41b18064984cb80e6c4c116d3c9e53e` (PR #32)
-**Current task branch:** `main`
-**Current engineering task:** Design resumable IPC syscall continuation and idle handoff; keep AP startup disabled
+**Repository tip checked before current task:** `main` at `5ce6861ee41b18064984cb80e6c4c116d3c9e53e` (PR #32)
+**Current task branch:** `codex/b4-idle-handoff`
+**Current engineering task:** Add an explicit idle context for the last blocked task; keep AP startup disabled
 
 ## Completed in this task
 
@@ -580,3 +580,29 @@ is complete. Keep AP startup disabled until those tests pass.
   Build Guide v2 Claims & Honesty Gate; it merged to `main` at
   `5ce6861ee41b18064984cb80e6c4c116d3c9e53e` on 2026-10-21. Local `main` was
   fast-forwarded to that exact `origin/main` commit.
+
+## B4 blocked-task idle handoff (2026-10-21)
+
+- Follow-up source trace found the timer handler returned the interrupted stack
+  when a blocked current task had no runnable replacement. That resumed the
+  blocked task despite the scheduler clearing its current slot.
+- The scheduler now makes idle an explicit context-switch target. x86 reserves
+  a per-CPU idle stack with an unmapped guard, saves the outgoing blocked
+  context, and returns to the idle `sti; hlt` loop. A later timer can select a
+  woken task from idle. Stale current TIDs after task termination also hand off
+  to idle; a scheduler-selected task without a live thread record halts.
+- Host tests cover blocked-last-task to idle and wake-from-idle dispatch. The
+  T0 QEMU self-test checked both thread and idle guard pages, then blocked the
+  sole boot task, entered idle, consumed a synthetic wake probe, and resumed
+  the task on a later timer tick. It reached the locked shell.
+- Full workspace tests, release x86-64 kernel check/build, all Python source
+  guards, claims lint and findings audit passed. F8 and F10 remain present.
+  APs remain parked and shared scheduler state is not SMP-safe.
+- Unmatched IPC remains `WouldBlock`; no saved syscall continuation or atomic
+  endpoint/PCB/TCB transaction was added. Evidence:
+  `docs/EVIDENCE/B4-idle-handoff.md`.
+- This verifies the BSP timer/context handoff only. APs remain parked and
+  shared scheduler state is not SMP-safe. Unmatched IPC remains `WouldBlock`;
+  no saved syscall continuation or atomic endpoint/PCB/TCB transaction was
+  added. Next: implement resumable syscall state and atomic IPC task/endpoint
+  ownership, with wake-versus-exit and slot-reuse regressions.

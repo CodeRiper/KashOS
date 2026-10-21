@@ -68,12 +68,18 @@ pub struct CalleeSavedRegisters {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextSwitchTarget {
+    Task {
+        task_idx: usize,
+        cr3: u64,
+    },
+    Idle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ContextSwitchPlan {
     pub prev_task_idx: Option<usize>,
-    pub next_task_idx: usize,
-    pub next_context_handle: u64,
-    pub next_cr3: u64,
-    pub next_rsp0: u64,
+    pub target: ContextSwitchTarget,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -504,18 +510,24 @@ impl QoSScheduler {
             return None;
         }
         let prev = self.current.get(core_id).copied().flatten();
-        let next = self.on_timer_tick_on_cpu(core_id, elapsed_us)?;
-        if Some(next) != prev {
-            let tcb = self.tasks.get(next)?;
-            Some(ContextSwitchPlan {
+        let next = self.on_timer_tick_on_cpu(core_id, elapsed_us);
+        match next {
+            Some(next_idx) if Some(next_idx) != prev => {
+                let tcb = self.tasks.get(next_idx)?;
+                Some(ContextSwitchPlan {
+                    prev_task_idx: prev,
+                    target: ContextSwitchTarget::Task {
+                        task_idx: next_idx,
+                        cr3: tcb.cr3,
+                    },
+                })
+            }
+            Some(_) => None,
+            None if prev.is_some() => Some(ContextSwitchPlan {
                 prev_task_idx: prev,
-                next_task_idx: next,
-                next_context_handle: tcb.context_handle,
-                next_cr3: tcb.cr3,
-                next_rsp0: tcb.rsp0,
-            })
-        } else {
-            None
+                target: ContextSwitchTarget::Idle,
+            }),
+            None => None,
         }
     }
 }
