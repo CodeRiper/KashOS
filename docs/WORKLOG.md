@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `7908a9a3ea44653ce4371d5f3b42d5f5bbd7a47b` (PR #34)
-**Current task branch:** `codex/b4-syscall-stack`
-**Current engineering task:** Route fast syscall frames through each task's guarded kernel stack; keep AP startup disabled
+**Repository tip checked:** `main` at `6091ee6e405916903f1477fa85e1dfa49243280e` (PR #35)
+**Current task branch:** `main`
+**Current engineering task:** Design saved syscall continuation and atomic IPC endpoint/task transitions; keep AP startup disabled
 
 ## Completed in this task
 
@@ -665,3 +665,7 @@ is complete. Keep AP startup disabled until those tests pass.
   atomic.
 - Next: implement and test an explicit syscall continuation switch path, then
   transact endpoint, PCB, TCB, and scheduler state before unmatched IPC blocks.
+
+- PR #35 passed all required GitHub Actions jobs and merged to `main` at
+  `6091ee6e405916903f1477fa85e1dfa49243280e` on 2026-10-21. Local `main`
+  was fast-forwarded to that exact origin commit.
