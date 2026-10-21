@@ -51,7 +51,7 @@
 
 ## Current implementation handoff
 
-- Verified repository tip: `main` at `4c33be35373ae23e5d9df62822840ab76c65acbd` (PR #36).
+- Verified repository tip: `main` at `2585d23417e412d7ae20856dc54760a479f48fa6` (PR #37).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
 - PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
 - PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.
