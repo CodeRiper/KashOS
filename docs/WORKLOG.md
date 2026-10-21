@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked before current task:** `main` at `9b06d411cb345f8625800ceac3cbb57f6dc0e890` (PR #31 documentation sync)
-**Current task branch:** `codex/b4-scheduler-block-wake`
-**Current engineering task:** Add scheduler block/wake policy groundwork for future resumable IPC; keep AP startup disabled
+**Repository tip checked:** `main` at `5ce6861ee41b18064984cb80e6c4c116d3c9e53e` (PR #32)
+**Current task branch:** `main`
+**Current engineering task:** Design resumable IPC syscall continuation and idle handoff; keep AP startup disabled
 
 ## Completed in this task
 
@@ -576,3 +576,7 @@ is complete. Keep AP startup disabled until those tests pass.
   idle handoff, then integrate the condition, endpoint, PCB and scheduler
   transitions under an explicit ownership/lock protocol. Keep this policy API
   separate from any claim of completed blocking until the runtime path exists.
+- PR #32 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate; it merged to `main` at
+  `5ce6861ee41b18064984cb80e6c4c116d3c9e53e` on 2026-10-21. Local `main` was
+  fast-forwarded to that exact `origin/main` commit.
