@@ -4,6 +4,11 @@
 **Author:** Akash <akash.official.j@gmail.com>  
 **Status:** Reopened for Stage C (Capability Core library tested in kcore)
 
+> This is a legacy design note, not current implementation evidence. The old
+> T16 synchronous-blocking claim was contradicted by source and has been
+> corrected below. Current B4 evidence is in
+> [`../EVIDENCE/B4-ipc-would-block.md`](../EVIDENCE/B4-ipc-would-block.md).
+
 ---
 
 ## 1. Overview & Goals
@@ -14,7 +19,7 @@ In accordance with the *KashOS Build Guide* and the 10 Non-Negotiable Rules:
 1. **Per-Process CSpace**: Every process possesses an isolated Capability Space (`CapSpace`) managed by the microkernel. A user process names kernel resources (memory frames, IPC endpoints, notifications, TCBs, and thread scheduler contexts) strictly through capability pointers (`cptr`), which index its private CSpace.
 2. **Authority Only Shrinks (Monotonicity)**: Capabilities can only be copied or minted with rights less than or equal to the source capability (`CapRights::intersect`).
 3. **Capability Derivation Tree (CDT)**: Retyping and minting operations are recorded in the CDT. Revoking a parent capability recursively invalidates and zeroes all derived child capabilities across all processes in under 1 millisecond.
-4. **Synchronous IPC & Capability Transfer**: Processes communicate via synchronous, rendezvous IPC endpoints (`kipc`). Senders can transfer messages and capabilities across endpoints with unforgeable compartment badges.
+4. **IPC & Capability Transfer (design target)**: The intended contract is synchronous rendezvous. Current code only delivers directly to an already staged waiter; unmatched calls return `WouldBlock`. Resumable blocking is not implemented.
 5. **No Ambient Authority**: Standard POSIX operations (file open, network access, hardware control) require explicit capability tokens or unveil grants derived from parent capabilities. Global ambient namespaces are strictly deleted.
 6. **Kernel Object Quota Isolation**: Untyped memory allocations fund all kernel objects per process. One process exhausting its memory quota cannot starve or crash other processes.
 7. **Acceptance Gate Criteria**:
@@ -48,53 +53,39 @@ In accordance with the *KashOS Build Guide* and the 10 Non-Negotiable Rules:
 
 ### 2.1 Capability System Calls
 - `SYS_CAP_INVOKE` (1): Invoke a capability method (`untyped_retype`, `cnode_copy`, `cnode_mint`, `cnode_revoke`, `tcb_configure`).
-- `SYS_IPC_SEND` (2): Synchronous send to an Endpoint capability with message buffer and optional capability to transfer.
-- `SYS_IPC_RECV` (3): Synchronous receive from an Endpoint capability into a user buffer and destination capability slot.
+- `SYS_IPC_SEND` (2): Send to an Endpoint capability; unmatched calls return `WouldBlock`.
+- `SYS_IPC_RECV` (3): Receive from an Endpoint capability; unmatched calls return `WouldBlock`.
 - `SYS_IPC_CALL` (4): Atomic send-then-receive RPC operation.
 - `SYS_PLEDGE` (5): Monotonic restriction of active process promises.
 - `SYS_UNVEIL` (6): File access path unveiled under a directory capability.
 
-### 2.2 Endpoint Rendezvous Protocol
-1. **Send**:
-   - The kernel validates that the caller holds an Endpoint capability with `CapRights::WRITE`.
-   - If a receiver is already waiting on the endpoint:
-     - The message payload is copied directly from sender buffer to receiver buffer under SMAP protection.
-     - If a capability is attached (`cap_transfer != 0`), it is verified, derived with rights mask, and installed into the receiver's CSpace.
-     - The receiver's thread state is changed to `Ready`, and the sender continues.
-   - If no receiver is waiting:
-     - The sender is added to the endpoint's wait queue and marked `ProcessState::Blocked(BlockedReason::IpcSend)`.
-     - The scheduler yields the CPU.
-2. **Receive**:
-   - The kernel validates that the caller holds an Endpoint capability with `CapRights::READ`.
-   - If a sender is already waiting on the endpoint:
-     - The message and badge are delivered directly to the receiver.
-     - The sender is unblocked and enqueued in the scheduler.
-   - If no sender is waiting:
-     - The receiver is added to the endpoint's wait queue and marked `ProcessState::Blocked(BlockedReason::IpcReceive)`.
-     - The scheduler yields the CPU.
+### 2.2 Current Endpoint Behavior
+
+The kernel validates endpoint capability rights and can directly deliver a
+message to an endpoint that already has a staged peer. An unmatched send or
+receive returns `WouldBlock` without recording a waiter, changing the PCB, or
+returning an empty message. There is no syscall continuation or scheduler yield
+for IPC yet. The direct-delivery self-test stages its waiter internally and
+does not establish a complete user-facing rendezvous lifecycle.
 
 ---
 
-## 3. Acceptance Gate Results (QEMU Live Verification)
+## 3. Legacy Acceptance Gate Notes
 
-All 4 acceptance criteria have been verified on real hardware CPU instructions in QEMU:
+The prior status labels in this table are historical and are not current
+verification. The repository task ledger is authoritative; B0-B6 remain under
+revalidation.
 
 | Test ID | Gate Requirement | Result | Measured Evidence |
 | :--- | :--- | :---: | :--- |
-| **T14** | **Capability Isolation & Rights Monotonicity (Negative Test)** | **PASSED** | Authority escalation rejected; empty slots return `KError::SlotEmpty`; invalid slot indices safely caught without panics; cross-CSpace isolation enforced (zero ambient authority). |
-| **T15** | **1,000-Node Capability Revocation Benchmark** | **PASSED** | 1,000 derived capabilities recursively revoked in **345 $\mu\text{s}$** (866,515 CPU cycles, well under the $1,000\ \mu\text{s}$ threshold) with all physical memory zeroed. |
-| **T16** | **Synchronous IPC Rendezvous & Capability Transfer** | **PASSED** | Sender blocked until receiver met at endpoint; unforgeable compartment badge `0xBEEF7777` delivered; transferred `Frame` capability installed into receiver's private CSpace at slot 2 with full rights. |
-| **T17** | **Kernel-Object Quota Isolation** | **PASSED** | Process exhausting its 64 KiB Untyped quota received `KError::NoMemory` without crashing the microkernel; sibling process allocated normally from its own quota. |
+| **T14** | Capability Isolation & Rights Monotonicity | Needs revalidation | See the B0-B6 task ledger and current capability-core evidence. |
+| **T15** | 1,000-Node Capability Revocation Benchmark | Needs revalidation | Historical measurements in this document are not current evidence. |
+| **T16** | Direct IPC Delivery & Capability Transfer | Partial | Direct transfer and `WouldBlock` non-mutation checks run; blocking/resumption is not implemented. |
+| **T17** | Kernel-Object Quota Isolation | Needs revalidation | See the B0-B6 task ledger. |
 
-```
-[selftest] ✓ T14 Capability Isolation & Rights Monotonicity fully verified (zero ambient authority)
-[selftest] ✓ T15 Capability Revocation Benchmark: 1,000 derived caps revoked in 345 us (866515 cycles, < 1000 us limit)
-[selftest] ✓ T16 Synchronous IPC Rendezvous & Capability Transfer verified (unforgeable badge 0xBEEF7777 + Frame transferred)
-[selftest] ✓ T17 Kernel-Object Quota Isolation: process quota exhaustion safely rejected (KError::NoMemory), microkernel stable
+```text
+[selftest] PASS: T16 direct IPC delivery and WouldBlock state checks passed; resumable blocking not implemented
 ```
 
-Status Registry verified in boot banner:
-```
-| [OK]        Capability Engine                    : handles, CSpace, revocation & IPC |
-| [OK]        Synchronous Rendezvous IPC           : badged endpoints & cap transfer |
-```
+Current runtime status reports IPC as `PARTIAL`; see `kernel/src/selftest.rs`
+and `kernel/src/status.rs`.
