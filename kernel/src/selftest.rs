@@ -89,6 +89,10 @@ pub fn run(region: MemRegion) {
     #[cfg(target_arch = "x86_64")]
     test_nx_smep_fault();
 
+    // ── Test 9a: per-thread kernel-stack guard is actually non-present ───
+    #[cfg(target_arch = "x86_64")]
+    test_thread_stack_guard();
+
     // ── Test 10: Preemptive multitasking 1,000,000 cycles concurrency ────
     #[cfg(target_arch = "x86_64")]
     test_preemptive_multitasking();
@@ -346,6 +350,39 @@ pub fn test_nx_smep_fault() {
     } else {
         kprintln!("[security] ⚠ deliberate protection violation was not caught");
     }
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn test_thread_stack_guard() {
+    use crate::arch::x86_64::idt;
+
+    let guard_addr = crate::task::stack_guard_page_addresses()[0];
+    unsafe {
+        core::arch::asm!(
+            "lea rdi, [rip + 3f]",
+            "lea rsi, [rip + 2f]",
+            "call {set_expected}",
+            "3:",
+            "mov byte ptr [{guard}], 0xA5",
+            "2:",
+            "nop",
+            set_expected = sym idt::set_expected_page_fault,
+            guard = in(reg) guard_addr,
+            in("rdx") 0b010u64,
+            out("rax") _,
+            out("rcx") _,
+            out("rsi") _,
+            out("rdi") _,
+            out("r8") _,
+            out("r9") _,
+            out("r10") _,
+            out("r11") _,
+        );
+        idt::clear_expected_fault();
+    }
+
+    check!(idt::was_fault_caught());
+    kprintln!("[stack] PASS: per-thread stack guard is non-present and its exact write fault was recovered");
 }
 
 #[repr(align(4096))]

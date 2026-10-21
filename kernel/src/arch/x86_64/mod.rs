@@ -479,7 +479,12 @@ pub fn enable_wx_paging(
     }
     let mut vs = mmu::build::<X86_64>(frames, root, &sections, extra_rw_regions, &mmio[..mmio_count]);
     let guard_paddr = core::ptr::addr_of!(_boot_stack_guard) as u64;
-    let _ = vs.unmap_4k(guard_paddr);
+    vs.unmap_4k(guard_paddr)
+        .unwrap_or_else(|e| panic!("mmu: failed to unmap boot stack guard {guard_paddr:#x}: {e:?}"));
+    for guard_va in crate::task::stack_guard_page_addresses() {
+        vs.unmap_4k(guard_va)
+            .unwrap_or_else(|e| panic!("mmu: failed to unmap thread stack guard {guard_va:#x}: {e:?}"));
+    }
 
     kprintln!("[mmu] new page table built: .text RX [{:#x}..{:#x}) .rodata RO [{:#x}..{:#x}) .data+ RW [{:#x}..{:#x})",
               sections.text_start, sections.text_end,

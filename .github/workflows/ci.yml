@@ -98,6 +98,9 @@ jobs:
       - name: Verify IDT Fault and Timer State Is CPU-Local
         run: python3 tools/test_idt_per_cpu_state.py
 
+      - name: Verify Thread Stack Guard Pages Are Unmapped
+        run: python3 tools/test_unmapped_thread_stack_guards.py
+
       - name: Verify Current Task Identity Is CPU-Local
         run: python3 tools/test_task_identity_per_cpu.py
 

@@ -2,7 +2,7 @@
 
 **Audit date:** 2026-10-21
 **Repository state checked:** `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa` (PR #27)
-**Active work branch:** `main`
+**Active work branch:** `codex/a11-unmapped-thread-stack-guards` (based on `main` at PR #27)
 **Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
@@ -79,6 +79,12 @@ compatibility.
   its claims. APs remain parked; see
   [`EVIDENCE/A11-switched-fpu-state.md`](EVIDENCE/A11-switched-fpu-state.md).
   PR #27 merged to `main` at `7c3a92c`; required CI jobs passed.
+- Current follow-up removes every x86-64 `ThreadStack.guard_page` from the
+  broad `.data`/`.bss` mapping and fails boot if an expected removal fails. A
+  deliberate QEMU T0 write observed exact non-present supervisor-write #PF
+  code `0x2` and recovered at the armed RIP. This BSP/QEMU check does not
+  establish AP behavior, worst-case stack safety, or hardware validation;
+  evidence: [`EVIDENCE/A11-thread-stack-guards.md`](EVIDENCE/A11-thread-stack-guards.md).
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.
