@@ -89,6 +89,7 @@ def test_t0_boot():
         "nx_wp_fault_caught": False,
         "test_t13": False,
         "test_t22": False,
+        "timer_fpu_preserved": False,
         "kms_locked": False,
         "unlock_help": False,
         "shell_ready": False,
@@ -113,7 +114,7 @@ def test_t0_boot():
             collected_lines.append(line)
 
             # Echo relevant boot lines
-            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01"]):
+            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest]", "[fpu]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01"]):
                 print(f"  {line}")
 
             if "W^X" in line:
@@ -126,6 +127,8 @@ def test_t0_boot():
                 required_markers["test_t13"] = True
             if "T22 " in line:
                 required_markers["test_t22"] = True
+            if "[fpu] timer ISR preserved live XMM state on same-task path" in line:
+                required_markers["timer_fpu_preserved"] = True
             if "[kms] Locked:" in line:
                 required_markers["kms_locked"] = True
             if "[storage] Vault is locked. Use 'unlock'; passphrase input is hidden." in line:

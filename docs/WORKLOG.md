@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `97efd20` (docs-only handoff sync after PR #25)
-**Current task branch:** `main`
-**Current engineering task:** Correct the initial x87/SSE state restored for new threads; investigate interrupt-entry FPU preservation next; APs remain parked
+**Repository tip checked:** `main` at `4d9c5dc` (PR #25 plus docs-only handoff sync)
+**Current task branch:** `codex/a11-fpu-interrupt-save`
+**Current engineering task:** Save outgoing FPU/SSE state before Rust timer handling and restore the selected image at ISR exit; APs remain parked
 
 ## Completed in this task
 
@@ -424,7 +424,25 @@ is complete. Keep AP startup disabled until those tests pass.
   across unrelated files; no broad formatting rewrite was applied. The
   environment does not have the required `rtk` command, so verification used
   direct commands.
-- The interrupt handler still reaches Rust before the outgoing FPU state is
-  saved. This change does not establish FPU context-switch correctness, SMP, or
-  OS readiness. Next: design a safe interrupt-entry save path, then test it
-  before modifying scheduler ownership or allowing AP execution.
+- At that point the interrupt handler still reached Rust before saving the
+  outgoing FPU state. The next A11 follow-up below addresses the timer-entry
+  save boundary; it does not establish SMP or OS readiness.
+
+## A11 timer-interrupt FPU save boundary (2026-10-21)
+
+- Added a 16-byte-aligned 512-byte FXSAVE image plus an output pointer slot on
+  the active interrupt stack. `_isr32` saves before its Rust call and restores
+  the scheduler-selected image after Rust returns.
+- The timer handler copies the saved image into the outgoing TCB. It selects
+  that same image when no switch occurs and selects the incoming TCB image
+  after a scheduler handoff. This closes the Rust-handler clobber window for
+  the timer path on the currently active BSP.
+- A failure-first source guard was added. A boot self-test places a sentinel in
+  XMM15, invokes the timer vector with `int 0x20`, and checks the same-task
+  return value. QEMU T0 observed the marker and booted through the shell.
+- Workspace host suite, release kernel check/build, all source guards, claims
+  linter, findings audit, and `git diff --check` passed. F8 and F10 remain.
+- The interrupt scratch consumes 528 bytes of the active task stack. Stack
+  exhaustion analysis is not complete. The T0 runtime check exercises only the
+  same-task return path; it does not test context-switch image selection or
+  simultaneous CPUs. Scheduler/TCB state remains shared and APs remain parked.
