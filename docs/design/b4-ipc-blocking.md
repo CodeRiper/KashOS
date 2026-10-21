@@ -15,9 +15,24 @@ message/result to the original caller. Receive returned an empty message on
 that path. These transitions did not implement a blocking IPC contract.
 
 Implementing true blocking needs a kernel-owned saved syscall continuation,
-atomic scheduler/PCB/endpoint state transitions, a scheduler path that does not
-requeue blocked tasks, and tests for wake-versus-exit and task-slot reuse. That
+atomic scheduler/PCB/endpoint state transitions, an architecture path for
+switching to another task or idle context, and tests for wake-versus-exit and
+task-slot reuse. Some scheduler policy groundwork is recorded below. The full
 work is still required before B4 can be described as complete.
+
+## Scheduler policy groundwork
+
+`kscheduler` now exposes `block_task` and `wake_task` transitions. Blocking a
+ready task removes it from ready queues; the timer path clears a blocked or
+terminated current slot and does not requeue it. Waking a task that is still
+the current context restores it to `Running` without a duplicate queue entry;
+waking a task already switched off its CPU enqueues it once.
+
+These APIs change scheduler policy state only. They do not save a resumable IPC
+syscall continuation, atomically update PCB and endpoint state, or provide an
+architecture idle context when a blocked task leaves no runnable work. Kernel
+IPC therefore continues to return `WouldBlock` for unmatched calls. See
+[`../EVIDENCE/B4-scheduler-block-wake.md`](../EVIDENCE/B4-scheduler-block-wake.md).
 
 ## Error value
 
