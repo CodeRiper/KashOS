@@ -185,30 +185,43 @@ pub fn sys_ipc_send(
             let dest_slot = ep.dest_cap_slot;
 
             // If capability transfer was requested, install into receiver's CSpace
+            // before waking the peer. If the scheduler rejects the wake, remove
+            // the just-installed capability and leave the endpoint waiter intact.
+            let mut installed_cap_slot = None;
             if let (Some(cap), Some(dst)) = (msg.transferred_cap, dest_slot) {
                 let rx_cspace_idx = crate::process::process_slot_for_pid(receiver_pid)
                     .ok_or(SyscallError::InvalidCapability)?;
                 let mut cspaces = PROCESS_CSPACES.lock();
                 cspaces[rx_cspace_idx].install_transferred(dst, cap)
                     .map_err(|_| SyscallError::InvalidCapability)?;
+                installed_cap_slot = Some((rx_cspace_idx, dst));
             }
 
-            // Store message into pending_msg for receiver to read
+            // Wake while the endpoint is still untouched. This prevents a failed
+            // wake from consuming the rendezvous. AP startup remains disabled;
+            // SMP needs one lock transaction covering both this wake and endpoint
+            // commit before secondary CPUs can run user tasks.
+            if wake_task_by_tid(receiver_pid).is_err() {
+                if let Some((cspace_idx, dst)) = installed_cap_slot {
+                    let mut cspaces = PROCESS_CSPACES.lock();
+                    let _ = cspaces[cspace_idx].delete(dst);
+                }
+                return Err(SyscallError::InvalidCapability);
+            }
+
+            // Publish the message only after the scheduler accepted the wake.
             ep.waiting_pid = None;
             ep.dest_cap_slot = None;
             ep.pending_msg = Some(msg);
             ep.state = EndpointState::Idle;
 
-            // Unblock receiver
+            // Keep the process view in sync with the accepted scheduler wake.
             {
                 let mut pcb_table = PROCESS_TABLE.lock();
                 if let Some(pcb) = pcb_table.iter_mut().find(|p| p.in_use && p.pid == receiver_pid) {
                     pcb.state = ProcessState::Ready;
                 }
             }
-            wake_task_by_tid(receiver_pid)
-                .map_err(|_| SyscallError::InvalidCapability)?;
-
             Ok(())
         }
         _ => {
@@ -256,18 +269,34 @@ pub fn sys_ipc_recv(
                 return Err(SyscallError::InsufficientRights);
             }
 
-            let sender_pid = ep.waiting_pid.take().unwrap();
-            let msg = ep.pending_msg.take().ok_or(SyscallError::InvalidCapability)?;
+            let msg = ep.pending_msg.ok_or(SyscallError::InvalidCapability)?;
 
             // If capability transfer was attached, install into receiver's CSpace
+            // before waking the sender. Roll it back if the scheduler rejects
+            // the wake so the queued message remains available for retry.
+            let mut installed_cap_slot = None;
             if let (Some(cap), Some(dst)) = (msg.transferred_cap, dest_cap_slot) {
                 let rx_cspace_idx = crate::process::process_slot_for_pid(receiver_pid)
                     .ok_or(SyscallError::InvalidCapability)?;
                 let mut cspaces = PROCESS_CSPACES.lock();
                 cspaces[rx_cspace_idx].install_transferred(dst, cap)
                     .map_err(|_| SyscallError::InvalidCapability)?;
+                installed_cap_slot = Some((rx_cspace_idx, dst));
             }
 
+            // Keep the endpoint message and blocked PCB intact if the scheduler
+            // does not accept this TID as a blocked task. See the AP limitation
+            // in the send path: this is single-CPU groundwork, not SMP atomicity.
+            if wake_task_by_tid(sender_pid).is_err() {
+                if let Some((cspace_idx, dst)) = installed_cap_slot {
+                    let mut cspaces = PROCESS_CSPACES.lock();
+                    let _ = cspaces[cspace_idx].delete(dst);
+                }
+                return Err(SyscallError::InvalidCapability);
+            }
+
+            ep.waiting_pid = None;
+            ep.pending_msg = None;
             ep.state = EndpointState::Idle;
 
             // Unblock sender
@@ -277,9 +306,6 @@ pub fn sys_ipc_recv(
                     pcb.state = ProcessState::Ready;
                 }
             }
-            wake_task_by_tid(sender_pid)
-                .map_err(|_| SyscallError::InvalidCapability)?;
-
             Ok(msg)
         }
         _ => {

@@ -2,8 +2,29 @@
 
 **Last updated:** 2026-10-21
 **Repository tip checked:** `main` at `2585d23417e412d7ae20856dc54760a479f48fa6` (PR #37)
-**Current task branch:** `main`
+**Current task branch:** `codex/ipc-wake-failure-rollback`
 **Current engineering task:** Design and implement IPC result continuation and atomic endpoint/task transitions; keep AP startup disabled
+
+## B4 IPC wake-failure rollback (2026-10-21)
+
+- Re-read the direct IPC send/receive, scheduler wake, PCB, and capability-space
+  paths. Both direct rendezvous branches consumed endpoint state and marked the
+  peer Ready before confirming its scheduler wake; a rejected wake could lose
+  the waiter/message and leave a transferred cap installed.
+- Changed send and receive to keep the endpoint/PCB state intact until
+  `wake_task_by_tid` succeeds, and remove a just-installed transferred
+  capability if that wake fails. Added a CI guard for both directions.
+- The guard failed on pre-change `HEAD` (`send consumes waiter before
+  scheduler wake succeeds`) and passes after the fix. Workspace tests, kernel
+  check/build, all 30 Python source guards, claims lint, findings verification,
+  fresh T0 QEMU, and `git diff --check` passed; details are recorded in
+  `docs/EVIDENCE/B4-ipc-wake-failure-rollback.md`.
+- This is failure rollback groundwork, not an atomic SMP transaction. APs stay
+  parked; unmatched IPC remains `WouldBlock`; no resumable syscall result or
+  full transactional user-buffer delivery exists.
+- Next: define the per-thread syscall result continuation and integrate the
+  endpoint, scheduler, PCB, and CSpace transition under a documented and
+  tested lock order.
 
 ## Completed in this task
 

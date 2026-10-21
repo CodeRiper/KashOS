@@ -2,8 +2,8 @@
 
 **Audit date:** 2026-10-21
 **Repository state checked:** `main` at `2585d23417e412d7ae20856dc54760a479f48fa6` (PR #37)
-**Active work branch:** `main`
-**Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test exercises blocked-task to idle to synthetic wake and resumed task. Fast Ring 3 syscall entry uses the current task's guarded kernel stack and QEMU checks its ownership. IPC receive output pointers are bounded and canonical-range checked before endpoint lookup; mapped-page writability and transactional delivery remain unverified. Ring 3 SYS_YIELD now enters a DPL-0 software reschedule gate and T0 verifies that the syscall resumes after a task switch. This does not complete resumable IPC. IPC wake-by-TID resolves the live task and applies the scheduler wake transition under one lock, including wake-before-switch. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
+**Active work branch:** `codex/ipc-wake-failure-rollback` (unmerged)
+**Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test exercises blocked-task to idle to synthetic wake and resumed task. Fast Ring 3 syscall entry uses the current task's guarded kernel stack and QEMU checks its ownership. IPC receive output pointers are bounded and canonical-range checked before endpoint lookup; mapped-page writability and transactional delivery remain unverified. Ring 3 SYS_YIELD now enters a DPL-0 software reschedule gate and T0 verifies that the syscall resumes after a task switch. Direct IPC now preserves endpoint and PCB state when the scheduler rejects a peer wake, rolling back an installed transferred capability. This does not complete resumable IPC or provide one atomic endpoint/scheduler/PCB transaction. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 **B4 note:** IPC calls with no waiting peer now return `WouldBlock` without
 pretending the caller was suspended. Scheduler block/wake and x86 idle handoff
@@ -11,7 +11,8 @@ groundwork exist; true IPC syscall resumption remains unimplemented, and the
 runtime IPC status is Partial. See
 [`EVIDENCE/B4-ipc-would-block.md`](EVIDENCE/B4-ipc-would-block.md) and
 [`EVIDENCE/B4-scheduler-block-wake.md`](EVIDENCE/B4-scheduler-block-wake.md) and
-[`EVIDENCE/B4-idle-handoff.md`](EVIDENCE/B4-idle-handoff.md).
+[`EVIDENCE/B4-idle-handoff.md`](EVIDENCE/B4-idle-handoff.md) and
+[`EVIDENCE/B4-ipc-wake-failure-rollback.md`](EVIDENCE/B4-ipc-wake-failure-rollback.md).
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
