@@ -26,7 +26,7 @@ def function_body(signature: str) -> str:
 
 
 send = function_body("pub fn sys_ipc_send(")
-recv = function_body("pub fn sys_ipc_recv(")
+recv = function_body("pub fn sys_ipc_recv_with_capacity(")
 
 send_wake = send.index("wake_task_by_tid(receiver_pid)")
 assert send_wake < send.index("ep.waiting_pid = None"), "send consumes waiter before scheduler wake succeeds"

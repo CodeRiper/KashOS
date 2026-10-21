@@ -33,7 +33,7 @@ def check(task: str, ipc: str) -> None:
 
     for signature, tid_name in (
         ("pub fn sys_ipc_send(", "receiver_pid"),
-        ("pub fn sys_ipc_recv(", "sender_pid"),
+        ("pub fn sys_ipc_recv_with_capacity(", "sender_pid"),
     ):
         body = function_body(ipc, signature)
         assert "task_index_for_tid" not in body, f"split TID lookup remains in {signature}"

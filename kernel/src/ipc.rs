@@ -237,6 +237,17 @@ pub fn sys_ipc_recv(
     endpoint_cptr: usize,
     dest_cap_slot: Option<usize>,
 ) -> Result<IpcMessage, SyscallError> {
+    sys_ipc_recv_with_capacity(endpoint_cptr, dest_cap_slot, MAX_IPC_WORDS)
+}
+
+/// Receive only when the caller can hold the complete message. A too-small
+/// output buffer must not install a transferred capability, wake the sender,
+/// or consume the endpoint message.
+pub fn sys_ipc_recv_with_capacity(
+    endpoint_cptr: usize,
+    dest_cap_slot: Option<usize>,
+    receive_capacity: usize,
+) -> Result<IpcMessage, SyscallError> {
     let receiver_pid = current_tid();
     let receiver_slot = crate::process::process_slot_for_pid(receiver_pid)
         .ok_or(SyscallError::InvalidCapability)?;
@@ -270,6 +281,9 @@ pub fn sys_ipc_recv(
             }
 
             let msg = ep.pending_msg.ok_or(SyscallError::InvalidCapability)?;
+            if msg.words_len > receive_capacity {
+                return Err(SyscallError::InvalidArgument);
+            }
 
             // If capability transfer was attached, install into receiver's CSpace
             // before waking the sender. Roll it back if the scheduler rejects

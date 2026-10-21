@@ -322,9 +322,13 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
                 Err(error) => return error as i64,
             };
 
-            match crate::ipc::sys_ipc_recv(endpoint_cptr, dest_cap_slot) {
+            match crate::ipc::sys_ipc_recv_with_capacity(
+                endpoint_cptr,
+                dest_cap_slot,
+                receive_capacity,
+            ) {
                 Ok(msg) => {
-                    let count = receive_capacity.min(msg.words_len);
+                    let count = msg.words_len;
                     if count > 0 {
                         let copy_result = unsafe {
                             copy_to_user(

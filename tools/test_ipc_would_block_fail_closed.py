@@ -48,7 +48,7 @@ def check() -> None:
     assert "s.sync_ipc = crate::status::ComponentStatus::Real" not in SELFTEST
     assert "resumable blocking not implemented" in SELFTEST
     send = wildcard_arm(function_body("pub fn sys_ipc_send("))
-    recv = wildcard_arm(function_body("pub fn sys_ipc_recv("))
+    recv = wildcard_arm(function_body("pub fn sys_ipc_recv_with_capacity("))
     for label, arm in (("send", send), ("receive", recv)):
         assert "Err(SyscallError::WouldBlock)" in arm, f"{label} must report WouldBlock"
         assert "Ok(" not in arm, f"{label} must not report false success"

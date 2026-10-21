@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SYSCALL = (ROOT / "kernel/src/arch/x86_64/syscall.rs").read_text(encoding="utf-8")
+IPC = (ROOT / "kernel/src/ipc.rs").read_text(encoding="utf-8")
 SELFTEST = (ROOT / "kernel/src/selftest.rs").read_text(encoding="utf-8")
 QEMU = (ROOT / "tests/test_qemu_boot.py").read_text(encoding="utf-8")
 
@@ -32,12 +33,13 @@ def function_body(source: str, signature: str) -> str:
 dispatch = function_body(SYSCALL, 'pub extern "sysv64" fn kash_rust_syscall_dispatcher(')
 send = arm(dispatch, "nr::SYS_IPC_SEND =>", "nr::SYS_IPC_RECV =>")
 recv = arm(dispatch, "nr::SYS_IPC_RECV =>", "nr::SYS_RETYPE =>")
+recv_impl = function_body(IPC, "pub fn sys_ipc_recv_with_capacity(")
 
 assert "validate_ipc_user_buffer" in SYSCALL
 assert send.index("copy_from_user(") < send.index("crate::ipc::sys_ipc_send(")
 assert "let copy_result = unsafe" in send
 assert "if let Err(error) = copy_result" in send
-assert recv.index("validate_ipc_user_buffer(user_buf, user_buf_len)") < recv.index("crate::ipc::sys_ipc_recv(")
+assert recv.index("validate_ipc_user_buffer(user_buf, user_buf_len)") < recv.index("crate::ipc::sys_ipc_recv_with_capacity(")
 assert "let copy_result = unsafe" in recv
 assert "if let Err(error) = copy_result" in recv
 assert "return error as i64;" in recv
@@ -46,4 +48,9 @@ assert "validate_ipc_user_buffer(core::ptr::null_mut(), 1) == Err(SyscallError::
 assert "kash_rust_syscall_dispatcher(nr::SYS_IPC_RECV, usize::MAX, 0, 0, 1, 0)" in SELFTEST
 assert '"ipc_user_buffer_preflight": False' in QEMU
 assert 'required_markers["ipc_user_buffer_preflight"] = True' in QEMU
-print("PASS: IPC syscall user buffers are validated before endpoint state changes")
+assert recv_impl.index("msg.words_len > receive_capacity") < recv_impl.index("install_transferred")
+assert recv_impl.index("msg.words_len > receive_capacity") < recv_impl.index("wake_task_by_tid")
+assert recv_impl.index("msg.words_len > receive_capacity") < recv_impl.index("ep.pending_msg = None")
+assert "sys_ipc_recv_with_capacity(1, None, 1)" in SELFTEST
+assert "sys_ipc_recv_with_capacity(1, None, 2)" in SELFTEST
+print("PASS: IPC validates user output bounds and complete-message capacity before endpoint mutation")

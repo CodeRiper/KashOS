@@ -891,6 +891,51 @@ fn test_ipc_direct_delivery_and_would_block() {
         check!(transferred.rights().contains(Rights::WRITE));
     }
 
+    // A too-small user receive buffer must not consume a waiting sender's
+    // message or wake it. Retrying with enough capacity must deliver all words.
+    let staged_msg = crate::ipc::IpcMessage {
+        sender_badge: 0xCAFE,
+        tag: 0x55AA,
+        words: [0xA1, 0xB2, 0, 0, 0, 0, 0, 0],
+        words_len: 2,
+        transferred_cap: None,
+    };
+    {
+        let mut endpoints = crate::ipc::ENDPOINTS.lock();
+        endpoints[ep_idx].state = crate::ipc::EndpointState::WaitSend;
+        endpoints[ep_idx].waiting_pid = Some(sender_pid);
+        endpoints[ep_idx].pending_msg = Some(staged_msg);
+        endpoints[ep_idx].dest_cap_slot = None;
+    }
+    crate::task::set_current_tid(receiver_pid);
+    check!(matches!(
+        crate::ipc::sys_ipc_recv_with_capacity(1, None, 1),
+        Err(crate::arch::x86_64::syscall::SyscallError::InvalidArgument)
+    ));
+    {
+        let endpoints = crate::ipc::ENDPOINTS.lock();
+        check!(endpoints[ep_idx].state == crate::ipc::EndpointState::WaitSend);
+        check!(endpoints[ep_idx].waiting_pid == Some(sender_pid));
+        check!(endpoints[ep_idx].pending_msg.unwrap().words_len == 2);
+    }
+    {
+        let sched = crate::task::SCHEDULER.lock();
+        check!(sched.task(sender_task_idx).unwrap().state == kscheduler::ThreadState::Blocked);
+    }
+    let complete_msg = crate::ipc::sys_ipc_recv_with_capacity(1, None, 2).unwrap();
+    check!(complete_msg.words_len == 2);
+    check!(complete_msg.words[0] == 0xA1 && complete_msg.words[1] == 0xB2);
+    {
+        let endpoints = crate::ipc::ENDPOINTS.lock();
+        check!(endpoints[ep_idx].state == crate::ipc::EndpointState::Idle);
+        check!(endpoints[ep_idx].waiting_pid.is_none());
+        check!(endpoints[ep_idx].pending_msg.is_none());
+    }
+    {
+        let sched = crate::task::SCHEDULER.lock();
+        check!(sched.task(sender_task_idx).unwrap().state == kscheduler::ThreadState::Ready);
+    }
+
     // Reset TID to kernel thread
     crate::task::set_current_tid(1);
     {
@@ -913,7 +958,7 @@ fn test_ipc_direct_delivery_and_would_block() {
         endpoints[ep_idx] = crate::ipc::Endpoint::new(ep_idx as u64);
     }
 
-    kprintln!("[selftest] PASS: T16 direct IPC delivery and WouldBlock state checks passed (badge 0x{:X}); resumable blocking not implemented", 0xBEEF_7777u64);
+    kprintln!("[selftest] PASS: T16 direct IPC delivery, WouldBlock, and complete-buffer retry checks passed (badge 0x{:X}); resumable blocking not implemented", 0xBEEF_7777u64);
 }
 
 /// Test 17: Kernel-Object Quota Isolation & Safe Exhaustion
