@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-10-21
 **Repository tip checked:** `main` at `f4be523d8ef67fa135ad92fb6d16ac21e4406bf1` (PR #33)
-**Current task branch:** `main`
-**Current engineering task:** Implement saved IPC syscall continuation and atomic endpoint/task state; keep AP startup disabled
+**Current task branch:** `codex/b4-ipc-wakeup-state`
+**Current engineering task:** Ensure IPC wake uses the scheduler's current-task-aware wake transition; keep AP startup disabled
 
 ## Completed in this task
 
@@ -613,3 +613,27 @@ is complete. Keep AP startup disabled until those tests pass.
   check/build, all Python source guards, claims lint, findings audit, QEMU T0
   through the locked shell, and `git diff --check` passed. Findings F8 and F10
   remain present; the T0 run is single-CPU and the OS is not production ready.
+
+## A11 IPC wake-before-switch state (2026-10-21)
+
+- The IPC wake helper resolved a live TID under `SCHEDULER` but always called
+  `enqueue_ready`. If a blocked task was still current because its timer switch
+  had not happened yet, this made one task both current and queued. The
+  scheduler's `wake_task` transition already handles that race by restoring
+  `Running` in place, and queues only a task that has switched off its CPU.
+- Replaced the queue-only helper with `wake_task_by_tid`; it resolves the TID
+  and applies `wake_task` within one scheduler lock. IPC send, IPC receive,
+  and the synthetic QEMU idle wake probe use this helper.
+- The failure-first source regression failed before the change because the
+  current helper was missing. Existing host scheduler coverage checks
+  wake-before-switch leaves the task Running and prevents duplicate dispatch.
+- Research: Intel SDM Version 093, SYSCALL does not save RSP and leaves stack
+  preservation to software; seL4 IPC docs describe endpoint wait queues and
+  blocked send/receive behavior. These sources support the continuation design
+  boundary but do not establish KashOS correctness or parity.
+- Verification and exact results: `docs/EVIDENCE/A11-ipc-wake-state.md`.
+- This does not implement unmatched IPC blocking or saved syscall continuation.
+  PCB state is still updated separately from endpoint and scheduler state;
+  APs remain parked and shared scheduler/context state is not SMP-safe.
+- Next: design per-thread syscall continuation ownership and a transactional
+  IPC state transition before enabling unmatched calls to block.

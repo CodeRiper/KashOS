@@ -36,17 +36,20 @@ ownership model remain required before AP startup.
 
 ## Implemented invariant
 
-`task::enqueue_ready_by_tid(tid)` obtains `SCHEDULER`, resolves the active TID
-to its slot, and enqueues that slot before releasing the same lock. IPC send
-and receive use this function to wake a blocked rendezvous peer. They no longer
-carry a slot index across an unlocked interval where termination and slot
-reuse could redirect the wake to a different task.
+`task::wake_task_by_tid(tid)` obtains `SCHEDULER`, resolves the active TID to
+its slot, and applies `QoSScheduler::wake_task` before releasing the same lock.
+IPC send and receive use this function to wake a blocked rendezvous peer. They
+do not carry a slot index across an unlocked interval where termination and
+slot reuse could redirect the wake to a different task. The scheduler wake
+transition restores `Running` in place if the task is still current (it has
+not yet reached its timer switch-out); otherwise it queues the task once.
 
 The API returns `NoSuchTask` if the TID is no longer active and propagates
-scheduler enqueue errors. IPC maps either to `InvalidCapability` at the syscall
-boundary. The change does not by itself make PCB state updates atomic with
-scheduler transitions, nor does it make queues, TCB/FPU/context state, syscall
-entry, or CPU-local architecture setup safe for simultaneous execution.
+scheduler wake errors. IPC maps either to `InvalidCapability` at the syscall
+boundary. This closes the wake-before-switch duplicate-queue case; it does not
+make PCB state updates atomic with endpoint/scheduler transitions, nor does it
+make queues, TCB/FPU/context state, syscall entry, or CPU-local architecture
+setup safe for simultaneous execution.
 
 ## Gate
 
