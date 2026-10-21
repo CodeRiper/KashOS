@@ -1,7 +1,7 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `e883aa06d67ef618cb74552ecd985d543d1dc5a6` (PR #25)
+**Repository state checked:** `main` at `97efd20` (PR #25 plus docs-only handoff sync)
 **Active work branch:** `main`
 **Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 

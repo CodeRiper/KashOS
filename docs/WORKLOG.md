@@ -1,7 +1,7 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `e883aa06d67ef618cb74552ecd985d543d1dc5a6`
+**Repository tip checked:** `main` at `97efd20` (docs-only handoff sync after PR #25)
 **Current task branch:** `main`
 **Current engineering task:** Correct the initial x87/SSE state restored for new threads; investigate interrupt-entry FPU preservation next; APs remain parked
 
