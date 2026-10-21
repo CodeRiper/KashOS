@@ -145,7 +145,7 @@ pub fn spawn_user_process(
         name,
         saved_rsp,
         stack_top,
-        fpu: FpuState::empty(),
+        fpu: FpuState::initial(),
         cr3: loaded.cr3,
         in_use: true,
     };

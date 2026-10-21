@@ -2,7 +2,7 @@
 
 **Audit date:** 2026-10-21
 **Repository state checked:** `main` at `5a5a2326d8554b2b8eece38fa0d991ad6dea058e` (PR #24)
-**Active work branch:** `main`
+**Active work branch:** `codex/a11-valid-fpu-initial-state`
 **Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
@@ -61,6 +61,12 @@ compatibility.
   CPU slot through the x86 timer path. Ready queues remain shared and APs remain
   parked. All three required GitHub Actions jobs passed; PR #24 merged to `main`
   at `5a5a232`. See [`EVIDENCE/A11-percpu-scheduler-current.md`](EVIDENCE/A11-percpu-scheduler-current.md).
+- Follow-up audit found fresh threads restored an all-zero FXSAVE image. The
+  current task initializes new x87/SSE state to Intel's reset defaults
+  (`FCW=0x037f`, `MXCSR=0x1f80`) and adds a regression guard. This does not fix
+  the separate interrupt-entry save boundary or make the shared scheduler
+  SMP-safe. Verification details are in
+  [`EVIDENCE/A11-fpu-initial-state.md`](EVIDENCE/A11-fpu-initial-state.md).
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.
