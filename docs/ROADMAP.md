@@ -1,14 +1,16 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `1800e03346ec96982d1f1c039f5b2f9563ef3f37` (PR #31)
-**Active work branch:** `main`
-**Current gate:** A11 groundwork; IPC wake-by-TID now resolves and enqueues under one scheduler lock. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
+**Repository state checked:** `main` at `9b06d411cb345f8625800ceac3cbb57f6dc0e890` (PR #31 documentation sync)
+**Active work branch:** `codex/b4-scheduler-block-wake`
+**Current gate:** A11 groundwork; scheduler-level block/wake transitions now remove blocked tasks from dispatch and keep the timer from requeueing them. IPC wake-by-TID resolves and enqueues under one scheduler lock. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 **B4 note:** IPC calls with no waiting peer now return `WouldBlock` without
 pretending the caller was suspended. True blocking and syscall resumption remain
-unimplemented; the runtime IPC status is Partial. See
-[`EVIDENCE/B4-ipc-would-block.md`](EVIDENCE/B4-ipc-would-block.md).
+unimplemented; scheduler block/wake primitives are policy groundwork only, and
+the runtime IPC status is Partial. See
+[`EVIDENCE/B4-ipc-would-block.md`](EVIDENCE/B4-ipc-would-block.md) and
+[`EVIDENCE/B4-scheduler-block-wake.md`](EVIDENCE/B4-scheduler-block-wake.md).
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from

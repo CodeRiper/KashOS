@@ -30,6 +30,10 @@ pub enum SchedError {
     NoSuchTask,
     /// The task is already present in a ready queue.
     AlreadyReady,
+    /// The task is already blocked.
+    AlreadyBlocked,
+    /// The task is not blocked and therefore cannot be woken.
+    NotBlocked,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -244,6 +248,49 @@ impl QoSScheduler {
         Ok(())
     }
 
+    /// Remove a live task from dispatch and mark it blocked.
+    ///
+    /// If it is current on a CPU, that CPU still owns the running context
+    /// until its next scheduling decision. A wake before that decision restores
+    /// the task to Running without placing a duplicate entry in a ready queue.
+    pub fn block_task(&mut self, idx: usize) -> Result<(), SchedError> {
+        let task = self.tasks.get(idx).ok_or(SchedError::NoSuchTask)?;
+        if !task.in_use || task.state == ThreadState::Terminated {
+            return Err(SchedError::NoSuchTask);
+        }
+        if task.state == ThreadState::Blocked {
+            return Err(SchedError::AlreadyBlocked);
+        }
+
+        for queue in self.queues.iter_mut() {
+            queue.remove(idx as u32);
+        }
+        if let Some(task) = self.tasks.get_mut(idx) {
+            task.state = ThreadState::Blocked;
+            task.consumed_slice_us = 0;
+        }
+        Ok(())
+    }
+
+    /// Make a blocked task runnable. If its context has not yet been switched
+    /// off a CPU, restore Running in place; otherwise enqueue it exactly once.
+    pub fn wake_task(&mut self, idx: usize) -> Result<(), SchedError> {
+        let task = self.tasks.get(idx).ok_or(SchedError::NoSuchTask)?;
+        if !task.in_use || task.state == ThreadState::Terminated {
+            return Err(SchedError::NoSuchTask);
+        }
+        if task.state != ThreadState::Blocked {
+            return Err(SchedError::NotBlocked);
+        }
+        if self.current.iter().any(|current| *current == Some(idx)) {
+            if let Some(task) = self.tasks.get_mut(idx) {
+                task.state = ThreadState::Running;
+            }
+            return Ok(());
+        }
+        self.enqueue_ready(idx)
+    }
+
     pub fn enqueue_ready(&mut self, task_idx: usize) -> Result<(), SchedError> {
         let task = self.tasks.get(task_idx).ok_or(SchedError::NoSuchTask)?;
         if !task.in_use {
@@ -396,6 +443,22 @@ impl QoSScheduler {
         let Some(curr_idx) = self.current.get(core_id).copied().flatten() else {
             return self.schedule_on_cpu(core_id);
         };
+        let current_state = self.tasks.get(curr_idx).map(|task| {
+            if task.in_use {
+                task.state
+            } else {
+                ThreadState::Terminated
+            }
+        });
+        if matches!(
+            current_state,
+            Some(ThreadState::Blocked | ThreadState::Terminated) | None
+        ) {
+            if let Some(current) = self.current.get_mut(core_id) {
+                *current = None;
+            }
+            return self.schedule_on_cpu(core_id);
+        }
         // Extract the Copy fields we need and let this mutable borrow of
         // `self.tasks` end here, before the affinity-aware queue check below.
         let (qos, consumed, budget) = match self.tasks.get_mut(curr_idx) {

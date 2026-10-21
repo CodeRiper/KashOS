@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | In progress (BSP FPU and unmapped stack-guard checks; timer path measures 935-byte increment; IPC wake-by-TID is atomic under scheduler lock; shared queues/context; AP startup disabled) | main | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md; docs/EVIDENCE/A11-switched-fpu-state.md; docs/EVIDENCE/A11-thread-stack-guards.md; docs/EVIDENCE/A11-timer-stack-budget.md; docs/EVIDENCE/A11-scheduler-tcb-ownership.md |
+| A11 | SMP and scheduler | In progress (BSP FPU and unmapped stack-guard checks; timer path measures 935-byte increment; IPC wake-by-TID is atomic under scheduler lock; block/wake policy primitives added; shared queues/context; AP startup disabled) | main | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md; docs/EVIDENCE/A11-switched-fpu-state.md; docs/EVIDENCE/A11-thread-stack-guards.md; docs/EVIDENCE/A11-timer-stack-budget.md; docs/EVIDENCE/A11-scheduler-tcb-ownership.md; docs/EVIDENCE/B4-scheduler-block-wake.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
@@ -34,7 +34,7 @@
 | B1 | Untyped Memory Model & Watermark Allocator | Needs revalidation | main | docs/EVIDENCE/B1.md |
 | B2 | CNode Guarded Radix Trees & Capability Derivation Tree (CDT) | Needs revalidation | main | docs/EVIDENCE/B2.md |
 | B3 | Transitive Revocation & Amnesic Memory Zeroing | Needs revalidation | main | docs/EVIDENCE/B3.md |
-| B4 | Badged Synchronous Endpoints & Capability Routing | Needs revalidation (direct delivery only; unmatched calls return WouldBlock until resumable syscall blocking exists) | main | docs/EVIDENCE/B4.md; docs/EVIDENCE/B4-ipc-would-block.md |
+| B4 | Badged Synchronous Endpoints & Capability Routing | Needs revalidation (direct delivery only; scheduler block/wake policy primitives exist, but unmatched calls return WouldBlock until resumable syscall blocking and atomic IPC state transitions exist) | main | docs/EVIDENCE/B4.md; docs/EVIDENCE/B4-ipc-would-block.md; docs/EVIDENCE/B4-scheduler-block-wake.md |
 | B5 | Asynchronous Notifications & Event Signaling | Needs revalidation | main | docs/EVIDENCE/B5.md |
 | B6 | Thread Control Blocks (TCBs), Fault Handlers & State | Needs revalidation | main | docs/EVIDENCE/B6.md |
 | B7 | Mixed-Criticality Scheduling (MCS): SchedContext & Temporal Isolation | Planned | - | docs/EVIDENCE/B7.md |
@@ -51,7 +51,7 @@
 
 ## Current implementation handoff
 
-- Verified repository tip: `main` at `d3b8d62e1f4f1fdb5540bcffa9c4d186ca9d0b8b` (PR #29).
+- Verified repository tip before current task: `main` at `9b06d411cb345f8625800ceac3cbb57f6dc0e890` (PR #31 documentation sync).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
 - PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
 - PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.

@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `d3b8d62e1f4f1fdb5540bcffa9c4d186ca9d0b8b` (PR #29)
-**Current task branch:** `main`
-**Current engineering task:** Specify and test shared scheduler/TCB ownership and lock ordering before AP execution
+**Repository tip checked before current task:** `main` at `9b06d411cb345f8625800ceac3cbb57f6dc0e890` (PR #31 documentation sync)
+**Current task branch:** `codex/b4-scheduler-block-wake`
+**Current engineering task:** Add scheduler block/wake policy groundwork for future resumable IPC; keep AP startup disabled
 
 ## Completed in this task
 
@@ -556,3 +556,23 @@ is complete. Keep AP startup disabled until those tests pass.
 - Local verification passed: workspace tests, release kernel check/build, all
   25 source guards, claims lint, findings audit, QEMU T0 with the revised T16
   marker, and `git diff --check`. The QEMU run was single-CPU.
+
+## B4 scheduler block/wake groundwork (2026-10-21)
+
+- Added scheduler policy APIs to block and wake a live task. A blocked current
+  task is removed from its CPU slot at the next timer scheduling decision and
+  is not requeued. A wake before that decision restores the task in place so
+  it cannot be queued while still current.
+- Three host regressions cover ready-task blocking/wake, wake after switching
+  away, and wake-before-switch. The tests failed before implementation because
+  the APIs were absent; they pass after the change.
+- Full workspace tests, release x86-64 kernel check/build, all source guards,
+  claims lint, findings audit, and QEMU T0 passed. QEMU uses one CPU and does
+  not call these new APIs through a live IPC syscall.
+- Unmatched IPC remains `WouldBlock`. Syscall continuation, atomic IPC/PCB/TCB
+  transaction, idle context, and SMP behavior remain unimplemented. APs stay
+  parked. Evidence: `docs/EVIDENCE/B4-scheduler-block-wake.md`.
+- Next B4 step: define the saved syscall continuation and a real no-runnable
+  idle handoff, then integrate the condition, endpoint, PCB and scheduler
+  transitions under an explicit ownership/lock protocol. Keep this policy API
+  separate from any claim of completed blocking until the runtime path exists.

@@ -214,6 +214,56 @@ fn timer_tick_on_one_cpu_does_not_preempt_for_another_cpus_affinity_queue() {
 }
 
 #[test]
+fn blocking_ready_task_removes_it_from_dispatch_until_woken() {
+    let mut s = QoSScheduler::new();
+    let task = s.create_task(120, QoSClass::Background, 0x120).unwrap();
+    s.enqueue_ready(task).unwrap();
+
+    s.block_task(task).unwrap();
+    assert_eq!(s.task(task).unwrap().state, ThreadState::Blocked);
+    assert_eq!(s.schedule(), None);
+
+    s.wake_task(task).unwrap();
+    assert_eq!(s.task(task).unwrap().state, ThreadState::Ready);
+    assert_eq!(s.schedule(), Some(task));
+    assert_eq!(s.task(task).unwrap().state, ThreadState::Running);
+}
+
+#[test]
+fn timer_switches_away_from_blocked_current_without_requeueing_it() {
+    let mut s = QoSScheduler::new();
+    let blocked = s.create_task(121, QoSClass::Background, 0x121).unwrap();
+    let runnable = s.create_task(122, QoSClass::Background, 0x122).unwrap();
+    s.enqueue_ready(blocked).unwrap();
+    assert_eq!(s.schedule(), Some(blocked));
+    s.enqueue_ready(runnable).unwrap();
+
+    s.block_task(blocked).unwrap();
+    assert_eq!(s.on_timer_tick(1), Some(runnable));
+    assert_eq!(s.task(blocked).unwrap().state, ThreadState::Blocked);
+    assert_eq!(s.current_task().unwrap().tid, 122);
+
+    s.wake_task(blocked).unwrap();
+    assert_eq!(s.task(blocked).unwrap().state, ThreadState::Ready);
+    assert_eq!(s.on_timer_tick(20_000), Some(blocked));
+    assert_eq!(s.task(blocked).unwrap().state, ThreadState::Running);
+}
+
+#[test]
+fn wake_before_blocked_current_is_switched_out_does_not_duplicate_queue_entry() {
+    let mut s = QoSScheduler::new();
+    let task = s.create_task(123, QoSClass::Background, 0x123).unwrap();
+    s.enqueue_ready(task).unwrap();
+    assert_eq!(s.schedule(), Some(task));
+
+    s.block_task(task).unwrap();
+    s.wake_task(task).unwrap();
+    assert_eq!(s.task(task).unwrap().state, ThreadState::Running);
+    assert_eq!(s.on_timer_tick(1), Some(task));
+    assert_eq!(s.task(task).unwrap().state, ThreadState::Running);
+}
+
+#[test]
 fn terminated_slot_reuse_does_not_leave_duplicate_ready_entries() {
     let mut s = QoSScheduler::new();
     let old = s.create_task(501, QoSClass::Background, 0).unwrap();
