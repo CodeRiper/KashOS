@@ -123,6 +123,38 @@ pub fn wake_task_by_tid(tid: u32) -> Result<(), SchedError> {
     sched.wake_task(task_idx)
 }
 
+/// Mark the currently executing task blocked without switching immediately.
+/// IPC callers may hold the endpoint lock while publishing the waiter and
+/// making this scheduler transition, then must release every lock before
+/// calling `handoff_blocked_current`.
+pub fn block_current_task() -> Result<(), SchedError> {
+    let tid = current_tid();
+    let cpu_index = current_cpu_index().ok_or(SchedError::NoSuchTask)?;
+    let mut sched = SCHEDULER.lock();
+    let task_idx = sched.task_index_for_tid(tid).ok_or(SchedError::NoSuchTask)?;
+    let current_idx = sched
+        .current_task_on_cpu(cpu_index)
+        .map(|task| task.context_handle as usize)
+        .ok_or(SchedError::NoSuchTask)?;
+    if current_idx != task_idx {
+        return Err(SchedError::NoSuchTask);
+    }
+    let task = sched.task(task_idx).ok_or(SchedError::NoSuchTask)?;
+    if task.state != kscheduler::ThreadState::Running {
+        return Err(SchedError::NotBlocked);
+    }
+    sched.block_task(task_idx)
+}
+
+/// Enter the supervisor-only blocked-context handoff after the caller has
+/// released locks. The interrupt saves this Rust call frame on its owning
+/// thread stack and resumes it after the blocked task is later woken.
+pub fn handoff_blocked_current() {
+    unsafe {
+        core::arch::asm!("int 0xf1", options(preserves_flags));
+    }
+}
+
 /// Return whether `rsp` falls inside the guarded kernel stack assigned to the
 /// current thread. Fast syscall entry checks this before dispatching user input.
 pub fn current_thread_stack_contains(rsp: u64) -> bool {
@@ -178,23 +210,13 @@ pub fn test_blocked_task_idle_handoff() {
         panic!("selftest: could not arm blocked-task idle handoff");
     }
 
-    let block_result = {
-        let mut sched = SCHEDULER.lock();
-        sched
-            .task_index_for_tid(tid)
-            .ok_or(SchedError::NoSuchTask)
-            .and_then(|idx| sched.block_task(idx))
-    };
+    let block_result = block_current_task();
     if let Err(error) = block_result {
         IDLE_WAKE_PROBE_TID.store(0, Ordering::Release);
         panic!("selftest: failed to block idle-handoff task: {:?}", error);
     }
 
-    while IDLE_WAKE_PROBE_TID.load(Ordering::Acquire) != 0 {
-        unsafe {
-            core::arch::asm!("pause", options(nomem, nostack));
-        }
-    }
+    handoff_blocked_current();
     if current_tid() != tid {
         panic!("selftest: idle wake returned to the wrong task");
     }
@@ -511,6 +533,70 @@ pub fn on_voluntary_yield(
                 }
             }
             kprintln!("[sched] Voluntary yield selected task {} without a live thread; halting.", task_idx);
+            crate::arch::shutdown(true)
+        }
+        ContextSwitchTarget::Idle => {
+            PREEMPTION_COUNT.fetch_add(1, Ordering::Relaxed);
+            switch_to_idle(cpu_index)
+        }
+    }
+}
+
+/// Switch away from the current thread if it is blocked; a wake that arrived
+/// before this handoff restores Running and therefore resumes the frame in place.
+pub fn on_blocked_current_handoff(
+    incoming_rsp: u64,
+    incoming_fpu: &FpuState,
+    next_fpu_out: &mut *const FpuState,
+) -> u64 {
+    *next_fpu_out = incoming_fpu;
+    let Some(cpu_index) = current_cpu_index() else {
+        kprintln!("[sched] Block handoff arrived on an unknown CPU; halting.");
+        crate::arch::shutdown(true);
+    };
+    let mut sched = SCHEDULER.lock();
+    let mut threads = THREADS.lock();
+    let plan = match sched.plan_blocked_current_handoff_on_cpu(cpu_index) {
+        Ok(plan) => plan,
+        Err(error) => {
+            kprintln!("[sched] CPU {} blocked handoff planning failed: {:?}; halting.", cpu_index, error);
+            crate::arch::shutdown(true);
+        }
+    };
+
+    let Some(plan) = plan else {
+        return incoming_rsp;
+    };
+    if let Some(prev_idx) = plan.prev_task_idx {
+        if let Some(prev_thread) = threads.get_mut(prev_idx) {
+            if prev_thread.in_use {
+                prev_thread.saved_rsp = incoming_rsp;
+                prev_thread.fpu = *incoming_fpu;
+            }
+        }
+    }
+
+    match plan.target {
+        ContextSwitchTarget::Task { task_idx, cr3, .. } => {
+            if let Some(next_thread) = threads.get_mut(task_idx) {
+                if next_thread.in_use {
+                    *next_fpu_out = &next_thread.fpu;
+                    set_tss_rsp0(next_thread.stack_top);
+                    if !crate::arch::x86_64::syscall::set_current_kernel_stack_top(next_thread.stack_top) {
+                        kprintln!("[sched] CPU {} has no valid syscall stack for blocked-handoff TID {}; halting.", cpu_index, next_thread.tid);
+                        crate::arch::shutdown(true);
+                    }
+                    CPU_CURRENT_TID[cpu_index].store(next_thread.tid, Ordering::Release);
+                    if cr3 != 0 {
+                        unsafe {
+                            core::arch::asm!("mov cr3, {0}", in(reg) cr3, options(nostack));
+                        }
+                    }
+                    PREEMPTION_COUNT.fetch_add(1, Ordering::Relaxed);
+                    return next_thread.saved_rsp;
+                }
+            }
+            kprintln!("[sched] Blocked handoff selected task {} without a live thread; halting.", task_idx);
             crate::arch::shutdown(true)
         }
         ContextSwitchTarget::Idle => {

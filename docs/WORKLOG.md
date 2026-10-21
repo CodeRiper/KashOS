@@ -3,7 +3,26 @@
 **Last updated:** 2026-10-21
 **Repository tip checked:** `main` at `ed64a42bd6077904611890aa389a86e2adda595b` (PR #38)
 **Current task branch:** `main`
-**Current engineering task:** Design and implement IPC result continuation and atomic endpoint/task transitions; keep AP startup disabled
+**Current engineering task:** Integrate the blocked syscall handoff with a failure-safe IPC continuation; keep AP startup disabled
+
+## B4 supervisor blocked-context handoff (2026-10-21)
+
+- Added a scheduler handoff for a current task already marked Blocked, including
+  the wake-before-handoff case, and a DPL-0 software interrupt at vector `0xF1`
+  that saves/restores the per-thread kernel continuation and FPU state.
+- Added `block_current_task` for the actual Running TCB and changed the QEMU
+  blocked-to-idle self-test to use the explicit handoff, then verify return
+  after the synthetic wake. Scheduler host tests failed before the new API and
+  now cover task switch, idle, wake-before-handoff, and invalid current state.
+- Verified with the focused source guards, release kernel check/build, and a
+  fresh one-CPU QEMU boot. Full workspace tests, all source guards, honesty
+  gates, and docs updates are pending before PR.
+- No IPC syscall uses this path yet. Unmatched IPC still returns `WouldBlock`;
+  there is no saved IPC result object or atomic endpoint/scheduler/PCB/CSpace
+  transition. APs remain parked. See
+  `docs/EVIDENCE/B4-blocked-syscall-handoff.md`.
+- Next: integrate endpoint waiter publication, scheduler blocking, and per-task
+  result delivery with rollback before exposing blocking IPC to user tasks.
 
 ## B4 IPC wake-failure rollback (2026-10-21)
 
