@@ -1,7 +1,7 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `ed64a42bd6077904611890aa389a86e2adda595b` (PR #38)
+**Repository tip checked:** `main` at `65bb765bcf3136153ad3faea1809bcf0c8d66de0` (PR #39)
 **Current task branch:** `main`
 **Current engineering task:** Integrate the blocked syscall handoff with a failure-safe IPC continuation; keep AP startup disabled
 
@@ -21,6 +21,10 @@
   there is no saved IPC result object or atomic endpoint/scheduler/PCB/CSpace
   transition. APs remain parked. See
   `docs/EVIDENCE/B4-blocked-syscall-handoff.md`.
+- PR #39 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, merged to `main` at
+  `65bb765bcf3136153ad3faea1809bcf0c8d66de0`; local `main` fast-forwarded to
+  that commit.
 - Next: integrate endpoint waiter publication, scheduler blocking, and per-task
   result delivery with rollback before exposing blocking IPC to user tasks.
 

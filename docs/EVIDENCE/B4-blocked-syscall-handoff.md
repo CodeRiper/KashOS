@@ -73,5 +73,9 @@ python -u tests/test_qemu_boot.py PASS (fresh release image; T0 one CPU; blocked
 git diff --check PASS
 ```
 
+PR #39 passed all three required GitHub Actions checks and merged to `main` at
+`65bb765bcf3136153ad3faea1809bcf0c8d66de0` on 2026-10-21. Local `main` was
+fast-forwarded to that commit.
+
 The repository requires an `rtk` shell prefix, but `rtk` is not installed in
 this environment; commands ran directly in PowerShell.
