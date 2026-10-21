@@ -89,6 +89,9 @@ jobs:
       - name: Verify Syscall Entry Uses Trusted Per-CPU State
         run: python3 tools/test_syscall_entry_fail_closed.py
 
+      - name: Verify Syscall Entry Uses the Current Thread Kernel Stack
+        run: python3 tools/test_syscall_stack_ownership.py
+
       - name: Verify Secondary CPUs Stay Parked Until Initialized
         run: python3 tools/test_smp_aps_fail_closed.py
 

@@ -127,6 +127,8 @@ pub unsafe fn wrmsr(msr: u32, val: u64) {
 }
 
 static SYSCALL_INVOCATIONS: AtomicU64 = AtomicU64::new(0);
+static SYSCALL_STACK_OWNERSHIP_REPORTED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 // Multi-process sandbox table (Part A5 & A8: One sandbox per process, not global)
 pub struct ProcessSandboxTable {
@@ -165,6 +167,32 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
     arg5: usize,
 ) -> i64 {
     SYSCALL_INVOCATIONS.fetch_add(1, Ordering::Relaxed);
+
+    let tid = crate::task::current_tid();
+    if tid >= kscheduler::MAX_TASKS as u32 + 2 {
+        let stack_pointer: u64;
+        // SAFETY: reading RSP is side-effect free; the syscall entry is already
+        // executing on the kernel stack selected for this current user task.
+        unsafe {
+            core::arch::asm!(
+                "mov {}, rsp",
+                out(reg) stack_pointer,
+                options(nomem, nostack, preserves_flags)
+            );
+        }
+        if !crate::task::current_thread_stack_contains(stack_pointer) {
+            crate::kprintln!(
+                "[syscall] PID {} entered on a kernel stack not owned by its thread; halting.",
+                tid
+            );
+            crate::arch::shutdown(true);
+        }
+        if !SYSCALL_STACK_OWNERSHIP_REPORTED.swap(true, Ordering::AcqRel) {
+            crate::kprintln!(
+                "[syscall] PASS: Ring 3 syscall used its owning thread kernel stack"
+            );
+        }
+    }
 
     match num {
         nr::SYS_CAP_INVOKE => {
@@ -389,18 +417,22 @@ pub extern "sysv64" fn kash_rust_syscall_dispatcher(
 }
 
 #[repr(align(4096))]
+/// Per-CPU bootstrap stacks used only until task setup installs the running
+/// task's own guarded stack top in `SyscallCpuState`.
 pub struct SyscallKernelStack(pub [u8; 16384]);
 
 #[repr(C, align(16))]
 pub struct SyscallCpuState {
     pub user_rsp: u64,
-    pub kernel_stack_top: u64,
+    pub kernel_stack_top: AtomicU64,
 }
+
+const _: () = assert!(core::mem::offset_of!(SyscallCpuState, kernel_stack_top) == 8);
 
 pub static mut SYSCALL_KERNEL_STACKS: [SyscallKernelStack; crate::arch::x86_64::smp::MAX_CPUS] =
     [const { SyscallKernelStack([0; 16384]) }; crate::arch::x86_64::smp::MAX_CPUS];
 pub static mut SYSCALL_CPU_STATE: [SyscallCpuState; crate::arch::x86_64::smp::MAX_CPUS] =
-    [const { SyscallCpuState { user_rsp: 0, kernel_stack_top: 0 } }; crate::arch::x86_64::smp::MAX_CPUS];
+    [const { SyscallCpuState { user_rsp: 0, kernel_stack_top: AtomicU64::new(0) } }; crate::arch::x86_64::smp::MAX_CPUS];
 
 pub const IA32_EFER: u32 = 0xC000_0080;
 pub const IA32_GS_BASE: u32 = 0xC000_0101;
@@ -415,7 +447,8 @@ core::arch::global_asm!(
         // 1. Switch GS to kernel space
         swapgs
 
-        // 2. Save user RSP and switch to this CPU's trusted syscall stack.
+        // 2. Save user RSP and switch to the current task's stack selected in
+        //    this CPU's GS-local entry state.
         mov gs:[0], rsp
         mov rsp, gs:[8]
 
@@ -520,7 +553,10 @@ pub fn init() {
         let cpu_state = core::ptr::addr_of_mut!(SYSCALL_CPU_STATE[cpu_index]);
         let stack = core::ptr::addr_of_mut!(SYSCALL_KERNEL_STACKS[cpu_index]);
         (*cpu_state).user_rsp = 0;
-        (*cpu_state).kernel_stack_top = stack as u64 + core::mem::size_of::<SyscallKernelStack>() as u64;
+        (*cpu_state).kernel_stack_top.store(
+            stack as u64 + core::mem::size_of::<SyscallKernelStack>() as u64,
+            Ordering::Release,
+        );
 
         // Ensure IA32_EFER.SCE (System Call Enable, bit 0) is active
         let efer = rdmsr(IA32_EFER);
@@ -547,6 +583,27 @@ pub fn init() {
         wrmsr(IA32_GS_BASE, 0);
         wrmsr(IA32_KERNEL_GS_BASE, cpu_state as u64);
     }
+}
+
+/// Select the current thread's guarded kernel stack for the next fast syscall.
+/// The return frame remains on the thread stack if syscall-side suspension is added.
+pub fn set_current_kernel_stack_top(stack_top: u64) -> bool {
+    if stack_top == 0 || stack_top & 0xF != 0 {
+        return false;
+    }
+    let apic_id = crate::arch::x86_64::apic::current_id();
+    let Some(cpu_index) = crate::arch::x86_64::smp::cpu_index_for_apic_id(apic_id) else {
+        return false;
+    };
+    // SAFETY: CPU-local syscall state was initialized before task scheduling;
+    // the aligned AtomicU64 is read by entry assembly at byte offset 8.
+    unsafe {
+        let state = core::ptr::addr_of_mut!(SYSCALL_CPU_STATE[cpu_index]);
+        (*state)
+            .kernel_stack_top
+            .store(stack_top, Ordering::Release);
+    }
+    true
 }
 
 /// Transition current thread of execution into unprivileged Ring 3 (User Space).

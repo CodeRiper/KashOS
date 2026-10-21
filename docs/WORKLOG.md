@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-10-21
 **Repository tip checked:** `main` at `7908a9a3ea44653ce4371d5f3b42d5f5bbd7a47b` (PR #34)
-**Current task branch:** `main`
-**Current engineering task:** Design per-thread syscall continuation ownership and transactional IPC state; keep AP startup disabled
+**Current task branch:** `codex/b4-syscall-stack`
+**Current engineering task:** Route fast syscall frames through each task's guarded kernel stack; keep AP startup disabled
 
 ## Completed in this task
 
@@ -641,3 +641,27 @@ is complete. Keep AP startup disabled until those tests pass.
   Build Guide v2 Claims & Honesty Gate, then merged to `main` at
   `7908a9a3ea44653ce4371d5f3b42d5f5bbd7a47b` on 2026-10-21. Local `main` was
   fast-forwarded to that exact `origin/main` commit.
+
+## A11 per-thread syscall stack ownership (2026-10-21)
+
+- Fast syscall entry previously selected one stack per CPU. Current IA32_FMASK
+  clears IF, so ordinary timer preemption does not interrupt syscall dispatch.
+  Still, a future syscall-side suspension needs thread-owned frame storage or a
+  second task's syscall could overwrite the suspended frame.
+- The GS-local stack-top slot is now an aligned atomic at the assembly ABI's
+  asserted offset. Task setup and context switches select the owning task's
+  kernel stack; idle selects its own stack. A per-CPU bootstrap stack remains
+  only for the initialization interval before task setup.
+- Every Ring 3 syscall checks that the live dispatcher RSP belongs to the
+  current thread's reserved kernel stack and halts on mismatch. T0 QEMU's Ring
+  3 self-test observed the ownership marker and reached the locked shell.
+- Failure-first source regression, release kernel check/build, workspace tests,
+  all Python guards, claims lint, findings audit, and QEMU T0 passed. F8/F10
+  remain present; APs remain parked. Research and exact commands:
+  `docs/EVIDENCE/A11-per-thread-syscall-stack.md`.
+- This provides per-task storage for syscall frames; it does not implement a
+  syscall-side block/yield path or saved result continuation. IPC remains
+  `WouldBlock` when unmatched, and endpoint/PCB/scheduler commits are not yet
+  atomic.
+- Next: implement and test an explicit syscall continuation switch path, then
+  transact endpoint, PCB, TCB, and scheduler state before unmatched IPC blocks.

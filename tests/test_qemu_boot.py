@@ -93,6 +93,7 @@ def test_t0_boot():
         "switched_fpu_preserved": False,
         "stack_guard_unmapped": False,
         "blocked_idle_handoff": False,
+        "syscall_thread_stack": False,
         "kms_locked": False,
         "unlock_help": False,
         "shell_ready": False,
@@ -119,7 +120,7 @@ def test_t0_boot():
             collected_lines.append(line)
 
             # Echo relevant boot lines
-            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[selftest]", "[fpu]", "[sched]", "[stack]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01", "RIP="]):
+            if any(k in line for k in ["[boot]", "[mmu]", "[cap]", "[kms]", "[syscall]", "[selftest]", "[fpu]", "[sched]", "[stack]", "[security]", "[EXCEPTION]", "[KERNEL-PANIC]", "[storage]", "root@kash-node-01", "RIP="]):
                 print(f"  {line}")
             elif panic_detected:
                 print(f"  {line}")
@@ -151,6 +152,8 @@ def test_t0_boot():
                 required_markers["stack_guard_unmapped"] = True
             if "[sched] PASS: blocked task switched to idle and resumed after wake" in line:
                 required_markers["blocked_idle_handoff"] = True
+            if "[syscall] PASS: Ring 3 syscall used its owning thread kernel stack" in line:
+                required_markers["syscall_thread_stack"] = True
             if "[kms] Locked:" in line:
                 required_markers["kms_locked"] = True
             if "[storage] Vault is locked. Use 'unlock'; passphrase input is hidden." in line:
