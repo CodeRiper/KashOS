@@ -56,6 +56,11 @@ correctness.
 
 ## Limits
 
+PR #25 passed the required GitHub Actions gates and merged to `main` at
+`e883aa06d67ef618cb74552ecd985d543d1dc5a6` on 2026-10-21. Both triggered runs
+reported success for Workspace Subsystem Tests, Build Microkernel (x86-64),
+and Build Guide v2 Claims & Honesty Gate.
+
 The timer interrupt currently enters Rust before saving the interrupted FPU
 state. Rust/ABI code may use caller-saved XMM registers, so the correctness of
 that save boundary is not established by this change and requires a separate

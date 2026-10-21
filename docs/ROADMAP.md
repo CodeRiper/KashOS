@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `5a5a2326d8554b2b8eece38fa0d991ad6dea058e` (PR #24)
-**Active work branch:** `codex/a11-valid-fpu-initial-state`
+**Repository state checked:** `main` at `e883aa06d67ef618cb74552ecd985d543d1dc5a6` (PR #25)
+**Active work branch:** `main`
 **Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
@@ -67,6 +67,7 @@ compatibility.
   the separate interrupt-entry save boundary or make the shared scheduler
   SMP-safe. Verification details are in
   [`EVIDENCE/A11-fpu-initial-state.md`](EVIDENCE/A11-fpu-initial-state.md).
+  PR #25 merged to `main` at `e883aa0`; required GitHub Actions jobs passed.
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.

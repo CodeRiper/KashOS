@@ -1,8 +1,8 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `5a5a2326d8554b2b8eece38fa0d991ad6dea058e`
-**Current task branch:** `codex/a11-valid-fpu-initial-state`
+**Repository tip checked:** `main` at `e883aa06d67ef618cb74552ecd985d543d1dc5a6`
+**Current task branch:** `main`
 **Current engineering task:** Correct the initial x87/SSE state restored for new threads; investigate interrupt-entry FPU preservation next; APs remain parked
 
 ## Completed in this task
