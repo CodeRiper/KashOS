@@ -37,3 +37,7 @@ write on the BSP, not all stack sizes, AP execution, arbitrary fault-handler
 stack exhaustion, or physical hardware. A11 remains incomplete; APs remain
 parked, and findings F8 (hardware IOMMU/DMA path unavailable) and F10 (normal
 GUI/session in Ring 0) remain present. The OS remains a development prototype.
+
+PR #28 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+Build Guide v2 Claims & Honesty Gate, then merged to `main` on 2026-10-21 at
+`db6c97cbcbc9698746140b92b6a3295712215fcf`.

@@ -1,8 +1,8 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository base checked:** `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa` (PR #27)
-**Current task branch:** `codex/a11-unmapped-thread-stack-guards`
+**Repository tip checked:** `main` at `db6c97cbcbc9698746140b92b6a3295712215fcf` (PR #28)
+**Current task branch:** `main`
 **Current engineering task:** Unmap per-thread kernel-stack guard pages; next analyze timer interrupt stack use, then address shared scheduler/TCB ownership before AP execution
 
 ## Completed in this task
@@ -488,3 +488,6 @@ is complete. Keep AP startup disabled until those tests pass.
   unanalyzed. Evidence: `docs/EVIDENCE/A11-thread-stack-guards.md`.
 - Next: analyze the 528-byte interrupt scratch and total worst-case kernel
   stack depth, then address shared scheduler and TCB/FPU ownership.
+- PR #28 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate on the final branch commit and merged
+  to `main` at `db6c97cbcbc9698746140b92b6a3295712215fcf` on 2026-10-21.

@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | In progress (BSP FPU switch and unmapped stack-guard QEMU checks; shared queues/context; AP startup disabled) | codex/a11-unmapped-thread-stack-guards | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md; docs/EVIDENCE/A11-switched-fpu-state.md; docs/EVIDENCE/A11-thread-stack-guards.md |
+| A11 | SMP and scheduler | In progress (BSP FPU switch and unmapped stack-guard QEMU checks; shared queues/context; AP startup disabled) | main | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md; docs/EVIDENCE/A11-switched-fpu-state.md; docs/EVIDENCE/A11-thread-stack-guards.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
@@ -51,7 +51,7 @@
 
 ## Current implementation handoff
 
-- Verified repository base: `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa` (PR #27); active work is `codex/a11-unmapped-thread-stack-guards`.
+- Verified repository tip: `main` at `db6c97cbcbc9698746140b92b6a3295712215fcf` (PR #28).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
 - PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
 - PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.
@@ -59,7 +59,7 @@
 - PR #13 merged the A11 revalidation: the AP path previously enabled local timer interrupts before loading an AP-local IDT and had no TSS or scheduler context. Secondary CPUs now remain parked and only initialized CPUs report online. SMP remains unavailable pending full per-CPU setup and multi-core execution tests.
 - PR #18 merged CPU-indexed GDT/TSS/IST state and APIC-indexed TSS stack updates. PR #21 added CPU-local IDT, fault-recovery, and timer state, exact-RIP deliberate #PF recovery, and a bounded/current-marker T0 QEMU smoke test. Global scheduler/task state still prevents AP execution. Verification is recorded in `docs/EVIDENCE/A11.md`.
 - PR #22 replaces the global current TID with an APIC-indexed atomic slot, uses TID 0 for unresolved CPU identity, and rejects that identity in generic syscalls instead of falling back to root. This is identity groundwork only; APs remain parked.
-- Current A11 work removes all x86-64 thread stack guard pages from the writable image mapping, matches expected page-fault error codes exactly, and verifies one guard write under T0 QEMU. See `docs/EVIDENCE/A11-thread-stack-guards.md`; the branch has not yet been merged.
+- PR #28 removes all x86-64 thread stack guard pages from the writable image mapping, matches expected page-fault error codes exactly, and verifies one guard write under T0 QEMU. All three required CI jobs passed; see `docs/EVIDENCE/A11-thread-stack-guards.md`.
 - PR #15 corrected README, threat model and claims inventory to describe the prototype status and unavailable networking, TPM, DMA isolation, user services and SMP; see `docs/EVIDENCE/READINESS.md`.
 - Next: analyze the 528-byte timer interrupt scratch and worst-case stack depth, then make scheduler selection, TCB ownership, FPU state, and timer context safe for per-CPU execution. AP startup remains disabled.
 

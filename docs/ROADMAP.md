@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `7c3a92c815f651b9a8a17f2356b0bc0ec379e9fa` (PR #27)
-**Active work branch:** `codex/a11-unmapped-thread-stack-guards` (based on `main` at PR #27)
+**Repository state checked:** `main` at `db6c97cbcbc9698746140b92b6a3295712215fcf` (PR #28)
+**Active work branch:** `main`
 **Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
@@ -85,6 +85,7 @@ compatibility.
   code `0x2` and recovered at the armed RIP. This BSP/QEMU check does not
   establish AP behavior, worst-case stack safety, or hardware validation;
   evidence: [`EVIDENCE/A11-thread-stack-guards.md`](EVIDENCE/A11-thread-stack-guards.md).
+  PR #28 passed all three required CI jobs and merged to `main` at `db6c97c`.
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.
