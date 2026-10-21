@@ -70,6 +70,10 @@ python -u tests/test_qemu_boot.py PASS (QEMU T0, one CPU, shell reached)
 git diff --check PASS
 ```
 
+PR #38 passed all three required GitHub Actions checks and merged to `main` at
+`ed64a42bd6077904611890aa389a86e2adda595b` on 2026-10-21. Local `main` was
+fast-forwarded to that commit.
+
 All existing runtime honesty limits remain: QEMU T0 is single CPU, APs are
 parked, unmatched IPC cannot suspend/resume, and mapped writable user-buffer
 validation is incomplete.

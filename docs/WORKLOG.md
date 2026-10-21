@@ -1,8 +1,8 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `2585d23417e412d7ae20856dc54760a479f48fa6` (PR #37)
-**Current task branch:** `codex/ipc-wake-failure-rollback`
+**Repository tip checked:** `main` at `ed64a42bd6077904611890aa389a86e2adda595b` (PR #38)
+**Current task branch:** `main`
 **Current engineering task:** Design and implement IPC result continuation and atomic endpoint/task transitions; keep AP startup disabled
 
 ## B4 IPC wake-failure rollback (2026-10-21)
@@ -19,6 +19,10 @@
   check/build, all 30 Python source guards, claims lint, findings verification,
   fresh T0 QEMU, and `git diff --check` passed; details are recorded in
   `docs/EVIDENCE/B4-ipc-wake-failure-rollback.md`.
+- PR #38 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, merged to `main` at
+  `ed64a42bd6077904611890aa389a86e2adda595b`; local `main` fast-forwarded to
+  that commit.
 - This is failure rollback groundwork, not an atomic SMP transaction. APs stay
   parked; unmatched IPC remains `WouldBlock`; no resumable syscall result or
   full transactional user-buffer delivery exists.
