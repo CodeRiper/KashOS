@@ -214,7 +214,15 @@ pub fn spawn_kernel_thread(
 /// Invoked from timer ISR `_isr32` on every timer tick.
 /// Saves incoming thread registers, checks QoS schedule, performs context switch if planned,
 /// and returns the RSP to restore.
-pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
+pub fn on_timer_tick(
+    incoming_rsp: u64,
+    incoming_fpu: &FpuState,
+    elapsed_us: u32,
+    next_fpu_out: &mut *const FpuState,
+) -> u64 {
+    // Keep the interrupted state as the fail-closed default. The Rust handler
+    // may use XMM registers; `_isr32` restores this image after the handler.
+    *next_fpu_out = incoming_fpu;
     let Some(cpu_index) = current_cpu_index() else {
         kprintln!("[sched] Timer arrived on an unknown CPU; halting.");
         crate::arch::shutdown(true);
@@ -231,7 +239,7 @@ pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
                 if let Some(prev_thread) = threads.get_mut(prev_idx) {
                     if prev_thread.in_use {
                         prev_thread.saved_rsp = incoming_rsp;
-                        prev_thread.fpu.save();
+                        prev_thread.fpu = *incoming_fpu;
                     }
                 }
             }
@@ -240,7 +248,7 @@ pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
             let next_idx = p.next_task_idx;
             if let Some(next_thread) = threads.get_mut(next_idx) {
                 if next_thread.in_use {
-                    next_thread.fpu.restore();
+                    *next_fpu_out = &next_thread.fpu;
                     set_tss_rsp0(next_thread.stack_top);
                     CPU_CURRENT_TID[cpu_index].store(next_thread.tid, Ordering::Release);
                     if p.next_cr3 != 0 {
@@ -261,6 +269,7 @@ pub fn on_timer_tick(incoming_rsp: u64, elapsed_us: u32) -> u64 {
                 let slot = curr_tcb.context_handle as usize;
                 if let Some(thread) = threads.get_mut(slot) {
                     thread.saved_rsp = incoming_rsp;
+                    thread.fpu = *incoming_fpu;
                 }
             }
             incoming_rsp

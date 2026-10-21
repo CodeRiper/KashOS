@@ -3,6 +3,7 @@
 //! prints full CPU state and halts (fail-closed). This is the x86-64 equivalent
 //! of the RISC-V trap vector built in the original capkern.
 #![allow(unsafe_code)]
+use super::fpu::FpuState;
 use core::arch::global_asm;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -328,7 +329,18 @@ pub fn timer_ticks() -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn x86_timer_handler(incoming_rsp: u64) -> u64 {
+pub extern "C" fn x86_timer_handler(
+    incoming_rsp: u64,
+    incoming_fpu: *const FpuState,
+    next_fpu_out: *mut *const FpuState,
+) -> u64 {
+    // SAFETY: `_isr32` passes a 16-byte-aligned 512-byte FXSAVE image and a
+    // writable pointer slot in its live interrupt stack frame.
+    let incoming_fpu = unsafe { &*incoming_fpu };
+    // SAFETY: `_isr32` passes the address of the pointer slot just beyond the
+    // 512-byte FXSAVE image, which remains live until this handler returns.
+    let next_fpu_out = unsafe { &mut *next_fpu_out };
+    *next_fpu_out = incoming_fpu;
     if let Some(state) = current_cpu_interrupt_state() {
         state.timer_ticks.fetch_add(1, Ordering::Relaxed);
     } else {
@@ -336,7 +348,7 @@ pub extern "C" fn x86_timer_handler(incoming_rsp: u64) -> u64 {
         crate::arch::shutdown(true);
     }
     super::apic::eoi();
-    crate::task::on_timer_tick(incoming_rsp, 10_000)
+    crate::task::on_timer_tick(incoming_rsp, incoming_fpu, 10_000, next_fpu_out)
 }
 
 #[no_mangle]
@@ -392,7 +404,15 @@ _isr32:
     push r15
     cld
     mov rdi, rsp
+    and rsp, -16
+    sub rsp, 528
+    fxsave64 [rsp]
+    mov rsi, rsp
+    mov [rsp + 512], rsi
+    lea rdx, [rsp + 512]
     call x86_timer_handler
+    mov rsi, [rsp + 512]
+    fxrstor64 [rsi]
     mov rsp, rax
     pop r15
     pop r14

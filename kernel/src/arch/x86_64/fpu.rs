@@ -36,7 +36,34 @@ pub fn selftest() {
     if (c - 8.5).abs() > 0.001 {
         panic!("FPU/SSE self-test failed: computation mismatch");
     }
+    timer_interrupt_preserves_sse_state();
     crate::kprintln!("[fpu] SSE/SSE2 enabled: CR0(EM=0,MP=1) CR4(OSFXSR=1,OSXMMEXCPT=1)");
+}
+
+/// Exercise the timer ISR's no-switch path with a live XMM register value.
+fn timer_interrupt_preserves_sse_state() {
+    let sentinel = [
+        0x13, 0x57, 0x9b, 0xdf, 0x24, 0x68, 0xac, 0xe0, 0x31, 0x75, 0xb9, 0xfd, 0x42, 0x86,
+        0xca, 0x0e,
+    ];
+    let mut observed = [0u8; 16];
+    // SAFETY: Called after IDT, task, and APIC setup on the BSP. Vector 32 is
+    // the initialized kernel timer gate; the single registered boot task means
+    // this checks the same-task restore path without waiting for hardware time.
+    unsafe {
+        core::arch::asm!(
+            "movdqu xmm15, xmmword ptr [{sentinel}]",
+            "int 0x20",
+            "movdqu xmmword ptr [{observed}], xmm15",
+            sentinel = in(reg) sentinel.as_ptr(),
+            observed = in(reg) observed.as_mut_ptr(),
+            lateout("xmm15") _,
+        );
+    }
+    if observed != sentinel {
+        panic!("FPU/SSE timer interrupt preservation test failed");
+    }
+    crate::kprintln!("[fpu] timer ISR preserved live XMM state on same-task path");
 }
 
 /// 512-byte aligned buffer for saving/restoring FPU/MMX/SSE/XMM state via `fxsave64`/`fxrstor64`.
@@ -63,17 +90,4 @@ impl FpuState {
         FpuState { buffer }
     }
 
-    #[inline]
-    pub fn save(&mut self) {
-        unsafe {
-            core::arch::asm!("fxsave64 [{0}]", in(reg) self.buffer.as_mut_ptr(), options(nostack));
-        }
-    }
-
-    #[inline]
-    pub fn restore(&self) {
-        unsafe {
-            core::arch::asm!("fxrstor64 [{0}]", in(reg) self.buffer.as_ptr(), options(nostack));
-        }
-    }
 }

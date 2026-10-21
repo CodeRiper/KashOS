@@ -14,7 +14,7 @@
 | A8 | TLS and HTTPS | Needs revalidation | main | docs/EVIDENCE/A8.md |
 | A9 | Real IOMMU (Intel VT-d) | Needs revalidation | main | docs/EVIDENCE/A9.md |
 | A10 | Move out of Ring 0: real user-space services | Needs revalidation | main | docs/EVIDENCE/A10.md |
-| A11 | SMP and scheduler | In progress (CPU-indexed policy; reset FPU image fixed; shared queues/context; AP startup disabled) | main | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md |
+| A11 | SMP and scheduler | In progress (FPU saved before timer Rust path; same-task QEMU check; shared queues/context; AP startup disabled) | codex/a11-fpu-interrupt-save | docs/EVIDENCE/A11.md; docs/EVIDENCE/A11-percpu-scheduler-current.md; docs/EVIDENCE/A11-fpu-initial-state.md; docs/EVIDENCE/A11-timer-fpu-save-boundary.md |
 | A12 | Persistent filesystem and disk layout | Needs revalidation | main | docs/EVIDENCE/A12.md |
 | A13 | USB: xHCI, HID and mass storage | Needs revalidation | main | docs/EVIDENCE/A13.md |
 | A14 | UEFI boot, Secure Boot and a loader that measures | Needs revalidation | main | docs/EVIDENCE/A14.md |
