@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-10-21
 **Repository tip checked:** `main` at `6091ee6e405916903f1477fa85e1dfa49243280e` (PR #35)
-**Current task branch:** `main`
-**Current engineering task:** Design saved syscall continuation and atomic IPC endpoint/task transitions; keep AP startup disabled
+**Current task branch:** `codex/ipc-user-buffer-guard`
+**Current engineering task:** Validate IPC syscall user buffers before endpoint state changes; saved continuation remains the next A11/B4 design step
 
 ## Completed in this task
 
@@ -669,3 +669,20 @@ is complete. Keep AP startup disabled until those tests pass.
 - PR #35 passed all required GitHub Actions jobs and merged to `main` at
   `6091ee6e405916903f1477fa85e1dfa49243280e` on 2026-10-21. Local `main`
   was fast-forwarded to that exact origin commit.
+
+## B4 IPC syscall user-buffer preflight (2026-10-21)
+
+- Re-read the syscall, IPC, scheduler, and task code. `SYS_IPC_RECV` consumed a
+  message before validating the output pointer, and IPC copy helper errors were
+  discarded.
+- Added bounded receive-buffer preflight before endpoint lookup, rejects a
+  non-empty null buffer, and propagates user-copy helper errors. Added T42
+  runtime checks, a QEMU marker, and a CI source-order regression guard.
+- Failure-first source guard failed before the fix because the validation helper
+  and preflight ordering were absent. Workspace tests, all source guards, release
+  kernel check/build, and T0 QEMU passed. See
+  `docs/EVIDENCE/B4-ipc-user-buffer-preflight.md`.
+- The validator checks only canonical range and arithmetic bounds, not page
+  mappings/write permission; a fault during the actual copy may still occur
+  after message consumption. Unmatched IPC remains `WouldBlock`; no saved
+  syscall continuation or atomic endpoint/PCB/scheduler transaction exists.

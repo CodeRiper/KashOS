@@ -2049,7 +2049,7 @@ fn test_elf_loader_fuzz_hardening() {
 #[cfg(target_arch = "x86_64")]
 fn test_syscall_boundary_fuzz_hardening() {
     use crate::arch::x86_64::syscall::{
-        kash_rust_syscall_dispatcher, validate_user_memory_region, nr, SyscallError,
+        kash_rust_syscall_dispatcher, validate_ipc_user_buffer, validate_user_memory_region, nr, SyscallError,
         USER_SPACE_CEILING,
     };
     use crate::elf::USER_SPACE_FLOOR;
@@ -2065,6 +2065,15 @@ fn test_syscall_boundary_fuzz_hardening() {
     check!(validate_user_memory_region((USER_SPACE_CEILING - 10) as *const u8, 32) == Err(SyscallError::PrivilegeEscalationAttempted));
     // Integer overflow in pointer + length
     check!(validate_user_memory_region(usize::MAX as *const u8, 100) == Err(SyscallError::InvalidMemoryAccess));
+
+    // IPC receive must reject a non-empty null/kernel output before endpoint
+    // capability lookup can consume or wake any waiter.
+    check!(validate_ipc_user_buffer(core::ptr::null_mut(), 0) == Ok(0));
+    check!(validate_ipc_user_buffer(core::ptr::null_mut(), 1) == Err(SyscallError::InvalidMemoryAccess));
+    check!(validate_ipc_user_buffer(0xFFFF_8000_0000_0000 as *mut u64, 1) == Err(SyscallError::InvalidMemoryAccess));
+    check!(validate_ipc_user_buffer(USER_SPACE_FLOOR as *mut u64, usize::MAX) == Ok(crate::ipc::MAX_IPC_WORDS));
+    check!(kash_rust_syscall_dispatcher(nr::SYS_IPC_RECV, usize::MAX, 0, 0, 1, 0)
+        == SyscallError::InvalidMemoryAccess as i64);
 
     // 2. 10,000 Iteration hostile fuzz harness on kash_rust_syscall_dispatcher
     let mut rejected_calls = 0usize;
@@ -2100,7 +2109,7 @@ fn test_syscall_boundary_fuzz_hardening() {
     }
 
     check!(rejected_calls == 10_000);
-    kprintln!("[selftest] PASS: T42 syscall argument validation helper checks passed for 10,000 generated inputs; this is not a user-process fault-isolation proof");
+    kprintln!("[selftest] PASS: T42 syscall pointer and IPC receive preflight checks passed for 10,000 generated inputs; this is not a user-process fault-isolation proof");
 }
 
 /// Test 43: Network Packet & Protocol Parser Fuzz Gate

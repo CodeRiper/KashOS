@@ -94,6 +94,7 @@ def test_t0_boot():
         "stack_guard_unmapped": False,
         "blocked_idle_handoff": False,
         "syscall_thread_stack": False,
+        "ipc_user_buffer_preflight": False,
         "kms_locked": False,
         "unlock_help": False,
         "shell_ready": False,
@@ -154,6 +155,8 @@ def test_t0_boot():
                 required_markers["blocked_idle_handoff"] = True
             if "[syscall] PASS: Ring 3 syscall used its owning thread kernel stack" in line:
                 required_markers["syscall_thread_stack"] = True
+            if "T42 syscall pointer and IPC receive preflight checks passed" in line:
+                required_markers["ipc_user_buffer_preflight"] = True
             if "[kms] Locked:" in line:
                 required_markers["kms_locked"] = True
             if "[storage] Vault is locked. Use 'unlock'; passphrase input is hidden." in line:
