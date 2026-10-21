@@ -494,6 +494,49 @@ impl QoSScheduler {
         }
     }
 
+    /// Requeue the current runnable thread and choose the next task without
+    /// charging timer time. The architecture side may switch to the returned
+    /// target from a supervisor software-reschedule interrupt.
+    pub fn plan_voluntary_yield_on_cpu(
+        &mut self,
+        core_id: usize,
+    ) -> Result<Option<ContextSwitchPlan>, SchedError> {
+        if core_id >= MAX_CPUS {
+            return Err(SchedError::NoSuchTask);
+        }
+
+        let prev = self.current.get(core_id).copied().flatten();
+        if let Some(prev_idx) = prev {
+            let task = self.tasks.get(prev_idx).ok_or(SchedError::NoSuchTask)?;
+            if !task.in_use || task.state != ThreadState::Running {
+                return Err(SchedError::NoSuchTask);
+            }
+            self.enqueue_ready(prev_idx)?;
+            if let Some(current) = self.current.get_mut(core_id) {
+                *current = None;
+            }
+        }
+
+        match self.schedule_on_cpu(core_id) {
+            Some(next_idx) if Some(next_idx) != prev => {
+                let task = self.tasks.get(next_idx).ok_or(SchedError::NoSuchTask)?;
+                Ok(Some(ContextSwitchPlan {
+                    prev_task_idx: prev,
+                    target: ContextSwitchTarget::Task {
+                        task_idx: next_idx,
+                        cr3: task.cr3,
+                    },
+                }))
+            }
+            Some(_) => Ok(None),
+            None if prev.is_some() => Ok(Some(ContextSwitchPlan {
+                prev_task_idx: prev,
+                target: ContextSwitchTarget::Idle,
+            })),
+            None => Ok(None),
+        }
+    }
+
     /// Evaluates timer tick and computes a hardware context switch plan
     /// (callee-saved registers, CR3 page table reload, and TSS.RSP0 stack).
     pub fn plan_context_switch(&mut self, elapsed_us: u32) -> Option<ContextSwitchPlan> {

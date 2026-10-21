@@ -95,6 +95,9 @@ jobs:
       - name: Verify IPC User Buffers Before Endpoint Mutation
         run: python3 tools/test_syscall_ipc_user_buffers.py
 
+      - name: Verify SYS_YIELD Uses a Kernel Reschedule Gate
+        run: python3 tools/test_syscall_voluntary_yield.py
+
       - name: Verify Secondary CPUs Stay Parked Until Initialized
         run: python3 tools/test_smp_aps_fail_closed.py
 

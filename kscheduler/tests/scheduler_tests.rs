@@ -7,6 +7,37 @@ fn spawn_ready(s: &mut QoSScheduler, tid: u32, qos: QoSClass) -> usize {
 }
 
 #[test]
+fn voluntary_yield_rotates_same_band_tasks_without_charging_timer_time() {
+    let mut s = QoSScheduler::new();
+    let first = spawn_ready(&mut s, 101, QoSClass::Background);
+    let second = spawn_ready(&mut s, 102, QoSClass::Background);
+    assert_eq!(s.schedule_on_cpu(0), Some(first));
+
+    let plan = s.plan_voluntary_yield_on_cpu(0).unwrap().unwrap();
+    assert_eq!(plan.prev_task_idx, Some(first));
+    assert_eq!(plan.target, ContextSwitchTarget::Task { task_idx: second, cr3: 0 });
+    assert_eq!(s.task(first).unwrap().state, ThreadState::Ready);
+    assert_eq!(s.task(second).unwrap().state, ThreadState::Running);
+    assert_eq!(s.system_ticks_us(), 0, "voluntary yield must not invent elapsed time");
+
+    let plan = s.plan_voluntary_yield_on_cpu(0).unwrap().unwrap();
+    assert_eq!(plan.prev_task_idx, Some(second));
+    assert_eq!(plan.target, ContextSwitchTarget::Task { task_idx: first, cr3: 0 });
+}
+
+#[test]
+fn voluntary_yield_with_only_current_task_does_not_switch_or_duplicate_queue_entry() {
+    let mut s = QoSScheduler::new();
+    let only = spawn_ready(&mut s, 103, QoSClass::UserInteractive);
+    assert_eq!(s.schedule_on_cpu(0), Some(only));
+
+    assert_eq!(s.plan_voluntary_yield_on_cpu(0), Ok(None));
+    assert_eq!(s.current_task_on_cpu(0).unwrap().tid, 103);
+    assert_eq!(s.task(only).unwrap().state, ThreadState::Running);
+    assert_eq!(s.plan_voluntary_yield_on_cpu(kscheduler::MAX_CPUS), Err(SchedError::NoSuchTask));
+}
+
+#[test]
 fn highest_band_always_wins_regardless_of_enqueue_order() {
     let mut s = QoSScheduler::new();
     // Deliberately enqueue lowest-priority first, to make sure band order —
