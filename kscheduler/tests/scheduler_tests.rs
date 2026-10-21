@@ -325,6 +325,58 @@ fn waking_from_idle_produces_task_switch_plan_without_previous_task() {
 }
 
 #[test]
+fn blocked_current_handoff_switches_to_next_ready_task() {
+    let mut s = QoSScheduler::new();
+    let blocked = spawn_ready(&mut s, 601, QoSClass::Background);
+    let runnable = spawn_ready(&mut s, 602, QoSClass::Background);
+    assert_eq!(s.schedule_on_cpu(0), Some(blocked));
+    s.block_task(blocked).unwrap();
+
+    let plan = s.plan_blocked_current_handoff_on_cpu(0).unwrap().unwrap();
+    assert_eq!(plan.prev_task_idx, Some(blocked));
+    assert_eq!(plan.target, ContextSwitchTarget::Task { task_idx: runnable, cr3: 0 });
+    assert_eq!(s.task(blocked).unwrap().state, ThreadState::Blocked);
+    assert_eq!(s.task(runnable).unwrap().state, ThreadState::Running);
+    assert_eq!(s.current_task_on_cpu(0).unwrap().tid, 602);
+}
+
+#[test]
+fn blocked_current_handoff_uses_idle_when_no_task_is_ready() {
+    let mut s = QoSScheduler::new();
+    let blocked = spawn_ready(&mut s, 603, QoSClass::Background);
+    assert_eq!(s.schedule_on_cpu(0), Some(blocked));
+    s.block_task(blocked).unwrap();
+
+    let plan = s.plan_blocked_current_handoff_on_cpu(0).unwrap().unwrap();
+    assert_eq!(plan.prev_task_idx, Some(blocked));
+    assert_eq!(plan.target, ContextSwitchTarget::Idle);
+    assert!(s.current_task_on_cpu(0).is_none());
+}
+
+#[test]
+fn wake_before_blocked_handoff_keeps_current_context_running() {
+    let mut s = QoSScheduler::new();
+    let task = spawn_ready(&mut s, 604, QoSClass::Background);
+    assert_eq!(s.schedule_on_cpu(0), Some(task));
+    s.block_task(task).unwrap();
+    s.wake_task(task).unwrap();
+
+    assert_eq!(s.plan_blocked_current_handoff_on_cpu(0), Ok(None));
+    assert_eq!(s.current_task_on_cpu(0).unwrap().tid, 604);
+    assert_eq!(s.task(task).unwrap().state, ThreadState::Running);
+}
+
+#[test]
+fn blocked_current_handoff_rejects_missing_current_task_and_bad_cpu() {
+    let mut s = QoSScheduler::new();
+    assert_eq!(s.plan_blocked_current_handoff_on_cpu(0), Err(SchedError::NoSuchTask));
+    assert_eq!(
+        s.plan_blocked_current_handoff_on_cpu(kscheduler::MAX_CPUS),
+        Err(SchedError::NoSuchTask)
+    );
+}
+
+#[test]
 fn terminated_slot_reuse_does_not_leave_duplicate_ready_entries() {
     let mut s = QoSScheduler::new();
     let old = s.create_task(501, QoSClass::Background, 0).unwrap();

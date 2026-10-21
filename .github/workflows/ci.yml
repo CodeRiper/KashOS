@@ -98,6 +98,9 @@ jobs:
       - name: Verify SYS_YIELD Uses a Kernel Reschedule Gate
         run: python3 tools/test_syscall_voluntary_yield.py
 
+      - name: Verify Blocked Syscalls Use a Supervisor Handoff
+        run: python3 tools/test_syscall_block_handoff.py
+
       - name: Verify Secondary CPUs Stay Parked Until Initialized
         run: python3 tools/test_smp_aps_fail_closed.py
 

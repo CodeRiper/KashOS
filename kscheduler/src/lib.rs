@@ -537,6 +537,56 @@ impl QoSScheduler {
         }
     }
 
+    /// Switch away from the current task after an architecture-side syscall
+    /// has changed it to `Blocked`. If a wake arrived before the interrupt
+    /// handoff, `wake_task` restored the current task to `Running`; in that
+    /// case no switch is needed and the saved syscall continues in place.
+    pub fn plan_blocked_current_handoff_on_cpu(
+        &mut self,
+        core_id: usize,
+    ) -> Result<Option<ContextSwitchPlan>, SchedError> {
+        if core_id >= MAX_CPUS {
+            return Err(SchedError::NoSuchTask);
+        }
+
+        let prev = self
+            .current
+            .get(core_id)
+            .copied()
+            .flatten()
+            .ok_or(SchedError::NoSuchTask)?;
+        let task = self.tasks.get(prev).ok_or(SchedError::NoSuchTask)?;
+        if !task.in_use {
+            return Err(SchedError::NoSuchTask);
+        }
+        if task.state == ThreadState::Running {
+            return Ok(None);
+        }
+        if task.state != ThreadState::Blocked {
+            return Err(SchedError::NotBlocked);
+        }
+
+        if let Some(current) = self.current.get_mut(core_id) {
+            *current = None;
+        }
+        match self.schedule_on_cpu(core_id) {
+            Some(next_idx) => {
+                let task = self.tasks.get(next_idx).ok_or(SchedError::NoSuchTask)?;
+                Ok(Some(ContextSwitchPlan {
+                    prev_task_idx: Some(prev),
+                    target: ContextSwitchTarget::Task {
+                        task_idx: next_idx,
+                        cr3: task.cr3,
+                    },
+                }))
+            }
+            None => Ok(Some(ContextSwitchPlan {
+                prev_task_idx: Some(prev),
+                target: ContextSwitchTarget::Idle,
+            })),
+        }
+    }
+
     /// Evaluates timer tick and computes a hardware context switch plan
     /// (callee-saved registers, CR3 page table reload, and TSS.RSP0 stack).
     pub fn plan_context_switch(&mut self, elapsed_us: u32) -> Option<ContextSwitchPlan> {
