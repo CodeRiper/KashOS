@@ -1,9 +1,9 @@
 # KashOS engineering work log
 
 **Last updated:** 2026-10-21
-**Repository tip checked:** `main` at `4b70c9fa95e1548523dd3bff21c55e8ad75f876c` (PR #28 handoff sync)
-**Current task branch:** `codex/a11-timer-stack-budget`
-**Current engineering task:** Record compiled timer ISR stack usage; next specify and test shared scheduler/TCB ownership before AP execution
+**Repository tip checked:** `main` at `d3b8d62e1f4f1fdb5540bcffa9c4d186ca9d0b8b` (PR #29)
+**Current task branch:** `main`
+**Current engineering task:** Specify and test shared scheduler/TCB ownership and lock ordering before AP execution
 
 ## Completed in this task
 
@@ -505,3 +505,6 @@ is complete. Keep AP startup disabled until those tests pass.
   in third-party `poly1305` and `curve25519-dalek`; targeted metadata builds
   for the kernel crate and scheduler crate passed. No regular kernel build
   regression was observed.
+- PR #29 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, then merged to `main` at
+  `d3b8d62e1f4f1fdb5540bcffa9c4d186ca9d0b8b` on 2026-10-21.

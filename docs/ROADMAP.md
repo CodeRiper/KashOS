@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-21
-**Repository state checked:** `main` at `4b70c9fa95e1548523dd3bff21c55e8ad75f876c` (PR #28 handoff sync)
-**Active work branch:** `codex/a11-timer-stack-budget`
+**Repository state checked:** `main` at `d3b8d62e1f4f1fdb5540bcffa9c4d186ca9d0b8b` (PR #29)
+**Active work branch:** `main`
 **Current gate:** A11 groundwork; architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 This repository is an operating-system prototype and is not production ready.
@@ -91,6 +91,7 @@ compatibility.
   the 528-byte FXSAVE scratch. It does not account for arbitrary preexisting
   Ring 0 stack depth or exceptional paths, so worst-case stack safety remains
   unestablished. See [`EVIDENCE/A11-timer-stack-budget.md`](EVIDENCE/A11-timer-stack-budget.md).
+  PR #29 passed the three required CI jobs and merged to `main` at `d3b8d62`.
 - A10 remains incomplete: the normal desktop/settings/shell stay in Ring 0;
   syscall concurrency and a complete user init/session lifecycle are not
   established.
