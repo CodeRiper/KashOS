@@ -1,7 +1,7 @@
 # KashOS implementation roadmap
 
-**Audit date:** 2026-10-21
-**Repository state checked:** `main` at `5d55ab27bb35343a864695d1adae713cde4fa35b` (PR #41)
+**Audit date:** 2026-10-23
+**Repository state checked:** `main` at `44fc9dd0803ae54b17143b8f447181c123a864c0` (PR #42)
 **Active work branch:** `main`
 **Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test now marks the current task Blocked and enters DPL-0 vector `0xF1` to switch to idle, wake synthetically, and resume the saved kernel call. Fast Ring 3 syscall entry uses the current task's guarded kernel stack. IPC receive pointers are bounded, canonical-range checked, and checked for present user mappings with write permission before endpoint lookup. The ELF loader's stack pages now cover its configured initial stack pointer. A copy can still fault after preflight if mappings change; fault-safe copy remains unimplemented. Ring 3 SYS_YIELD uses a separate DPL-0 reschedule gate. Direct IPC preserves endpoint and PCB state if the scheduler rejects a peer wake. Unmatched IPC still returns `WouldBlock`; no syscall result object or one atomic endpoint/scheduler/PCB/CSpace transition is implemented. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
@@ -19,6 +19,12 @@ The bounded receive capacity check and retry behavior are recorded in
 [`EVIDENCE/B4-ipc-complete-receive.md`](EVIDENCE/B4-ipc-complete-receive.md).
 The x86-64 page permission preflight and mapped-stack checks are recorded in
 [`EVIDENCE/B4-ipc-user-page-permission-preflight.md`](EVIDENCE/B4-ipc-user-page-permission-preflight.md).
+
+**A1 revalidation:** Remote network paths remain unavailable and fail closed.
+The follow-up audit removed leftover unsupported privacy/browser claims and
+their unreachable error messages; `tools/test_network_fail_closed.py` guards
+against their return. See [`EVIDENCE/A1.md`](EVIDENCE/A1.md). This does not add
+remote networking, Tor, or browser isolation.
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from

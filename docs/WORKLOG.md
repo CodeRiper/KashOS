@@ -807,6 +807,11 @@ is complete. Keep AP startup disabled until those tests pass.
   `docs/EVIDENCE/A1.md`.
 - No remote network path or browser isolation was implemented. `rtk` is absent
   in this shell, so commands ran directly in PowerShell.
+- PR #42 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, then merged to `main` at
+  `44fc9dd0803ae54b17143b8f447181c123a864c0`. Local `main` was fast-forwarded
+  to that commit. A1 is now revalidated for fail-closed network behavior and
+  honest browser copy; remote services remain unavailable.
 
 ## A11 voluntary syscall yield (2026-10-21)
 
