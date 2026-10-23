@@ -831,6 +831,21 @@ is complete. Keep AP startup disabled until those tests pass.
 - Evidence: `docs/EVIDENCE/A2.md`. This does not establish physical media or
   power-loss guarantees; the installer and duress credential policy remain open.
 
+## A3/A18 GUI lock overlay disclosure (2026-10-23)
+
+- Source tracing found that auto-lock and Ctrl+Shift+L only show an in-memory
+  Kash UI overlay. The kernel GUI loop does not consume its `UiEvent` queue or
+  call `kms::on_screen_lock`; the KMS/VFS storage lock is a separate path used
+  by shell failures. The visible UI passphrase is not kernel authentication.
+- Added a clear disclosure to the lock overlay and Settings page that it does
+  not lock storage or scrub kernel keys. Corrected event docs so they do not
+  promise host-side duress handling. Added a failure-first UI honesty check; it
+  failed before the disclosure and now passes.
+- `cargo test -p kash-ui` and all 26 UI honesty assertions passed. This is a
+  truthfulness correction only; kernel-backed GUI authentication, lock, and
+  duress handling remain incomplete. Evidence: `docs/EVIDENCE/A3.md` and
+  `docs/EVIDENCE/A18.md`.
+
 ## A11 voluntary syscall yield (2026-10-21)
 
 - Source review found `SYS_YIELD` was a no-op. Added scheduler rotation with no

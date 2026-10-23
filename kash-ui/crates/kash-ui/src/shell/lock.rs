@@ -1,4 +1,4 @@
-//! Boot sequence (firmware POST → logo) and the lock screen (passphrase, duress passphrase, lockout).
+//! Prototype boot sequence and local display overlay (passphrase, duress phrase, lockout).
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -17,12 +17,13 @@ use crate::ui::*;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Phase { Bios, Logo, Locked, Run }
 
-/// Events the host OS can poll with `Desktop::take_events()`.
+/// Informational UI events. Kernel authentication/duress handling must be
+/// separately integrated by the host; this build does not consume these events.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiEvent {
     /// Regular passphrase accepted.
     Unlocked,
-    /// Duress passphrase accepted: the UI unlocks normally; the host should mount the decoy volume / raise the silent alarm.
+    /// The local UI accepted its configured duress phrase; no kernel action is implied.
     DuressUnlock,
     /// Wrong passphrase (running count since last success).
     FailedAttempts(u32),
@@ -202,6 +203,7 @@ impl Lock {
             else if self.fails > 0 && !cx.sys.lock_hint.is_empty() { (format!("Hint: {}", cx.sys.lock_hint), dim) }
             else { (String::from(if cx.sys.passphrase.is_empty() { if self.setup_passphrase.is_some() { "Re-enter the new passphrase to confirm" } else { "Set a passphrase before unlocking" } } else { "Enter your passphrase to unlock" }), Color::rgba(255, 255, 255, 120)) };
         cx.text_in(Rect::new(cxm - 220.0, fr.bottom() + 8.0, 440.0, 20.0), &msg, 12.5, Weight::Regular, col, Align::Center);
+        cx.text_in(Rect::new(cxm - 240.0, fr.bottom() + 31.0, 480.0, 18.0), "Display-only overlay; does not lock storage or scrub kernel keys", 10.5, Weight::Regular, dim, Align::Center);
 
         // ── gateway chip ──
         if cx.sys.lock_gateway {
