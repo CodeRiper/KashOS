@@ -789,6 +789,25 @@ is complete. Keep AP startup disabled until those tests pass.
   `5d55ab27bb35343a864695d1adae713cde4fa35b`. Local `main` was fast-forwarded
   to that exact remote commit.
 
+## A1 browser claim cleanup follow-up (2026-10-23)
+
+- A1 evidence said GitHub review was pending even though the network fail-closed
+  work had been on `main`. Rechecking current source found browser module docs
+  and output still advertised authenticated pages, tracker blocking, cookie
+  sandboxing, and a secure privacy browser. Some messages described a kill
+  switch or tracker blacklist on error branches the current network code can
+  never return.
+- Removed those claims and dead branches, retained explicit local viewer and
+  remote-unavailable labels, and expanded the network honesty source guard. The
+  guard failed before code changes on nine initial assertions and passes all 48
+  afterward.
+- Workspace host tests, release kernel check/build, all 32 Python source guards,
+  claims lint, findings audit, and QEMU T0 through the locked shell passed.
+  Findings F8 and F10 remain present. Exact commands and limits are in
+  `docs/EVIDENCE/A1.md`.
+- No remote network path or browser isolation was implemented. `rtk` is absent
+  in this shell, so commands ran directly in PowerShell.
+
 ## A11 voluntary syscall yield (2026-10-21)
 
 - Source review found `SYS_YIELD` was a no-op. Added scheduler rotation with no
