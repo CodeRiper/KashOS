@@ -42,6 +42,8 @@ checks = [
     ("Unused firmware preference state has been removed", "bios_on_boot" not in UI),
     ("Generic settings pane does not claim a default security profile", "Standard operating profile active" not in SETTINGS and "Default configuration" not in SETTINGS and "no service connected" in SETTINGS),
     ("Lock screen does not claim Lockdown Mode protects notification content", "never reveals notification contents while Lockdown Mode is on" not in LOCKPANES and "Notifications are not displayed on this prototype lock screen" in LOCKPANES),
+    ("Lock screen discloses that its overlay does not lock kernel storage", "Display-only overlay; does not lock storage or scrub kernel keys" in LOCK),
+    ("Lock Screen settings disclose that their overlay is not a kernel lock", "Display-only overlay; does not lock storage or scrub kernel keys" in LOCKPANES),
 ]
 
 for label, passed in checks:

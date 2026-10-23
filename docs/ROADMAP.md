@@ -1,8 +1,8 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-23
-**Repository state checked:** `main` at `f7b59ec` (A2 evidence sync after PR #42)
-**Active work branch:** `main`
+**Repository state checked:** pending this follow-up; base `main` at `897f4a8`
+**Active work branch:** `codex/ui-lock-overlay-disclosure`
 **Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test now marks the current task Blocked and enters DPL-0 vector `0xF1` to switch to idle, wake synthetically, and resume the saved kernel call. Fast Ring 3 syscall entry uses the current task's guarded kernel stack. IPC receive pointers are bounded, canonical-range checked, and checked for present user mappings with write permission before endpoint lookup. The ELF loader's stack pages now cover its configured initial stack pointer. A copy can still fault after preflight if mappings change; fault-safe copy remains unimplemented. Ring 3 SYS_YIELD uses a separate DPL-0 reschedule gate. Direct IPC preserves endpoint and PCB state if the scheduler rejects a peer wake. Unmatched IPC still returns `WouldBlock`; no syscall result object or one atomic endpoint/scheduler/PCB/CSpace transition is implemented. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
 **B4 note:** IPC calls with no waiting peer now return `WouldBlock` without
@@ -31,6 +31,13 @@ format or write the persistent root; QEMU T0 left the test disk image hash
 unchanged. The destructive duress credential remains a separate review item,
 and physical-media/power-loss guarantees are not established. See
 [`EVIDENCE/A2.md`](EVIDENCE/A2.md).
+
+**A3/A18 lock UI finding:** the desktop's auto-lock UI is an in-memory overlay;
+the kernel GUI loop does not consume its authentication events or call the KMS
+and VFS lock path. The overlay and Settings now disclose that storage remains
+unlocked. Kernel-backed GUI authentication and session locking remain open;
+see [`EVIDENCE/A3.md`](EVIDENCE/A3.md) and
+[`EVIDENCE/A18.md`](EVIDENCE/A18.md).
 
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from

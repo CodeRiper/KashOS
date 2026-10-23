@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | A1 | Remove every fake network and Tor output | Revalidated (remote network services remain unavailable and fail closed; browser claims corrected) | main | docs/EVIDENCE/A1.md |
 | A2 | Stop the data-loss bug (vault open versus format) | Revalidated (mount/open failure does not format; boot storage check is read-only; installer and duress policy remain open) | main | docs/EVIDENCE/A2.md |
-| A3 | Real key hierarchy: passphrase first, TPM second | Needs revalidation | main | docs/EVIDENCE/A3.md |
+| A3 | Real key hierarchy: passphrase first, TPM second | Needs revalidation (GUI lock overlay does not lock KMS/VFS; versioned KDF, enrollment, and persistent TPM hierarchy remain incomplete) | codex/ui-lock-overlay-disclosure | docs/EVIDENCE/A3.md |
 | A4 | Real TPM 2.0 driver (TIS first, CRB second) | Not implemented | main | docs/EVIDENCE/A4.md |
 | A5 | Measured boot, sealing and anti-rollback | Not implemented | main | docs/EVIDENCE/A5.md |
 | A6 | Real TCP/IP with smoltcp | Needs revalidation | main | docs/EVIDENCE/A6.md |
@@ -21,7 +21,7 @@
 | A15 | Storage drivers: NVMe, hardened AHCI | Needs revalidation | main | docs/EVIDENCE/A15.md |
 | A16 | Display (double-buffering, virtio-gpu 2D) | Needs revalidation | main | docs/EVIDENCE/A16.md |
 | A17 | ACPI, power and platform | Needs revalidation | main | docs/EVIDENCE/A17.md |
-| A18 | Make the UI honest and connected to real services | Needs revalidation | main | docs/EVIDENCE/A18.md |
+| A18 | Make the UI honest and connected to real services | Needs revalidation (lock overlay is display-only and now discloses this; service integration remains incomplete) | codex/ui-lock-overlay-disclosure | docs/EVIDENCE/A18.md |
 | A19 | libc, Rust std and a POSIX layer | Needs revalidation | main | docs/EVIDENCE/A19.md |
 | A20 | Re-verify the old audit and finish hardening | Needs revalidation | main | docs/EVIDENCE/A20.md |
 | A21 | Status registry from real probes; CI that blocks fakes | Needs revalidation | main | docs/EVIDENCE/A21.md |

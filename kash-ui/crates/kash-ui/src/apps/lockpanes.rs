@@ -51,6 +51,7 @@ impl Settings {
         cx.caption(f, "Notifications are not displayed on this prototype lock screen.");
 
         self.pane_credentials(cx, f);
+        cx.caption(f, "Display-only overlay; does not lock storage or scrub kernel keys.");
     }
 
     /// Passphrase + duress passphrase editors (shared by Lock Screen and Users & Groups).
