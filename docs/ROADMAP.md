@@ -1,7 +1,7 @@
 # KashOS implementation roadmap
 
 **Audit date:** 2026-10-23
-**Repository state checked:** `main` at `44fc9dd0803ae54b17143b8f447181c123a864c0` (PR #42)
+**Repository state checked:** `main` at `f7b59ec` (A2 evidence sync after PR #42)
 **Active work branch:** `main`
 **Current gate:** A11 groundwork; blocked-task policy now produces an explicit idle switch plan, and x86 uses guarded per-CPU idle stacks. A single-CPU QEMU self-test now marks the current task Blocked and enters DPL-0 vector `0xF1` to switch to idle, wake synthetically, and resume the saved kernel call. Fast Ring 3 syscall entry uses the current task's guarded kernel stack. IPC receive pointers are bounded, canonical-range checked, and checked for present user mappings with write permission before endpoint lookup. The ELF loader's stack pages now cover its configured initial stack pointer. A copy can still fault after preflight if mappings change; fault-safe copy remains unimplemented. Ring 3 SYS_YIELD uses a separate DPL-0 reschedule gate. Direct IPC preserves endpoint and PCB state if the scheduler rejects a peer wake. Unmatched IPC still returns `WouldBlock`; no syscall result object or one atomic endpoint/scheduler/PCB/CSpace transition is implemented. Architecture identity and scheduler current-task selection are CPU-indexed, but ready queues, scheduler lock, TCB/FPU storage, and timer/context ownership remain shared. APs stay parked until local syscall/interrupt setup and concurrent scheduling are initialized and tested.
 
