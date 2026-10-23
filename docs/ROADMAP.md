@@ -26,6 +26,12 @@ their unreachable error messages; `tools/test_network_fail_closed.py` guards
 against their return. See [`EVIDENCE/A1.md`](EVIDENCE/A1.md). This does not add
 remote networking, Tor, or browser isolation.
 
+**A2 revalidation:** Current vault mount failure and boot self-test paths do not
+format or write the persistent root; QEMU T0 left the test disk image hash
+unchanged. The destructive duress credential remains a separate review item,
+and physical-media/power-loss guarantees are not established. See
+[`EVIDENCE/A2.md`](EVIDENCE/A2.md).
+
 This repository is an operating-system prototype and is not production ready.
 Verification claims are not available. Do not infer feature completion from
 names, UI labels, task IDs, or old evidence files. Use source, reproducible

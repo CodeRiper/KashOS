@@ -813,6 +813,24 @@ is complete. Keep AP startup disabled until those tests pass.
   to that commit. A1 is now revalidated for fail-closed network behavior and
   honest browser copy; remote services remain unavailable.
 
+## A2 vault non-destructive path revalidation (2026-10-23)
+
+- Rechecked vault mount/open, explicit format references, boot test, interactive
+  unlock, and session lock. Mount errors return without formatting; the boot
+  storage test skips when the vault is unavailable; no call sites invoke
+  `format_root`. Failed unlock locks KMS and drops the VFS mount. The configured
+  duress credential remains destructive by design and is a separate A3 policy
+  concern.
+- `tools/test_storage_non_destructive.py` passed all six checks, and the
+  test-only fast-KDF vault suite passed all 21 tests. The default-cost run was
+  stopped after exhaustive corruption/crash tests exceeded 60 seconds; no
+  assertion failure was reported.
+- Fresh QEMU T0 boot reached the locked shell, and the disk image SHA-256 was
+  unchanged before/after (`31B809229EFA682DB6B6041AF61743D3E54D79DDFEB42C79E5BEDD853C5AE012`).
+  Release kernel check/build and docs claims/finding checks passed.
+- Evidence: `docs/EVIDENCE/A2.md`. This does not establish physical media or
+  power-loss guarantees; the installer and duress credential policy remain open.
+
 ## A11 voluntary syscall yield (2026-10-21)
 
 - Source review found `SYS_YIELD` was a no-op. Added scheduler rotation with no
