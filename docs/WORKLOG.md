@@ -5,6 +5,29 @@
 **Current task branch:** `main`
 **Current engineering task:** Design transactional blocked IPC with per-thread results and safe user-copy semantics; keep AP startup disabled
 
+## Fresh boot/readiness recheck (2026-10-23)
+
+- Rechecked the current synced `main` (`e609304`) rather than relying on older
+  status notes. The release kernel builds; the QEMU T0 smoke test reaches the
+  interactive locked shell. No crash occurred in this tested virtual profile.
+- The boot log explains why the GUI is absent: T25 skips because no persistent
+  root vault is mounted and explicitly refuses to format/write it; the shell
+  asks for `unlock`, and only then permits `desktop`. There is no first-run
+  installer/vault provisioning path for a fresh image. This is an incomplete
+  installation experience; it is not evidence of a complete OS.
+- Workspace host tests (`cargo test --workspace --exclude kernel --features
+  kvault/test-fast-kdf`), release kernel build, all 32 source guards,
+  `python tools/claims_lint.py`, and `python tools/verify_findings.py` passed.
+  The findings audit still reports F8 (IOMMU/DMA path absent) and F10 (normal
+  session is Ring 0). The QEMU run is a single-CPU Conroe virtual profile with
+  1 GiB RAM and selected smoke markers; it does not test physical hardware,
+  installer/provisioning, networking, TPM, IOMMU, SMP, or production security.
+- Source references: `kernel/src/selftest.rs` T25, `kernel/src/shell.rs`
+  `unlock`/`desktop` gates, and `kernel/src/session.rs` desktop session gate.
+  Detailed commands and result scope: `docs/EVIDENCE/2026-10-23-first-boot-readiness.md`.
+- `rtk` is required by local instructions but is not installed; commands ran
+  directly in PowerShell.
+
 ## B4 complete-message receive (2026-10-21)
 
 - Found that `SYS_IPC_RECV` copied only `min(buffer capacity, message length)`

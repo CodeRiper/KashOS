@@ -1,6 +1,6 @@
 # KashOS Master Task Ledger
 
-> Audit note (2026-10-23): legacy completion marks are not sufficient evidence. A1 and A2 are revalidated for their checked fail-closed/non-destructive paths; other Part A and B0-B6 entries remain under revalidation until implementation and evidence are checked against the plan. PRs #7–#43 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
+> Audit note (2026-10-23): legacy completion marks are not sufficient evidence. A1 and A2 are revalidated for their checked fail-closed/non-destructive paths; other Part A and B0-B6 entries remain under revalidation until implementation and evidence are checked against the plan. PRs #7–#43 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11. The fresh QEMU boot reaches the locked shell; no first-run vault installer/provisioning flow exists, and the desktop is gated on a mounted vault. See `docs/EVIDENCE/2026-10-23-first-boot-readiness.md`.
 
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
