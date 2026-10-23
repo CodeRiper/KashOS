@@ -1,16 +1,5 @@
-//! Experimental local HTML-to-text viewer; remote networking and browser security are unavailable.
-//!
-//! Inspired by the world's most lightweight, privacy-hardened open-source browsers:
-//! - **ELinks / Links / Lynx**: Minimalist text/terminal web browser (< 2 MiB RAM footprint).
-//!   Completely eliminates client-side JavaScript fingerprinting, canvas probing, web beacons,
-//!   audio tracking, and third-party trackers. Renders clean, fast, authenticated web pages.
-//! - **Dillo**: Ultra-lightweight graphical browser (< 10 MiB RAM baseline) with strict
-//!   cookie sandboxing, zero telemetry, and zero tracking scripts.
-//!
-//! Grounded in KashOS Microkernel Security Architecture:
-//! - OpenBSD `pledge("stdio inet rpath")` and `unveil("/vault", "r")` sandboxing.
-//! - All outbound HTTP traffic routes through the fail-closed network kill switch.
-//! - Integrates with Smithay-style `CompositorEngine` and tty0 terminal emulator.
+//! Local HTML-to-text viewer prototypes. Remote networking and browser security
+//! features are unavailable; the parsers run as ordinary kernel code.
 
 extern crate alloc;
 use alloc::format;
@@ -35,7 +24,7 @@ pub struct ParsedPage {
 }
 
 impl ElinksBrowser {
-    /// Launches the terminal browser for a specified URL or default privacy dashboard.
+    /// Displays a local status page or attempts an unavailable remote URL.
     pub fn open(url: &str) {
         let target_url = if url.is_empty() {
             "about:kashos"
@@ -44,7 +33,7 @@ impl ElinksBrowser {
         };
 
         kprintln!("\n+======================================================================+");
-        kprintln!("|        KASHOS LOCAL HTML-TO-TEXT VIEWER PROTOTYPE — KASH OS SECURE PRIVACY TERMINAL BROWSER       |");
+        kprintln!("|              KASHOS LOCAL HTML-TO-TEXT VIEWER PROTOTYPE             |");
         kprintln!("+======================================================================+");
         kprintln!("| URL          : {:<54}|", target_url);
         kprintln!("| Engine       : Experimental KashOS HTML-to-text parser |");
@@ -61,15 +50,6 @@ impl ElinksBrowser {
                     Ok(resp) => resp,
                     Err(crate::net::NetError::NotAvailable) => {
                         kprintln!("[elinks] Network service not available.");
-                        return;
-                    }
-                    Err(crate::net::NetError::KillSwitchBlocked) => {
-                        kprintln!("[elinks] [FAIL-CLOSED] Connection blocked: Network Gateway is DOWN!");
-                        kprintln!("[elinks] Network kill-switch prevented unencrypted data leak (Rule R2).");
-                        return;
-                    }
-                    Err(crate::net::NetError::PacketFiltered) => {
-                        kprintln!("[elinks] [BLOCKED] URL matches blacklisted tracker domain.");
                         return;
                     }
                     Err(_) => {
@@ -281,7 +261,7 @@ impl LadybirdBrowser {
         };
 
         kprintln!("\n+======================================================================+");
-        kprintln!("|       KASHOS LOCAL HTML VIEWER PROTOTYPE — INDEPENDENT SECURE WEB BROWSER ENGINE           |");
+        kprintln!("|                KASHOS LOCAL HTML VIEWER PROTOTYPE                 |");
         kprintln!("+======================================================================+");
         kprintln!("| URL          : {:<54}|", target_url);
         kprintln!("| Engine       : Experimental KashOS HTML-to-text parser |");
@@ -296,18 +276,6 @@ impl LadybirdBrowser {
             _ => {
                 match crate::net::http_get(target_url) {
                     Ok(resp) => resp,
-                    Err(crate::net::NetError::NotAvailable) => {
-                        kprintln!("[ladybird] Network service not available.");
-                        return;
-                    }
-                    Err(crate::net::NetError::KillSwitchBlocked) => {
-                        kprintln!("[ladybird] [FAIL-CLOSED] Blocked: Network Gateway unavailable (Kill-Switch Active).");
-                        return;
-                    }
-                    Err(crate::net::NetError::PacketFiltered) => {
-                        kprintln!("[ladybird] [BLOCKED] URL matches blacklisted surveillance domain.");
-                        return;
-                    }
                     Err(_) => {
                         kprintln!("[viewer] Remote page unavailable; no fallback page is substituted.");
                         return;
@@ -351,7 +319,7 @@ impl LadybirdBrowser {
         }
 
         if !parsed.links.is_empty() {
-            kprintln!("\n── Links Detected (Ladybird Safe-Navigation Sandbox) ───────────────────");
+            kprintln!("\n── Links detected by the local parser ──────────────────────────────────");
             for link in parsed.links.iter().take(8) {
                 kprintln!("  [{}] {}  ->  {}", link.index, link.label, link.url);
             }

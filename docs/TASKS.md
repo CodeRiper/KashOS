@@ -1,10 +1,10 @@
 # KashOS Master Task Ledger
 
-> Audit note (2026-10-21): legacy completion marks are not sufficient evidence. A1 is being re-audited because current source contradicted its old evidence. Other Part A and B0-B6 entries are marked for revalidation until their implementation and evidence are checked against the plan. PRs #7–#41 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
+> Audit note (2026-10-23): legacy completion marks are not sufficient evidence. A1 re-audit found and is correcting leftover browser-source claims; other Part A and B0-B6 entries remain under revalidation until implementation and evidence are checked against the plan. PRs #7–#41 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
 
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
-| A1 | Remove every fake network and Tor output | Ready for review | main | docs/EVIDENCE/A1.md |
+| A1 | Remove every fake network and Tor output | Ready for review (follow-up removes residual browser security/network claims; remote services remain unavailable) | codex/a1-browser-claim-cleanup | docs/EVIDENCE/A1.md |
 | A2 | Stop the data-loss bug (vault open versus format) | Ready for review | main | docs/EVIDENCE/A2.md |
 | A3 | Real key hierarchy: passphrase first, TPM second | Needs revalidation | main | docs/EVIDENCE/A3.md |
 | A4 | Real TPM 2.0 driver (TIS first, CRB second) | Not implemented | main | docs/EVIDENCE/A4.md |

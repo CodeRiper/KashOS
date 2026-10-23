@@ -20,6 +20,22 @@ def method_body(source: str, start_marker: str, end_marker: str) -> str:
 
 def main() -> int:
     checks = []
+    for stale_claim in (
+        "privacy-hardened open-source browsers",
+        "authenticated web pages",
+        "cookie sandboxing",
+        "pledge(\"stdio inet rpath\")",
+        "unveil(\"/vault\", \"r\")",
+        "KASH OS SECURE PRIVACY TERMINAL BROWSER",
+        "INDEPENDENT SECURE WEB BROWSER ENGINE",
+        "kill-switch prevented unencrypted data leak",
+        "Network Gateway unavailable (Kill-Switch Active)",
+        "URL matches blacklisted tracker domain",
+        "URL matches blacklisted surveillance domain",
+        "Ladybird Safe-Navigation Sandbox",
+    ):
+        checks.append((f"Browser source excludes stale claim: {stale_claim}", stale_claim not in BROWSER))
+
     http_get = method_body(NET, "pub fn http_get(", "pub fn get_socket_table(")
     checks.append(("HTTP GET returns NotAvailable", "Err(NetError::NotAvailable)" in http_get))
     for forbidden in (
