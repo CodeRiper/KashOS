@@ -1,12 +1,12 @@
 # KashOS Master Task Ledger
 
-> Audit note (2026-10-23): legacy completion marks are not sufficient evidence. A1 is revalidated for its current fail-closed network paths and corrected browser copy; other Part A and B0-B6 entries remain under revalidation until implementation and evidence are checked against the plan. PRs #7–#42 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
+> Audit note (2026-10-23): legacy completion marks are not sufficient evidence. A1 and A2 are revalidated for their checked fail-closed/non-destructive paths; other Part A and B0-B6 entries remain under revalidation until implementation and evidence are checked against the plan. PRs #7–#43 are merged to `main`; they correct claims and fail closed where hardware support is absent, but do not complete A9, A10, or A11.
 
 | Task ID | Title | Status | Branch | Evidence File |
 |---|---|---|---|---|
 | A1 | Remove every fake network and Tor output | Revalidated (remote network services remain unavailable and fail closed; browser claims corrected) | main | docs/EVIDENCE/A1.md |
 | A2 | Stop the data-loss bug (vault open versus format) | Revalidated (mount/open failure does not format; boot storage check is read-only; installer and duress policy remain open) | main | docs/EVIDENCE/A2.md |
-| A3 | Real key hierarchy: passphrase first, TPM second | Needs revalidation (GUI lock overlay does not lock KMS/VFS; versioned KDF, enrollment, and persistent TPM hierarchy remain incomplete) | codex/ui-lock-overlay-disclosure | docs/EVIDENCE/A3.md |
+| A3 | Real key hierarchy: passphrase first, TPM second | Needs revalidation (GUI lock overlay does not lock KMS/VFS; versioned KDF, enrollment, and persistent TPM hierarchy remain incomplete) | main | docs/EVIDENCE/A3.md |
 | A4 | Real TPM 2.0 driver (TIS first, CRB second) | Not implemented | main | docs/EVIDENCE/A4.md |
 | A5 | Measured boot, sealing and anti-rollback | Not implemented | main | docs/EVIDENCE/A5.md |
 | A6 | Real TCP/IP with smoltcp | Needs revalidation | main | docs/EVIDENCE/A6.md |
@@ -21,7 +21,7 @@
 | A15 | Storage drivers: NVMe, hardened AHCI | Needs revalidation | main | docs/EVIDENCE/A15.md |
 | A16 | Display (double-buffering, virtio-gpu 2D) | Needs revalidation | main | docs/EVIDENCE/A16.md |
 | A17 | ACPI, power and platform | Needs revalidation | main | docs/EVIDENCE/A17.md |
-| A18 | Make the UI honest and connected to real services | Needs revalidation (lock overlay is display-only and now discloses this; service integration remains incomplete) | codex/ui-lock-overlay-disclosure | docs/EVIDENCE/A18.md |
+| A18 | Make the UI honest and connected to real services | Needs revalidation (lock overlay is display-only and now discloses this; service integration remains incomplete) | main | docs/EVIDENCE/A18.md |
 | A19 | libc, Rust std and a POSIX layer | Needs revalidation | main | docs/EVIDENCE/A19.md |
 | A20 | Re-verify the old audit and finish hardening | Needs revalidation | main | docs/EVIDENCE/A20.md |
 | A21 | Status registry from real probes; CI that blocks fakes | Needs revalidation | main | docs/EVIDENCE/A21.md |
@@ -51,7 +51,7 @@
 
 ## Current implementation handoff
 
-- Verified repository tip: `main` at `f7b59ec` (A2 evidence sync after PR #42).
+- Verified repository tip: `main` at `adc7fac` (PR #43).
 - A9 is still incomplete: VT-d/ACS activation and hardware DMA containment are unavailable and fail closed; see `docs/EVIDENCE/A9.md`.
 - PR #11 merged the modulo-based identifier fixes and disabled fabricated driver provisioning/restarts.
 - PR #12 merged per-CPU syscall entry state for the initialized BSP. The malformed-return IRET frame stays on the trusted kernel stack; its T13 evidence is single-CPU.

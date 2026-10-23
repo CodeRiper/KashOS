@@ -845,6 +845,10 @@ is complete. Keep AP startup disabled until those tests pass.
   truthfulness correction only; kernel-backed GUI authentication, lock, and
   duress handling remain incomplete. Evidence: `docs/EVIDENCE/A3.md` and
   `docs/EVIDENCE/A18.md`.
+- PR #43 passed Workspace Subsystem Tests, Build Microkernel (x86-64), and
+  Build Guide v2 Claims & Honesty Gate, then merged to `main` at
+  `adc7fac021e6a4bea96840c45f449a2f76e7084b`. Local `main` was fast-forwarded
+  to that remote commit.
 
 ## A11 voluntary syscall yield (2026-10-21)
 
